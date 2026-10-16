@@ -1,5 +1,6 @@
-# Enterprise Active Lakehouse & Conversational Intelligence Platform
-> **Data Fabric Medallón con Seguridad Zero-Trust, Observabilidad en Vivo y Copiloto Agéntico**
+# Midas
+> **Enterprise Active Lakehouse & Conversational Intelligence Platform**  
+> Data Fabric Medallón con Seguridad Zero-Trust, Observabilidad en Vivo y Copiloto Agéntico
 
 ![Architecture](https://img.shields.io/badge/Architecture-Medallion%20Lakehouse-blue?style=for-the-badge)
 ![Security](https://img.shields.io/badge/Security-Apache%20Ranger%20%2B%20Atlas-red?style=for-the-badge)
@@ -26,11 +27,11 @@ Esta plataforma redefine la analítica y la ingeniería de datos corporativa. No
 ## 👥 Equipo de Ingeniería (Riwi)
 
 - **Daniel Echeverría:** Líder de Proyecto & Arquitecto Principal (Dirección Técnica, Arquitectura Global y Gobierno de Calidad).
-- **Joshua Gonzales:** Agentic AI & Semantic Layer Lead (FastAPI, LangGraph y Motor de Data Storytelling).
+- **Elian Rivera:** Agentic AI & Semantic Layer Specialist (FastAPI, LangGraph, Text-to-Transformation y Motor de Data Storytelling).
 - **Edgar Corzo:** Data Engineering Lead (Apache Spark, Formatos Delta/Parquet y MinIO Storage).
-- **Elian Rivera:** Ingestion & Pipeline Orchestration Lead (Apache Airflow, Sensores y DAGs Resilientes).
-- **Dilan Chávez:** Data Security & Access Governance (Apache Ranger, Políticas RBAC/ABAC y Enmascaramiento PII).
-- **Sebastian Castiblanco:** Data Catalog, Lineage & Observability (OpenMetadata, Apache Atlas y Data Quality).
+- **Dilan Chávez:** Pipeline Orchestration & Frontend Co-Lead (Apache Airflow, Sensores, Canvas React Flow en Vivo y WebSockets).
+- **Joshua Gonzales:** Security, Access Governance & Frontend Co-Lead (Apache Ranger, Atlas, Políticas RBAC/ABAC y Plataforma Web Interactiva).
+- **Sebastian Castiblanco:** Data Catalog, Lineage & Observability Lead (OpenMetadata, Apache Atlas y Data Quality).
 
 ---
 
@@ -58,4 +59,4 @@ PROYECTO-JUEVES-22/
 ## 📖 Documentación Completa
 
 Para profundizar en el diseño técnico, la matriz RACI, los diagramas de secuencia del agente y el roadmap de ejecución detallado, consulta:  
-👉 [`documentation/01_master_architecture_and_project_plan.md`](file:///c:/Users/LENOVO/Documents/DANI%20DOCS/PROYECTO-JUEVES-22/documentation/01_master_architecture_and_project_plan.md)
+👉 [documentation/01_master_architecture_and_project_plan.md](documentation/01_master_architecture_and_project_plan.md)

@@ -1,5 +1,5 @@
-# Blueprint Arquitectónico Empresarial & Plan de Proyecto
-## Plataforma de Lakehouse Inteligente, Gobernanza y Agente Conversacional Activo
+# Midas — Blueprint Arquitectónico Empresarial & Plan de Proyecto
+## Enterprise Active Lakehouse & Conversational Intelligence Platform
 
 > **Organización:** Riwi  
 > **Líder de Proyecto & Arquitecto Principal:** Daniel Echeverría  
@@ -217,19 +217,19 @@ El proyecto se estructura en 3 células técnicas de 2 integrantes, lideradas po
 flowchart TD
     DE["Daniel Echeverría\nTeam Leader & Arquitecto Principal\n(Dirección Estratégica, Arquitectura Global y Gobierno de Calidad)"]
 
-    subgraph CELL1["Célula 1: Lakehouse Core & Pipeline Medallón"]
+    subgraph CELL1["Célula 1: Lakehouse Core & Ingesta Medallón"]
         DEV1["Edgar Corzo\n(Data Engineering Lead - Spark & MinIO)"]
-        DEV2["Elian Rivera\n(Data Pipeline & Airflow Orchestrator)"]
+        DEV2["Dilan Chávez\n(Pipeline Orchestration Lead - Airflow)"]
     end
 
     subgraph CELL2["Célula 2: Gobernanza, Seguridad & Calidad"]
-        DEV3["Dilan Chávez\n(Security & Policies - Apache Ranger & Atlas)"]
+        DEV3["Joshua Gonzales\n(Security & Access Governance Lead - Apache Ranger & Atlas)"]
         DEV4["Sebastian Castiblanco\n(Data Catalog, Lineage & OpenMetadata)"]
     end
 
-    subgraph CELL3["Célula 3: Plataforma Web, Real-Time & Chatbot Agéntico"]
-        DEV5["Joshua Gonzales\n(Agentic LLM Backend & Semantic Layer)"]
-        DEV6["Daniel Echeverría / Frontend Partner\n(Live Canvas, Data Flow & Visualizations)"]
+    subgraph CELL3["Célula 3: Inteligencia Agéntica & Plataforma Frontend"]
+        DEV5["Elian Rivera\n(Agentic AI & Semantic Layer Specialist)"]
+        DEV6["Dilan Chávez & Joshua Gonzales\n(Frontend & Real-Time Canvas Co-Leads)"]
     end
 
     DE --> CELL1
@@ -246,7 +246,7 @@ flowchart TD
   - Definición de interfaces entre Lakehouse, Gobernanza y Plataforma Web.
   - Supervisión de sprints, revisión de código y aseguramiento de resiliencia.
 
-#### 2. Joshua Gonzales (Agentic AI & Semantic Layer Specialist)
+#### 2. Elian Rivera (Agentic AI & Semantic Layer Specialist)
 - **Enfoque Principal:** Orquestación de agentes con LangGraph / FastAPI, motor Text-to-Transformation y Capa Semántica.
 - **Entregables:**
   - Agente con herramientas de consulta (`get_schema`, `execute_query`, `create_gold_mart`).
@@ -260,19 +260,21 @@ flowchart TD
   - Jobs de PySpark para la ingesta universal (conectores para Excel, CSV, PostgreSQL).
   - Optimización de tablas Delta Lake / Parquet (compresión, particionado y z-ordering).
 
-#### 4. Elian Rivera (Pipeline Orchestration & Ingestion Specialist - Airflow)
-- **Enfoque Principal:** Orquestación automatizada y resiliente con Apache Airflow.
+#### 4. Dilan Chávez (Pipeline Orchestration & Frontend Co-Lead)
+- **Enfoque Principal:** Orquestación automatizada y resiliente con Apache Airflow, y co-liderazgo de la plataforma frontend en tiempo real.
 - **Entregables:**
   - Setup de Airflow en Docker con operadores de Spark y sensores de llegada de datos.
   - Creación de DAGs modulares para la transición automatizada Bronze -> Silver -> Gold.
-  - Manejo de reintentos, alertas de fallo (Slack/Email/Webhooks) y métricas de ejecución.
+  - Canvas interactivo de flujo de datos (React Flow) representando los nodos Bronze, Silver y Gold con telemetría en tiempo real.
+  - Canal de WebSockets/SSE para emitir eventos de progreso en vivo desde los pipelines.
 
-#### 5. Dilan Chávez (Data Security & Governance Specialist - Apache Ranger)
-- **Enfoque Principal:** Políticas de seguridad, autenticación, control de accesos (RBAC/ABAC) y enmascaramiento dinámico.
+#### 5. Joshua Gonzales (Security, Access Governance & Frontend Co-Lead)
+- **Enfoque Principal:** Políticas de seguridad, autenticación, control de accesos (RBAC/ABAC), enmascaramiento dinámico, y co-liderazgo de la plataforma frontend y experiencia conversacional.
 - **Entregables:**
   - Despliegue y configuración de Apache Ranger Admin y Plugins.
-  - Definición de roles de usuario (Ej: `Analista`, `Líder de Negocio`, `Auditor`).
-  - Configuración de políticas de enmascaramiento de columnas y filtrado de filas para datos clasificados.
+  - Definición de roles de usuario (Ej: `Analista`, `Líder de Negocio`, `Auditor`) y políticas de enmascaramiento.
+  - Interfaz web interactiva en React/Next.js con componentes modernos y diseño empresarial.
+  - Componente de Chat conversacional con renderizado de gráficos dinámicos (ECharts / Plotly).
 
 #### 6. Sebastian Castiblanco (Data Observability & Catalog Specialist - OpenMetadata & Atlas)
 - **Enfoque Principal:** Catálogo de datos central, visualización del linaje, clasificación de metadatos y perfilado de calidad.
@@ -318,11 +320,11 @@ gantt
    - `develop`: Rama de integración activa.
    - `feature/<area>-<nombre-funcionalidad>`
 2. **Propiedad de Código por Módulos (Single-Area Ownership):**
-   - `src/lakehouse/`: Propiedad de Célula 1 (Spark & Ingestion - Edgar & Elian).
-   - `src/orchestration/`: Propiedad de Célula 1 (Airflow DAGs - Elian & Edgar).
-   - `src/security_governance/`: Propiedad de Célula 2 (Ranger/Atlas/OpenMetadata - Dilan & Sebastian).
-   - `src/agent/`: Propiedad de Célula 3 (FastAPI & LangGraph - Joshua & Daniel).
-   - `src/frontend/`: Propiedad de Célula 3 (React/Next.js).
+   - `src/lakehouse/`: Propiedad de Célula 1 (Spark & Ingestion - Edgar & Dilan).
+   - `src/orchestration/`: Propiedad de Célula 1 (Airflow DAGs - Dilan & Edgar).
+   - `src/security_governance/`: Propiedad de Célula 2 (Ranger/Atlas/OpenMetadata - Joshua & Sebastian).
+   - `src/agent/`: Propiedad de Célula 3 (FastAPI & LangGraph - Elian & Daniel).
+   - `src/frontend/`: Propiedad de Célula 3 (React/Next.js, React Flow Canvas & Chatbot UI - Dilan Chávez & Joshua Gonzales).
 3. **Registro Diario de Entregas (`documentation/done/`):**
    - Cada entrega completada se documenta bajo:  
      `documentation/done/[area]/[area]-[feature]-[id].md`  
