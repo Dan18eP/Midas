@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.env.local
+.venv
+env/
+venv/
+ENV/
+
+# Node / Frontend
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Big Data & Logs
+*.log
+metastore_db/
+derby.log
+spark-warehouse/
+.spark-staging/
+checkpoint/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker volumes / persistence local
+docker/volumes/
+data/raw_dumps/
