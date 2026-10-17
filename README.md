@@ -48,7 +48,8 @@ PROYECTO-JUEVES-22/
 ├── .agents/                    # Reglas de desarrollo y habilidades del equipo (team-concurrency-guard)
 ├── docker/                     # Manifiestos de Docker Compose y configuraciones de servicios
 ├── documentation/              # Especificaciones, blueprints y bitácoras
-│   ├── 04_product_backlog.md   # Product Backlog oficial y plan de sprint (a la vista)
+│   ├── 04_product_backlog.md   # Product Backlog macro y funcional (a la vista)
+│   ├── 05_sprint_backlog_detallado.md # Desglose táctico: Subtasks, Story Points y horas
 │   ├── canonical/              # Especificaciones maestras del MVP Dorado (01 a 07)
 │   ├── adr/                    # Decisiones de arquitectura inmutables (ADR-001 a ADR-007)
 │   ├── changelog/              # Bitácora diaria de avance
@@ -69,8 +70,9 @@ PROYECTO-JUEVES-22/
 
 Toda la arquitectura, decisiones y contratos están estrictamente documentados bajo la política de **Cero Code Drift** (`rules/01_anti_code_drift_policy.md`):
 
-1. **Product Backlog & Plan de Sprint (Entrega Miércoles 21 de Octubre):**  
-   👉 [documentation/04_product_backlog.md](documentation/04_product_backlog.md)
+1. **Backlogs y Plan de Sprint (Entrega Miércoles 21 de Octubre):**  
+   - 👉 [Product Backlog Macro](documentation/04_product_backlog.md) *(Contrato funcional y criterios de aceptación)*
+   - 👉 [Sprint Backlog Detallado](documentation/05_sprint_backlog_detallado.md) *(Subtasks técnicas, Story Points, responsables y horas)*
 2. **Especificaciones Canónicas (MVP Dorado):**  
    - [01. Master Architecture & Project Plan](documentation/canonical/01_master_architecture_and_project_plan.md)
    - [02. MVP Dorado Blueprint Global](documentation/canonical/02_mvp_dorado_blueprint_global.md)

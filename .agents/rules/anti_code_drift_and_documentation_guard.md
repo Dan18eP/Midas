@@ -66,4 +66,5 @@ flowchart TD
 | LangGraph, Prompts o Storytelling | [`documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md`](../../documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md) |
 | Políticas Ranger, Atlas o PII | [`documentation/adr/ADR-006-gobernanza-activa-escudo-pii-y-lente-zero-trust.md`](../../documentation/adr/ADR-006-gobernanza-activa-escudo-pii-y-lente-zero-trust.md) |
 | Historias de Usuario y Criterios | [`documentation/04_product_backlog.md`](../../documentation/04_product_backlog.md) |
+| Subtasks, Story Points y Asignación | [`documentation/05_sprint_backlog_detallado.md`](../../documentation/05_sprint_backlog_detallado.md) |
 | Políticas del Repositorio | [`rules/01_anti_code_drift_policy.md`](../../rules/01_anti_code_drift_policy.md) y [`rules/02_adr_workflow_and_governance.md`](../../rules/02_adr_workflow_and_governance.md) |
