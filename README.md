@@ -26,12 +26,18 @@ Esta plataforma redefine la analítica y la ingeniería de datos corporativa. No
 
 ## 👥 Equipo de Ingeniería (Riwi)
 
-- **Daniel Echeverría:** Líder de Proyecto & Arquitecto Principal (Dirección Técnica, Arquitectura Global y Gobierno de Calidad).
-- **Elian Rivera:** Agentic AI & Semantic Layer Specialist (FastAPI, LangGraph, Text-to-Transformation y Motor de Data Storytelling).
-- **Edgar Corzo:** Data Engineering Lead (Apache Spark, Formatos Delta/Parquet y MinIO Storage).
-- **Dilan Chávez:** Pipeline Orchestration & Frontend Co-Lead (Apache Airflow, Sensores, Canvas React Flow en Vivo y WebSockets).
-- **Joshua Gonzales:** Security, Access Governance & Frontend Co-Lead (Apache Ranger, Atlas, Políticas RBAC/ABAC y Plataforma Web Interactiva).
-- **Sebastian Castiblanco:** Data Catalog, Lineage & Observability Lead (OpenMetadata, Apache Atlas y Data Quality).
+- **Daniel Echeverría:** Líder General de Proyecto & Backend Lead (Arquitectura Principal, Core Backend, API Gateway y Supervisión Lakehouse).
+- **Edgar Corzo:** Data Engineering Lead & Backend Partner (Apache Spark, Almacenamiento MinIO S3, Iceberg v2 y Pipelines Medallón).
+- **Dilan Chávez:** Frontend Lead & Real-Time Canvas Architect (React Flow, Telemetría SSE, Topología en Vivo y Time-Travel Replay).
+- **Joshua Gonzales:** UI/UX Specialist & Frontend Partner (Chat Copiloto, Componentes ECharts, Lente Zero-Trust y Drawer de Linaje).
+- **Elian Rivera:** AI & Intelligent Systems Lead (LangGraph, FastAPI Agente, Modo Dialógico Proactivo, Text-to-Gold y Guardrails OWASP).
+- **Sebastian Castiblanco:** Co-Líder, Scrum Master & Data Governance Lead (Cadencia Ágil, Auditoría Anti-Drift en `documentation/done/`, Catálogo OpenMetadata, Clasificación Atlas/Ranger y Resiliencia Midas Guardian).
+
+### 🚀 Células de Trabajo (Squads)
+1. **Squad 1 - Backend & Data Lakehouse:** Daniel Echeverría (Lead) & Edgar Corzo (Data Eng / Backend Partner)
+2. **Squad 2 - Frontend & Real-Time Canvas:** Dilan Chávez (Lead) & Joshua Gonzales (UI/UX & Frontend Partner)
+3. **Squad 3 - Agentic AI & Semantic Intelligence:** Elian Rivera (Lead) & Daniel Echeverría (Backend Support)
+4. **Squad 4 - Governance, Midas Guardian & Agile Management:** Sebastian Castiblanco (Co-Líder, Scrum Master & Governance Lead)
 
 ---
 
@@ -54,9 +60,21 @@ PROYECTO-JUEVES-22/
     └── sample_sources/         # Fuentes reales y simuladas de prueba (Excel, CSV, DBs)
 ```
 
----
+## 📖 Suite Documental Oficial y Gobernanza
 
-## 📖 Documentación Completa
+Toda la arquitectura, decisiones y contratos están estrictamente documentados bajo la política de **Cero Code Drift** (`rules/01_anti_code_drift_policy.md`):
 
-Para profundizar en el diseño técnico, la matriz RACI, los diagramas de secuencia del agente y el roadmap de ejecución detallado, consulta:  
-👉 [documentation/01_master_architecture_and_project_plan.md](documentation/01_master_architecture_and_project_plan.md)
+1. **Product Backlog & Plan de Sprint (Entrega Miércoles 21 de Octubre):**  
+   👉 [documentation/04_product_backlog.md](documentation/04_product_backlog.md)
+2. **Especificaciones Canónicas (MVP Dorado):**  
+   - [01. Master Architecture & Project Plan](documentation/canonical/01_master_architecture_and_project_plan.md)
+   - [02. MVP Dorado Blueprint Global](documentation/canonical/02_mvp_dorado_blueprint_global.md)
+   - [03. Especificación Base de Datos & Lakehouse (Multi-fuente)](documentation/canonical/03_especificacion_base_de_datos_y_lakehouse.md)
+   - [04. Lógica de Negocio Canónica & Resiliencia Guardian](documentation/canonical/04_logica_de_negocio_y_resiliencia_guardian.md)
+   - [05. Arquitectura Frontend & Experiencia Canvas en Vivo](documentation/canonical/05_arquitectura_frontend_y_experiencia_canvas.md)
+   - [06. Arquitectura Agente IA & Capa Semántica Dialógica](documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md)
+   - [07. Guión y Minutero de Demostración en Vivo (30 Minutos)](documentation/canonical/07_guion_presentacion_en_vivo_30_minutos.md)
+3. **Decisiones de Arquitectura (ADRs):**  
+   👉 [documentation/adr/](documentation/adr/) (ADR-001 a ADR-007)
+4. **Reglas de Gobernanza y Políticas Anti-Drift:**  
+   👉 [rules/](rules/) (`01_anti_code_drift_policy.md`, `02_adr_workflow_and_governance.md`)

@@ -217,98 +217,115 @@ El proyecto se estructura en 3 células técnicas de 2 integrantes, lideradas po
 flowchart TD
     DE["Daniel Echeverría\nTeam Leader & Arquitecto Principal\n(Dirección Estratégica, Arquitectura Global y Gobierno de Calidad)"]
 
-    subgraph CELL1["Célula 1: Lakehouse Core & Ingesta Medallón"]
-        DEV1["Edgar Corzo\n(Data Engineering Lead - Spark & MinIO)"]
-        DEV2["Dilan Chávez\n(Pipeline Orchestration Lead - Airflow)"]
+```mermaid
+flowchart TD
+    DE["Daniel Echeverría\n(Team Leader & Backend Lead)"]
+    SC["Sebastian Castiblanco\n(Co-Líder & Scrum Master)"]
+
+    subgraph SQUAD1["Squad 1: Backend & Data Lakehouse"]
+        DEV1["Daniel Echeverría (Lead)"]
+        DEV2["Edgar Corzo (Data Eng Lead & Backend Partner)"]
     end
 
-    subgraph CELL2["Célula 2: Gobernanza, Seguridad & Calidad"]
-        DEV3["Joshua Gonzales\n(Security & Access Governance Lead - Apache Ranger & Atlas)"]
-        DEV4["Sebastian Castiblanco\n(Data Catalog, Lineage & OpenMetadata)"]
+    subgraph SQUAD2["Squad 2: Frontend & Real-Time Canvas"]
+        DEV3["Dilan Chávez (Frontend Lead)"]
+        DEV4["Joshua Gonzales (UI/UX & Frontend Partner)"]
     end
 
-    subgraph CELL3["Célula 3: Inteligencia Agéntica & Plataforma Frontend"]
-        DEV5["Elian Rivera\n(Agentic AI & Semantic Layer Specialist)"]
-        DEV6["Dilan Chávez & Joshua Gonzales\n(Frontend & Real-Time Canvas Co-Leads)"]
+    subgraph SQUAD3["Squad 3: Agentic AI & Semantic Intelligence"]
+        DEV5["Elian Rivera (AI & Intelligent Systems Lead)"]
+        DEV6["Daniel Echeverría (Backend & API Support)"]
     end
 
-    DE --> CELL1
-    DE --> CELL2
-    DE --> CELL3
+    subgraph SQUAD4["Squad 4: Governance, Midas Guardian & Agile Management"]
+        DEV7["Sebastian Castiblanco (Scrum Master & Governance Lead)"]
+    end
+
+    DE --> SQUAD1
+    DE --> SQUAD3
+    SC --> SQUAD4
+    DE -.-> SQUAD2
 ```
 
 ### Responsabilidades Detalladas por Integrante:
 
-#### 1. Daniel Echeverría (Team Leader & Principal Data Architect)
-- **Enfoque Principal:** Dirección estratégica de la solución, arquitectura general de sistemas, estándares de calidad, aprobación de Pull Requests y diseño de la experiencia global.
+#### 1. Daniel Echeverría (Team Leader & Principal Backend Architect)
+- **Enfoque Principal:** Dirección estratégica de la solución, arquitectura general de sistemas, Core Backend (FastAPI, API Gateway, transporte de telemetría SSE) y supervisión del Lakehouse.
 - **Entregables:**
-  - Blueprint arquitectónico y lineamientos de integración empresarial.
-  - Definición de interfaces entre Lakehouse, Gobernanza y Plataforma Web.
-  - Supervisión de sprints, revisión de código y aseguramiento de resiliencia.
+  - Blueprint arquitectónico general, estándares de calidad y revisión de Pull Requests hacia `develop` y `main`.
+  - API Gateway FastAPI y Hub de eventos SSE (`/api/v1/telemetry/stream`).
+  - Integración con Trino / PostgreSQL y definición de contratos de datos.
 
-#### 2. Elian Rivera (Agentic AI & Semantic Layer Specialist)
-- **Enfoque Principal:** Orquestación de agentes con LangGraph / FastAPI, motor Text-to-Transformation y Capa Semántica.
+#### 2. Edgar Corzo (Data Engineering Lead & Backend Partner)
+- **Enfoque Principal:** Motor de procesamiento distribuido (Apache Spark), almacenamiento de objetos en MinIO S3 y tablas transaccionales Iceberg v2.
 - **Entregables:**
-  - Agente con herramientas de consulta (`get_schema`, `execute_query`, `create_gold_mart`).
-  - Generador de Spark SQL / PySpark con validación de seguridad (Zero-Hallucination Guardrails).
-  - Motor de Data Storytelling (narrativa ejecutiva e inferencia de gráficos ECharts).
+  - Setup de MinIO S3 con buckets multi-fuente (`bronze`, `silver`, `gold`).
+  - Universal Ingestion Engine: conectores para PostgreSQL (JDBC), Excel multi-hoja y feeds de API REST.
+  - Transformaciones PySpark Bronze $\rightarrow$ Silver (inferencia dinámica de esquemas, normalización de fechas y montos) y Silver $\rightarrow$ Gold (marts dimensionales y agregaciones).
 
-#### 3. Edgar Corzo (Data Engineering Specialist - Spark & Storage)
-- **Enfoque Principal:** Motor de procesamiento distribuido (Apache Spark) y arquitectura de almacenamiento en MinIO.
+#### 3. Dilan Chávez (Frontend Lead & Real-Time Canvas Architect)
+- **Enfoque Principal:** Liderazgo del desarrollo de la plataforma web interactiva y arquitectura del Canvas de flujo de datos en tiempo real.
 - **Entregables:**
-  - Configuración de MinIO con buckets multi-inquilino (`bronze`, `silver`, `gold`).
-  - Jobs de PySpark para la ingesta universal (conectores para Excel, CSV, PostgreSQL).
-  - Optimización de tablas Delta Lake / Parquet (compresión, particionado y z-ordering).
+  - Canvas interactivo de flujo de datos con **React Flow** (topología visual de nodos Bronze, Silver y Gold con conexiones dinámicas).
+  - Consumo en tiempo real de eventos SSE con animaciones de partículas y partículas de flujo.
+  - Control de Time-Travel Replay (barra de scrubbing temporal para inspeccionar estados pasados).
+  - Co-orquestación de Airflow DAG Factory e integración de telemetría hacia la UI.
 
-#### 4. Dilan Chávez (Pipeline Orchestration & Frontend Co-Lead)
-- **Enfoque Principal:** Orquestación automatizada y resiliente con Apache Airflow, y co-liderazgo de la plataforma frontend en tiempo real.
+#### 4. Joshua Gonzales (UI/UX Specialist & Frontend Partner)
+- **Enfoque Principal:** Diseño visual y experiencia de usuario (UI/UX), plataforma conversacional del Copiloto Agéntico y componentes de gobernanza visual.
 - **Entregables:**
-  - Setup de Airflow en Docker con operadores de Spark y sensores de llegada de datos.
-  - Creación de DAGs modulares para la transición automatizada Bronze -> Silver -> Gold.
-  - Canvas interactivo de flujo de datos (React Flow) representando los nodos Bronze, Silver y Gold con telemetría en tiempo real.
-  - Canal de WebSockets/SSE para emitir eventos de progreso en vivo desde los pipelines.
+  - Interfaz conversacional moderna para el Copiloto Agéntico (chat flotante y drawer interactivo).
+  - Renderizado dinámico de visualizaciones de negocio con **Apache ECharts** (barras, series temporales, dispersión).
+  - Lente Zero-Trust interactivo (selector de roles que atenúa o ilumina el Canvas y enmascara datos en tiempo real).
+  - Drawer de linaje de datos y trazabilidad ("Explícame esta cifra").
 
-#### 5. Joshua Gonzales (Security, Access Governance & Frontend Co-Lead)
-- **Enfoque Principal:** Políticas de seguridad, autenticación, control de accesos (RBAC/ABAC), enmascaramiento dinámico, y co-liderazgo de la plataforma frontend y experiencia conversacional.
+#### 5. Elian Rivera (AI & Intelligent Systems Lead)
+- **Enfoque Principal:** Inteligencia artificial agéntica, orquestación conversacional con LangGraph, Capa Semántica y motor Text-to-Gold.
 - **Entregables:**
-  - Despliegue y configuración de Apache Ranger Admin y Plugins.
-  - Definición de roles de usuario (Ej: `Analista`, `Líder de Negocio`, `Auditor`) y políticas de enmascaramiento.
-  - Interfaz web interactiva en React/Next.js con componentes modernos y diseño empresarial.
-  - Componente de Chat conversacional con renderizado de gráficos dinámicos (ECharts / Plotly).
+  - Máquina de estados conversacional con LangGraph en FastAPI.
+  - Modo dialógico proactivo: introspección de esquemas y preguntas inteligentes al usuario sobre qué tablas o métricas explorar.
+  - Motor Text-to-Gold: generación de consultas analíticas y especificaciones de DAG con guardrails OWASP (Zero-Hallucination, inyección de `LIMIT`, bloqueo de DDL/DML destructivo).
+  - Motor de Data Storytelling (narrativa ejecutiva con recomendaciones accionables y síntesis de opciones ECharts).
 
-#### 6. Sebastian Castiblanco (Data Observability & Catalog Specialist - OpenMetadata & Atlas)
-- **Enfoque Principal:** Catálogo de datos central, visualización del linaje, clasificación de metadatos y perfilado de calidad.
+#### 6. Sebastian Castiblanco (Co-Líder, Scrum Master & Data Governance Lead)
+- **Enfoque Principal:** Co-liderazgo y facilitación ágil (Scrum Master), auditoría de no-colisión y anti-drift en `documentation/done/`, catálogo central y resiliencia con Midas Guardian.
 - **Entregables:**
-  - Despliegue de OpenMetadata y conectores de ingesta de metadatos desde Spark, MinIO y Airflow.
-  - Integración de Apache Atlas para taxonomías y clasificación de tipos de datos.
-  - Pruebas automatizadas de calidad de datos (Great Expectations / Soda Core integrado con OpenMetadata).
+  - Cadencia ágil del sprint, verificación diaria del cumplimiento de criterios de aceptación y control de Code Drift.
+  - Catálogo central y linaje de datos automatizado con **OpenMetadata**.
+  - Clasificación de metadatos sensibles (PII) con **Apache Atlas** y definición de políticas de enmascaramiento con **Apache Ranger**.
+  - Configuración y validación del subsistema de resiliencia **Midas Guardian** (clasificador de fallos F1-F5 y playbooks de auto-recuperación).
 
 ---
 
-## 7. Plan de Ejecución por Sprints (Roadmap Ágil - 5 Fases)
+## 7. Plan de Ejecución del Sprint Intensivo (Entrega Miércoles 21 de Octubre)
+
+> **Sprint de 4 Días:** Del Domingo 18 de Octubre al Miércoles 21 de Octubre (23:59).  
+> **Demostración y Pitch en Vivo:** Jueves 22 de Octubre (30 minutos, 5 minutos por integrante).
 
 ```mermaid
 gantt
-    title Roadmap de Ejecución del Proyecto
+    title Sprint Intensivo Midas (Entrega Miércoles 21 Oct)
     dateFormat  YYYY-MM-DD
-    section Fase 1: Fundaciones
-    Diseño Arquitectónico & Docker Stack       :2026-10-20, 4d
-    Setup MinIO, Airflow & Spark Cluster       :2026-10-22, 5d
-    Setup OpenMetadata, Atlas & Ranger         :2026-10-24, 6d
-    section Fase 2: Medallón & Ingesta
-    Ingesta Universal (Excel, CSV, DBs) a Bronze :2026-10-28, 5d
-    Pipeline PySpark Bronze -> Silver (Calidad) :2026-10-31, 6d
-    Modelado Dimensional Capa Gold             :2026-11-04, 5d
-    section Fase 3: Seguridad & Linaje
-    Políticas RBAC y Enmascaramiento Ranger    :2026-11-06, 5d
-    Linaje Automático en OpenMetadata          :2026-11-08, 4d
-    section Fase 4: Plataforma & Observabilidad
-    UI Canvas de Flujo en Vivo (React Flow)    :2026-11-10, 6d
-    Telemetría en Tiempo Real (WebSockets)     :2026-11-12, 5d
-    section Fase 5: Chatbot Agéntico & Demo
-    Backend Text-to-Transformation & Storytelling :2026-11-14, 6d
-    Integración Chatbot + UI + Pruebas E2E     :2026-11-18, 5d
-    Demo Day, Pitch & Documentación Final      :2026-11-23, 3d
+    section Día 1 (Dom 18 Oct): Fundaciones
+    Docker Stack & MinIO S3 Iceberg setup       :2026-10-18, 1d
+    FastAPI Gateway & SSE Telemetry Hub         :2026-10-18, 1d
+    React Flow Canvas & Scaffold Base UI        :2026-10-18, 1d
+    LangGraph Core State Machine                :2026-10-18, 1d
+    section Día 2 (Lun 19 Oct): Ingesta & Canales
+    Universal Ingestion (Postgres, Excel, API)  :2026-10-19, 1d
+    PySpark Bronze -> Silver con Calidad        :2026-10-19, 1d
+    SSE Telemetry Stream conectado a Canvas     :2026-10-19, 1d
+    Atlas PII Shield & OpenMetadata Catalog     :2026-10-19, 1d
+    section Día 3 (Mar 20 Oct): Inteligencia & Guardian
+    Capa Semántica, Text-to-Gold & Storytelling :2026-10-20, 1d
+    Chat UI + ECharts Rendering + Drawer        :2026-10-20, 1d
+    Midas Guardian: Inyección de Fallos F1-F5   :2026-10-20, 1d
+    Lente Zero-Trust & Políticas Ranger         :2026-10-20, 1d
+    section Día 4 (Mié 21 Oct): E2E & Congelación
+    Pruebas E2E de Flujo Completo Multi-Fuente  :2026-10-21, 1d
+    Time-Travel Replay & Ajustes de Estabilidad :2026-10-21, 1d
+    Ensayo de Demo 30 Minutos (6 Integrantes)   :2026-10-21, 1d
+    Congelación de Código & Release v1.0.0      :2026-10-21, 1d
 ```
 
 ---
@@ -318,14 +335,14 @@ gantt
 1. **Estructura de Ramas Estricta:**
    - `main`: Código probado y estable en producción.
    - `develop`: Rama de integración activa.
-   - `feature/<area>-<nombre-funcionalidad>`
-2. **Propiedad de Código por Módulos (Single-Area Ownership):**
-   - `src/lakehouse/`: Propiedad de Célula 1 (Spark & Ingestion - Edgar & Dilan).
-   - `src/orchestration/`: Propiedad de Célula 1 (Airflow DAGs - Dilan & Edgar).
-   - `src/security_governance/`: Propiedad de Célula 2 (Ranger/Atlas/OpenMetadata - Joshua & Sebastian).
-   - `src/agent/`: Propiedad de Célula 3 (FastAPI & LangGraph - Elian & Daniel).
-   - `src/frontend/`: Propiedad de Célula 3 (React/Next.js, React Flow Canvas & Chatbot UI - Dilan Chávez & Joshua Gonzales).
+   - `feature/<area>-<nombre-funcionalidad>` según el Product Backlog oficial (`documentation/04_product_backlog.md`).
+2. **Propiedad de Código por Módulos (Single-Area Ownership en Midas):**
+   - `src/lakehouse/`: Propiedad de Squad 1 (Spark & Ingestion - Edgar & Daniel).
+   - `src/orchestration/`: Propiedad de Squad 1 / Squad 2 (Airflow DAGs & Sensores - Edgar & Dilan).
+   - `src/security_governance/`: Propiedad de Squad 4 (Ranger/Atlas/OpenMetadata & Guardian - Sebastian).
+   - `src/agent/`: Propiedad de Squad 3 (FastAPI, LangGraph & Storytelling - Elian & Daniel).
+   - `src/frontend/`: Propiedad de Squad 2 (React Flow Canvas, Chat Copiloto, ECharts - Dilan & Joshua).
 3. **Registro Diario de Entregas (`documentation/done/`):**
    - Cada entrega completada se documenta bajo:  
-     `documentation/done/[area]/[area]-[feature]-[id].md`  
+     `documentation/done/[area]/[area]-[nombre_epica]-[nombre_hu]-[numero].md`  
      con criterios de aceptación, pruebas ejecutadas y comando de verificación.
