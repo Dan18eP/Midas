@@ -45,11 +45,16 @@ Esta plataforma redefine la analítica y la ingeniería de datos corporativa. No
 
 ```bash
 PROYECTO-JUEVES-22/
+├── .agents/                    # Reglas de desarrollo y habilidades del equipo (team-concurrency-guard)
 ├── docker/                     # Manifiestos de Docker Compose y configuraciones de servicios
 ├── documentation/              # Especificaciones, blueprints y bitácoras
-│   ├── 01_master_architecture_and_project_plan.md
+│   ├── 04_product_backlog.md   # Product Backlog oficial y plan de sprint (a la vista)
+│   ├── canonical/              # Especificaciones maestras del MVP Dorado (01 a 07)
+│   ├── adr/                    # Decisiones de arquitectura inmutables (ADR-001 a ADR-007)
 │   ├── changelog/              # Bitácora diaria de avance
-│   └── done/                   # Historias de usuario y módulos completados
+│   ├── done/                   # Historias de usuario y módulos completados
+│   └── propuestas/             # Reportes de investigación originales
+├── rules/                      # Políticas vinculantes de Cero Code Drift y gobernanza ADR
 ├── src/
 │   ├── lakehouse/              # PySpark jobs, transformaciones Bronze -> Silver -> Gold
 │   ├── orchestration/          # Apache Airflow DAGs, sensores y hooks
