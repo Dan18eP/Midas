@@ -1,0 +1,140 @@
+# Midas — Arquitectura del Agente de IA, Capa Semántica y Modo Dialógico
+## Orquestación con LangGraph, FastAPI, Introspección Multi-Fuente, Text-to-Gold y Guardrails OWASP
+
+> **Proyecto:** Midas — Enterprise Active Lakehouse & Conversational Intelligence Platform  
+> **Fecha:** 17 de Octubre de 2026 · **Versión:** 2.0 (Agente Dialógico Proactivo & Multi-Fuente)  
+> **Stack AI:** Python 3.11 · FastAPI · LangGraph · LangChain · Trino Python Client · ECharts JSON  
+
+---
+
+## 1. Visión del Copiloto Agéntico: Asistente Dialógico Proactivo
+
+El Copiloto Agéntico de Midas trasciende el paradigma de "pregunta y respuesta pasiva". Opera como un **Consultor de Datos Autónomo** que:
+1. **Inicia el Diálogo e Introspecciona Fuentes:** Al entrar a la plataforma o ante un saludo, inspecciona el catálogo de **OpenMetadata** y le pregunta proactivamente al usuario qué fuente, base de datos o tabla desea explorar.
+2. **Navegación Guiada de Tablas:** Permite al usuario descubrir qué tablas existen en Silver, cuántos registros tienen, qué columnas son confidenciales y cuál es su estado de calidad.
+3. **Cero Alucinaciones:** Toda métrica o número se calcula mediante SQL en **Trino** sobre las tablas Iceberg; el modelo nunca inventa cálculos contables.
+4. **Transformación Multi-Fuente a Gold (Text-to-Gold):** Puede sugerir o ejecutar cruces entre fuentes heterogéneas (ej. cruzar transacciones de PostgreSQL con metas de un archivo Excel) y materializar el resultado en Airflow.
+5. **Seguridad Nativa por Rol:** Toda consulta se ejecuta impersonando el rol del usuario bajo las políticas de **Apache Ranger**.
+
+---
+
+## 2. Grafo de Estados del Agente (LangGraph Architecture)
+
+```mermaid
+flowchart TD
+    START([Mensaje del Usuario o Inicio de Sesión]) --> INTENT_ROUTER{Enrutador de Intención}
+    
+    %% Rutas de Intención
+    INTENT_ROUTER -->|Saludo / Descubrimiento de Fuentes| DISCOVERY_NODE[Introspección de Fuentes & Guía Proactiva]
+    INTENT_ROUTER -->|Pregunta Analítica / Métricas| SEMANTIC_RETRIEVER[Recuperador Semántico\n(OpenMetadata + Contratos)]
+    INTENT_ROUTER -->|Solicitud de Nueva Capa Gold| GOLD_TRANSFORMER[Planificador Text-to-Gold Multi-Fuente]
+    INTENT_ROUTER -->|Consulta de Incidente / Falla| GUARDIAN_DIAGNOSTIC[Diagnóstico de Midas Guardian]
+
+    %% Flujo de Descubrimiento Guiado
+    DISCOVERY_NODE --> DISCOVERY_PROMPT[Presentar Fuentes Conectadas & Opciones de Exploración]
+    DISCOVERY_PROMPT --> FINAL_RESPONSE([Respuesta Interactiva])
+
+    %% Flujo Analítico
+    SEMANTIC_RETRIEVER --> SQL_GENERATOR[Generador SQL Seguro]
+    SQL_GENERATOR --> SQL_GUARDRAILS{Validador OWASP & Costo}
+    SQL_GUARDRAILS -->|Aprobado| TRINO_EXECUTOR[Ejecutor Trino\n(Impersonando Rol Ranger)]
+    SQL_GUARDRAILS -->|Rechazado| REWRITE_QUERY[Ajuste de Filtros / Error]
+    REWRITE_QUERY --> SQL_GENERATOR
+    
+    TRINO_EXECUTOR --> STORYTELLING_NODE[Motor de Storytelling & ECharts]
+    STORYTELLING_NODE --> EXPLAINABILITY_CHIPS[Extracción de Chips 'Explícame esta Cifra']
+    EXPLAINABILITY_CHIPS --> FINAL_RESPONSE
+
+    %% Flujo Text-to-Gold Multi-Fuente
+    GOLD_TRANSFORMER --> COST_SEMAPHORE{Semáforo de Costo Spark}
+    COST_SEMAPHORE -->|Verde / Aceptable| SPEC_GENERATOR[Generador de Contrato YAML en MinIO]
+    COST_SEMAPHORE -->|Rojo / Excesivo| WARN_USER[Sugerencia de Partición / Filtro]
+    SPEC_GENERATOR --> PREVIEW_PROMPT[Presentar Preview & Botón de Aprobación en Airflow]
+    PREVIEW_PROMPT --> FINAL_RESPONSE
+
+    %% Flujo Guardian
+    GUARDIAN_DIAGNOSTIC --> INCIDENT_EXPLAINER[Explicación de Causa Raíz & Playbook]
+    INCIDENT_EXPLAINER --> FINAL_RESPONSE
+```
+
+---
+
+## 3. Especificación de los Nodos del Grafo
+
+### 3.1. `DiscoveryAndGuidanceNode` (Modo Dialógico Proactivo)
+- **Activación:** Se dispara cuando el usuario inicia sesión, saluda (*"Hola"*, *"Buenas tardes"*), o pregunta *"¿Qué datos tienes?"* o *"¿Qué puedo consultar?"*.
+- **Acción:** Invoca la API de OpenMetadata (`GET /api/v1/services/databaseServices`) y el registro de conectores de PostgreSQL.
+- **Respuesta Estructurada:** Genera un mensaje de bienvenida dinámico listando las fuentes activas:
+  - 🗄️ **Base Relacional:** `crm_operaciones` (Tablas: `clientes`, `transacciones`).
+  - 📁 **Hoja Excel:** `Presupuesto_2026.xlsx` (Hojas: `Presupuesto_Metas`, `Costos_Operativos`).
+  - 🌐 **API REST:** `helpdesk_tickets_live` (Tickets y satisfacción CSAT).
+- **Llamado a la Acción Guiado:** Ofrece 3 botones o sugerencias interactivas:  
+  `[Explorar tablas de CRM]` · `[Analizar cumplimiento de presupuesto]` · `[Crear nuevo Mart Gold]`.
+
+### 3.2. `SemanticRetrieverNode`
+- Consulta el glosario de OpenMetadata y recupera la definición canónica de las columnas de las tablas involucradas.
+- Soporta sinónimos de negocio (ej. *"facturación"*, *"ingresos"* o *"ventas"* mapean a `monto_neto`).
+
+### 3.3. `SqlGeneratorNode` & `SqlGuardrailsNode` (OWASP LLM01 Defense)
+- Genera sentencias SQL ANSI compatibles con Trino sobre el catálogo Iceberg.
+- **Guardrails Inmutables:**
+  - Bloqueo total de comandos de modificación DDL/DML (`DROP`, `DELETE`, `ALTER`, `UPDATE`).
+  - Forzado de límites de seguridad: inyección automática de `LIMIT 1000` si la consulta no agrupa datos.
+  - Prevención de `CROSS JOIN` accidentales entre tablas grandes sin condición de enlace.
+
+### 3.4. `TrinoExecutorNode`
+- Ejecuta la consulta en Trino pasando la cabecera `X-Trino-User` con el rol actual del Lente Zero-Trust (ej. `director_general`, `gerente_norte`, `analista_externo`).
+- Ranger intercepta y aplica las políticas de enmascaramiento y filtrado de forma transparente.
+
+### 3.5. `StorytellingNode` y Chips de "Explícame esta Cifra"
+- Redacta la respuesta en 3 bloques ejecutivos: **1) Hallazgo Principal, 2) Comparativa Histórica, 3) Recomendación de Negocio**.
+- Convierte cada métrica calculada en un chip interactivo con enlace a su linaje completo (abriendo el Drawer de linaje al hacer clic).
+- Genera la especificación JSON de **Apache ECharts** para renderizar gráficos de líneas, barras o donas directamente en el chat.
+- Adjunta el **Sello de Certificación** (frescura en MinIO y % de calidad en OpenMetadata).
+
+### 3.6. `TextToGoldPlannerNode` (Pipeline-as-a-Prompt Multi-Fuente)
+- Cuando el usuario solicita un cruce complejo (ej. transacciones de PostgreSQL con metas del Excel):
+  1. Genera la consulta de agregación en Spark SQL.
+  2. Valida que el costo de escaneo sea seguro (**Semáforo Verde**).
+  3. Muestra una vista previa de 5 filas en el chat.
+  4. Genera el contrato declarativo en `s3://midas-governance/airflow-specs/` y pide la aprobación del usuario para activar el DAG en Airflow.
+
+---
+
+## 4. Ejemplos de Diálogo Guiado en la Plataforma
+
+### Caso 1: Descubrimiento Proactivo
+```
+Usuario: "Hola Midas, ¿qué información tenemos disponible para analizar?"
+
+Copiloto:
+"¡Hola Daniel! Actualmente tengo acceso a 3 fuentes de datos integradas en el Lakehouse:
+
+ 1. Base de Datos CRM (PostgreSQL):
+    • clientes (12,400 registros)
+    • transacciones (184,200 registros de ventas)
+ 2. Archivo Excel 'Presupuesto_Corporativo_2026.xlsx':
+    • Metas de ingresos y costos fijos por región
+ 3. API REST Helpdesk:
+    • Tickets de soporte y calificación de satisfacción CSAT
+
+¿Te gustaría que analicemos el cumplimiento del presupuesto, revisemos el comportamiento de los clientes por región, o prefieres ver las métricas de calidad de alguna tabla?"
+```
+
+### Caso 2: Petición de Transformación Multi-Fuente a Gold
+```
+Usuario: "Quiero cruzar las ventas reales del CRM con las metas del Excel para ver qué regiones van perdiendo el año"
+
+Copiloto:
+"Excelente idea. Puedo cruzar la tabla 'silver.crm_transacciones' con la hoja 'silver.finanzas_metas_presupuesto' agrupando por región y mes.
+
+He preparado una vista previa:
+| Región | Venta Real ($) | Meta Presupuesto ($) | Cumplimiento (%) | Brecha ($) |
+|---|---|---|---|---|
+| NORTE  | $420,000       | $500,000             | 84.0%            | -$80,000   |
+| SUR    | $310,000       | $300,000             | 103.3%           | +$10,000   |
+| CENTRO | $680,000       | $700,000             | 97.1%            | -$20,000   |
+
+Semáforo de Costo Spark: 🟢 Verde (Escaneo eficiente de 14 MB).
+¿Deseas que guarde esta vista en la capa Gold y programe su actualización automática cada 6 horas en Apache Airflow?"
+```
