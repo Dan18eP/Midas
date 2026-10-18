@@ -34,6 +34,7 @@ Este backlog rige la ejecución técnica de 4 días intensivos para construir el
 ```mermaid
 flowchart TD
     subgraph DIA1["Día 1: Domingo 18 Octubre (Fundaciones)"]
+        H_INFRA01["HU-INFRA-01: Monodocker Base, Red Unificada & Postgres Multi-Tenant"]
         H_LAKE01["HU-LAKE-01: Storage MinIO S3 & Tablas Iceberg v2"]
         H_BACK01["HU-BACK-01: FastAPI Gateway Core & Telemetría SSE"]
         H_FRONT01["HU-FRONT-01: React Flow Pipeline Canvas Base"]
@@ -67,6 +68,8 @@ flowchart TD
         H_E2E["Validación E2E del Flujo Completo Multi-Fuente"]
     end
 
+    H_INFRA01 --> H_LAKE01
+    H_INFRA01 --> H_BACK01
     H_LAKE01 --> H_LAKE02 --> H_LAKE03 --> H_LAKE04
     H_BACK01 --> H_FRONT02
     H_LAKE03 --> H_GOV02 --> H_GOV03
@@ -88,6 +91,24 @@ flowchart TD
 ### 🛡️ SQUAD 1: Backend & Data Lakehouse Core
 **Líder:** Daniel Echeverría  
 **Acompañante:** Edgar Corzo
+
+#### HU-INFRA-01: Orquestación Monodocker Base, Red Unificada & Postgres Multi-Tenant
+- **ID:** `HU-INFRA-01`
+- **Responsable:** Daniel Echeverría (Backend Lead) / Pair: Edgar Corzo
+- **Rama Oficial:** `feature/infra-monodocker-foundation`
+- **Módulo de Código:** `docker/`, `.env.example`, `scripts/`
+- **Fecha Límite:** Domingo 18 de Octubre (12:00)
+- **Historia de Usuario:**  
+  *Como Backend Lead, quiero aprovisionar la infraestructura base Docker Compose con red bridge unificada y PostgreSQL multi-tenant, para desbloquear el arranque de almacenamiento, ingesta, gobernanza y API sin colisiones de puertos.*
+- **Criterios de Aceptación:**
+  1. Manifiesto `docker-compose.yml` raíz con red bridge `midas-network` y persistencia en volúmenes nombrados.
+  2. Servicio PostgreSQL 16 con script de inicialización automática que crea 4 bases de datos independientes: `iceberg_catalog`, `midas_operational`, `openmetadata_db` y `airflow_db`.
+  3. Archivo `.env.example` centralizando variables de entorno, credenciales por defecto y mapeo de puertos sin conflictos.
+  4. Script de healthcheck `scripts/check_stack.py` verificando conectividad a puertos y sockets con código de salida 0.
+- **Entregable en Documentación:**  
+  `documentation/done/other/infra-monodocker-foundation-01.md`
+
+---
 
 #### HU-LAKE-01: Storage MinIO S3 & Configuración de Tablas Iceberg v2
 - **ID:** `HU-LAKE-01`

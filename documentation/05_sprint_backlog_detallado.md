@@ -36,6 +36,7 @@
 
 | ID HU | Historia de Usuario | Squad | Responsable | Revisor / Pair | SP | Prioridad | Fecha Límite |
 | :--- | :--- | :---: | :--- | :--- | :---: | :---: | :---: |
+| **HU-INFRA-01**| Monodocker Base, Red Unificada & Postgres Multi-DB | S1 | Daniel Echeverría | Edgar Corzo | **3** | MUST HAVE | Dom 18 - 12:00 |
 | **HU-LAKE-01** | MinIO S3 Storage & Catálogo Iceberg REST | S1 | Edgar Corzo | Daniel Echeverría | **3** | MUST HAVE | Dom 18 - 20:00 |
 | **HU-BACK-01** | FastAPI Gateway Core & Telemetría SSE Hub | S1 | Daniel Echeverría | Edgar Corzo | **5** | MUST HAVE | Dom 18 - 22:00 |
 | **HU-FRONT-01**| React Flow Canvas Base & Nodos Topológicos | S2 | Dilan Chávez | Joshua Gonzales | **5** | MUST HAVE | Dom 18 - 23:00 |
@@ -57,7 +58,7 @@
 | **HU-AI-04**   | Airflow DAG Generator (Pipeline-as-a-Prompt) | S3 | Elian Rivera | Daniel Echeverría | **3** | MUST HAVE | Mié 21 - 16:00 |
 | **HU-FRONT-06**| Drawer Linaje "Explícame esta cifra" | S2 | Joshua Gonzales | Dilan Chávez | **3** | MUST HAVE | Mié 21 - 18:00 |
 | **HU-GOV-05**  | Auditoría Ágil, Anti-Drift & Release v1.0.0 | S4 | Sebastian Castiblanco| Daniel Echeverría | **2** | MUST HAVE | Mié 21 - 20:00 |
-| **TOTAL**      | **21 Historias de Usuario Operativas** | | | | **92 SP** | | **Congelación 23:59** |
+| **TOTAL**      | **22 Historias de Usuario Operativas** | | | | **95 SP** | | **Congelación 23:59** |
 
 ---
 
@@ -67,6 +68,28 @@
 
 ### 🛡️ SQUAD 1: Backend & Data Lakehouse Core
 **Responsables:** Daniel Echeverría (Backend Lead) & Edgar Corzo (Data Eng Lead)
+
+#### [HU-INFRA-01] Orquestación Monodocker Base, Red Unificada & Postgres Multi-Tenant
+- **Responsable:** Daniel Echeverría | **Pair/Revisor:** Edgar Corzo
+- **Story Points:** 3 SP | **Prioridad:** MUST HAVE (Crítico Día 1)
+- **Rama Oficial:** `feature/infra-monodocker-foundation`
+- **Ventana de Ejecución:** Día 1 (Dom 18 Oct: 08:00 - 12:00)
+- **Subtasks Técnicas:**
+  - [ ] `ST-INFRA-01.1`: Crear `docker-compose.yml` raíz con red bridge `midas-network`, volúmenes persistentes y política de reinicio.
+  - [ ] `ST-INFRA-01.2`: Configurar servicio `midas-postgres` (PostgreSQL 16) con script `docker/postgres/init-multi-db.sh` para aprovisionar las 4 bases de datos: `iceberg_catalog`, `midas_operational`, `openmetadata_db` y `airflow_db`.
+  - [ ] `ST-INFRA-01.3`: Crear `.env.example` centralizando credenciales, puertos no conflictivos y nombres de host internos para Docker.
+  - [ ] `ST-INFRA-01.4`: Script CLI `scripts/check_stack.py` que compruebe la salud de los sockets y puertos de la red `midas-network`.
+- **Archivos a Crear:**
+  - `docker-compose.yml`
+  - `docker/postgres/init-multi-db.sh`
+  - `.env.example`
+  - `scripts/check_stack.py`
+- **Comando de Verificación:**
+  `python scripts/check_stack.py`
+- **Entrega Documental Requerida:**
+  `documentation/done/other/infra-monodocker-foundation-01.md`
+
+---
 
 #### [HU-LAKE-01] Storage MinIO S3 & Catálogo Iceberg REST
 - **Responsable:** Edgar Corzo | **Pair/Revisor:** Daniel Echeverría
