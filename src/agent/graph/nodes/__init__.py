@@ -1,0 +1,1 @@
+"""Pasos individuales del agente."""
