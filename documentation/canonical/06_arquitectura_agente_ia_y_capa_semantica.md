@@ -35,6 +35,14 @@ servicio. Las conexiones a OpenMetadata, generación SQL y Trino se entregan al
 grafo como servicios, para que sus nodos no simulen resultados cuando una
 integración no esté disponible.
 
+El estado conversacional conserva tanto los mensajes `HumanMessage` como los
+`AIMessage` de respuesta. Si una pregunta queda pendiente de una aclaración,
+`pending_intent` y `pending_query` guardan su contexto; al recibir la respuesta,
+el enrutador combina ambos turnos antes de solicitar SQL.
+
+El guardado del grafo acepta la interfaz común `BaseCheckpointSaver`, de modo
+que PostgreSQL se usa en ejecución y `InMemorySaver` en pruebas.
+
 El catálogo de demostración muestra las tres fuentes definidas en la sección 3.1.
 En despliegue, el proveedor de fuentes activas debe consultar el registro de
 conectores y reemplazar ese catálogo de demostración.
@@ -95,11 +103,26 @@ flowchart TD
 - Soporta sinónimos de negocio (ej. *"facturación"*, *"ingresos"* o *"ventas"* mapean a `monto_neto`).
 
 ### 3.3. `SqlGeneratorNode` & `SqlGuardrailsNode` (OWASP LLM01 Defense)
-- Genera sentencias SQL ANSI compatibles con Trino sobre el catálogo Iceberg.
-- **Guardrails Inmutables:**
-  - Bloqueo total de comandos de modificación DDL/DML (`DROP`, `DELETE`, `ALTER`, `UPDATE`).
-  - Forzado de límites de seguridad: inyección automática de `LIMIT 1000` si la consulta no agrupa datos.
-  - Prevención de `CROSS JOIN` accidentales entre tablas grandes sin condición de enlace.
+- Genera sentencias `SELECT` compatibles con Trino sobre tablas Gold y Silver
+  autorizadas por el catálogo introspeccionado. El proveedor activo entrega el
+  nombre calificado y las columnas reales de cada tabla; estas definiciones
+  deben coincidir con los contratos canónicos de `documentation/canonical/03`.
+- El validador procesa una sola sentencia con `sqlglot` en dialecto Trino y
+  acepta únicamente consultas de lectura. Rechaza DDL/DML (`DROP`, `DELETE`,
+  `TRUNCATE`, `ALTER`, `INSERT`, `UPDATE`, `CREATE`, `GRANT` y `REVOKE`),
+  sentencias encadenadas, tablas desconocidas y columnas fuera del catálogo.
+- Si la consulta no declara un límite, el validador agrega `LIMIT 1000` al AST.
+- Un escudo de prompt injection bloquea instrucciones para ignorar políticas,
+  revelar prompts o eludir restricciones antes de llamar al generador.
+- La consulta solo llega al ejecutor Trino después de pasar todos los controles;
+  cualquier error cierra el flujo sin ejecutar SQL.
+
+El AST resuelve alias de tablas y columnas calificadas. Una columna no
+calificada se acepta solo cuando existe en todas las tablas del `FROM`/`JOIN`
+autorizadas; ante ambigüedad o metadatos insuficientes, la consulta se rechaza.
+El proveedor de introspección entrega cada tabla como nombre calificado y su
+lista de columnas. Si el catálogo no está disponible o no contiene columnas,
+no se genera ni ejecuta una consulta analítica.
 
 ### 3.4. `TrinoExecutorNode`
 - Ejecuta la consulta en Trino pasando la cabecera `X-Trino-User` con el rol actual del Lente Zero-Trust (ej. `director_general`, `gerente_norte`, `analista_externo`).
