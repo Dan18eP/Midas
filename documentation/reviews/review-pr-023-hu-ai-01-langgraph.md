@@ -47,8 +47,30 @@ Las siguientes observaciones no bloquean la aprobación de la HU-AI-01, pero deb
 - **Impacto:** Si bien este mecanismo es efectivo como barrera inicial (*fail-closed*), genera falsos positivos si una consulta analítica legítima busca valores literales dentro de un filtro (por ejemplo: `WHERE action = 'create'` o `WHERE estado_transaccion = 'updated'`).
 - **Recomendación para HU-AI-02:** Integrar un parser formal de AST SQL (como `sqlglot`) para inspeccionar la semántica del árbol de consulta, validando con precisión si el nodo es de mutación DDL/DML versus una constante en una cláusula `WHERE`.
 
+### 2.5. Hoja de Ruta de Integración HTTP: Exposición del Copiloto en FastAPI Gateway (`HU-AI-02`)
+- **Diagnóstico actual:** La entrega de HU-AI-01 concluyó con el grafo funcional y probado internamente mediante `tests/agent/test_langgraph_flow.py`, señalando en la entrega que el checkout aún no disponía de servidor API para exponer el diálogo.
+- **Preparación realizada en Backend (`HU-BACK-01`):**
+  - Se aprovisionó el API Gateway con FastAPI, CORS, middleware de trazabilidad (`X-Correlation-ID`) e identidades de prueba Zero-Trust (`X-User-Role`).
+  - Las dependencias de `src/agent/requirements.txt` (`langgraph`, `psycopg`) fueron integradas al `docker/api/Dockerfile` para soportar la ejecución del grafo en contenedor.
+- **Acción Pendiente para `HU-AI-02` (Trabajo Colaborativo Daniel Echeverría & Elian Rivera):**
+  - Implementar en `src/api/routes/agent.py` el endpoint `POST /api/v1/agent/chat` que reciba `thread_id` y `user_message`, invocando `builder.invoke_turn(graph, thread_id, user_message)`.
+  - Inyectar el checkpointer PostgreSQL operacional de forma resiliente con fallback a memoria si el metastore aún no está inicializado.
+  - Formato de respuesta esperado por el Frontend (`HU-FRONT-04` de Dilan Chávez):
+    ```json
+    {
+      "thread_id": "session_user_01",
+      "intent": "discovery",
+      "response": "¡Hola Daniel! Tengo acceso a 3 fuentes...",
+      "suggestions": ["Explorar tablas de CRM", "Analizar cumplimiento de presupuesto", "Crear nuevo Mart Gold"],
+      "needs_clarification": false,
+      "echarts_spec": null
+    }
+    ```
+  - Esta tarea se ejecutará de forma quirúrgica durante el desarrollo conjunto de `HU-AI-02` (Martes 20, 14:00) para garantizar que Elian lidere la semántica de su grafo y el Backend garantice la estabilidad HTTP.
+
 ---
 
 ## 3. Conclusión
 
 El trabajo desarrollado por Elian Rivera proporciona una base modular, desacoplada y robusta para la máquina conversacional de Midas. Se autoriza la integración a `develop`.
+
