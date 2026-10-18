@@ -130,7 +130,14 @@ documentation/done/
 2. **Bitácora Diaria:**
    Registrar la entrega terminada en `documentation/changelog/[DD]-[MM]-[YYYY]-changelog.md`:
    `[Day]-[DD/MM/YYYY]-[HH:MM] - [Autor] : [feat/fix/chore: descripción concisa]`
-3. **Integración con `develop`:**
-   - Subir la rama a `origin`: `git push -u origin feature/<area>-<nombre-hu>`
-   - Crear Pull Request hacia `develop` adjuntando el checklist anti-code drift y el enlace al documento en `documentation/done/`.
-   - Esperar revisión y aprobación por **Daniel Echeverría**.
+3. **Integración Obligatoria vía Pull Request (PR) hacia `develop`:**
+   - **Prohibición de Merge Directo:** Prohibido realizar `git merge` directo local hacia `develop` o `main`.
+   - **Única Excepción:** Salvo que Daniel Echeverría lo apruebe explícitamente (ej. cambio quirúrgico).
+   - **Flujo Estándar de PR:**
+     - Subir la rama a `origin`: `git push -u origin feature/<area>-<nombre-hu>`
+     - Crear Pull Request formal hacia `develop` usando GitHub CLI:
+       ```powershell
+       gh pr create --base develop --head feature/<area>-<nombre-hu> --title "feat(<area>): <título-hu>" --body "Implementación según documentación oficial."
+       ```
+     - Adjuntar checklist anti-code drift y el enlace al documento en `documentation/done/`.
+     - Esperar revisión y aprobación por **Daniel Echeverría**.
