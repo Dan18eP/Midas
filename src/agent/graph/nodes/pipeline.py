@@ -29,7 +29,7 @@ def make_analytic_nodes(
             return {"query_error": "El catálogo de Trino no está disponible."}
         try:
             message = state.get("user_message", "")
-            # Stop override attempts before they reach the model.
+            # Detiene los intentos de anular las reglas antes de llamar al modelo.
             assert_safe_prompt(message)
             sql = generate_sql(message, schemas)
         except PromptInjectionError as error:

@@ -1,4 +1,4 @@
-"""Security tests for catalog-bound Trino query generation."""
+"""Pruebas de seguridad para consultas Trino ligadas al catálogo."""
 
 import pytest
 

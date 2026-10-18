@@ -1,44 +1,44 @@
-# HU-AI-02: Text-to-Gold Query Generation & OWASP Guardrails
+# HU-AI-02: Generación Text-to-Gold y guardas OWASP
 
 - **ID:** HU-AI-02
-- **Branch:** `feature/agent-text-to-gold-guardrails`
-- **Owner:** Elian Rivera (AI Lead) / Daniel Echeverría
-- **Canonical references:** `documentation/canonical/03_especificacion_base_de_datos_y_lakehouse.md` and `documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md`
-- **Date:** 18 October 2026
+- **Rama:** `feature/agent-text-to-gold-guardrails`
+- **Responsables:** Elian Rivera (AI Lead) / Daniel Echeverría
+- **Referencias canónicas:** `documentation/canonical/03_especificacion_base_de_datos_y_lakehouse.md` y `documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md`
+- **Fecha:** 18 de octubre de 2026
 
-## Anti-drift review
+## Revisión anti-deriva
 
-- [x] Canonical business formulas were reviewed and left unchanged.
-- [x] Table and column names are accepted only from the introspected Trino catalog; no tables or columns were added to the business schema.
-- [x] The SQL executor receives only a single validated read-only Trino query.
-- [x] The implementation stays within `src/agent/`, `tests/agent/`, and the agent documentation.
+- [x] Se revisaron las fórmulas canónicas de negocio y no se modificaron.
+- [x] Los nombres de tablas y columnas se aceptan solo desde el catálogo introspeccionado de Trino; no se agregaron tablas ni columnas al esquema de negocio.
+- [x] El ejecutor SQL recibe únicamente una consulta de lectura validada.
+- [x] La implementación se limita a `src/agent/`, `tests/agent/` y la documentación del agente.
 
-## Implementation
+## Implementación
 
-- `src/agent/tools/text_to_sql.py` builds a Trino SQL generation prompt from the live table and column catalog and calls an injected model provider.
-- `src/agent/guardrails/prompt_injection_shield.py` rejects prompt override and secret-disclosure attempts before the model provider is called.
-- `src/agent/guardrails/query_guardrail.py` parses SQL with `sqlglot` in Trino dialect. It permits one `SELECT`, validates table and column references, rejects unknown catalog entries and `CROSS JOIN`, and adds `LIMIT 1000` when absent.
-- `src/agent/graph/nodes/pipeline.py` fails closed if the catalog is missing, blocks invalid queries before the Trino executor, and keeps internal execution errors out of chat.
-- `src/agent/requirements.txt` includes the SQLGlot parser dependency.
+- `src/agent/tools/text_to_sql.py` construye el prompt de generación SQL para Trino con las tablas y columnas recibidas del catálogo activo y llama al proveedor de modelo inyectado.
+- `src/agent/guardrails/prompt_injection_shield.py` rechaza intentos de alterar las instrucciones o revelar información secreta antes de llamar al proveedor del modelo.
+- `src/agent/guardrails/query_guardrail.py` analiza SQL con `sqlglot` en dialecto Trino. Acepta una sola sentencia `SELECT`, valida tablas y columnas, rechaza referencias desconocidas y `CROSS JOIN`, y agrega `LIMIT 1000` cuando falta.
+- `src/agent/graph/nodes/pipeline.py` detiene el flujo si falta el catálogo, bloquea consultas inválidas antes de ejecutarlas en Trino y no expone errores internos en el chat.
+- `src/agent/requirements.txt` incluye el parser SQLGlot.
 
-## HU-AI-01 review corrections applied
+## Correcciones de revisión para HU-AI-01
 
-Daniel's PR #23 observations were addressed as part of this story:
+Se atendieron las observaciones de Daniel en el PR #23:
 
-- `build_graph` now accepts `BaseCheckpointSaver`, covering both PostgreSQL and in-memory checkpointers.
-- Proactive, clarification, success, and error responses are appended as `AIMessage` objects to session history.
-- The router stores a pending sales question and combines it with a year supplied in the next turn.
-- Regex-based SQL checks were replaced by Trino AST parsing, avoiding false positives for destructive words inside string literals.
+- `build_graph` ahora acepta `BaseCheckpointSaver`, compatible con los guardados PostgreSQL y en memoria.
+- Las respuestas proactivas, aclaraciones, resultados y errores se agregan al historial como objetos `AIMessage`.
+- El enrutador conserva la pregunta de ventas pendiente y la combina con el año recibido en el siguiente turno.
+- Los filtros SQL basados en expresiones regulares se reemplazaron por análisis AST de Trino, evitando falsos positivos cuando palabras de modificación aparecen dentro de valores literales.
 
-## Verification
+## Verificación
 
-- **Command:** `python -m pytest tests/agent/test_query_guardrails.py tests/agent/test_langgraph_flow.py -q`
-- **Result:** 58 passed in 3.14s.
-- **Additional check:** `python -m compileall -q src/agent tests/agent` completed successfully.
-- The 20 prompt-injection examples and 20 malicious SQL examples were all blocked. Tests also cover catalog validation, limit insertion, safe literals, message history, clarification context, and failure before generation when no catalog is available.
-- **Live Trino/hosted model scenario:** Not run. Both integrations are injected services; this checkout has no configured live model or Trino connection.
+- **Comando:** `python -m pytest tests/agent/test_query_guardrails.py tests/agent/test_langgraph_flow.py -q`
+- **Resultado:** 58 pruebas aprobadas en 3,14 s.
+- **Verificación adicional:** `python -m compileall -q src/agent tests/agent` finalizó correctamente.
+- La suite bloquea los 20 ejemplos de prompt injection y las 20 consultas SQL maliciosas. También valida el catálogo, la inserción del límite, valores literales seguros, historial de mensajes, contexto de aclaraciones y detención cuando no hay catálogo.
+- **Prueba con Trino y modelo en vivo:** No ejecutada. Ambas integraciones se reciben como servicios inyectados y este entorno no tiene un modelo ni una conexión Trino configurados.
 
-## Impact and rollback
+## Impacto y reversión
 
-- No changes were made to canonical business formulas, table schemas, or shared API endpoints.
-- Reverting the HU-AI-02 feature commit removes the generator, guardrails, pipeline wiring, and this delivery record. The HU-AI-01 review corrections are included in that same agent work unit.
+- No se modificaron fórmulas canónicas, esquemas de tablas ni endpoints compartidos.
+- Revertir el commit de HU-AI-02 elimina el generador, las guardas, la conexión con el flujo y este informe. Las correcciones de revisión de HU-AI-01 están incluidas en ese mismo commit.

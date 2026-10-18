@@ -1,1 +1,1 @@
-"""Agent tools for catalog-aware query generation."""
+"""Herramientas del agente para generar consultas según el catálogo."""

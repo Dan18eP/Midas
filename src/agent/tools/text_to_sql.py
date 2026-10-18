@@ -1,4 +1,4 @@
-"""Build a catalog-bound prompt for Trino SQL generation."""
+"""Construye un prompt para generar SQL de Trino según el catálogo activo."""
 
 from collections.abc import Callable, Mapping, Sequence
 
@@ -6,13 +6,13 @@ from src.agent.guardrails.prompt_injection_shield import assert_safe_prompt
 
 
 class TextToSqlGenerator:
-    """Generate SQL through an injected language model callable."""
+    """Genera SQL mediante una función de modelo inyectada."""
 
     def __init__(self, model: Callable[[str, str], str]) -> None:
         self._model = model
 
     def __call__(self, question: str, catalog: list[dict[str, object]]) -> str:
-        """Ask the model for one read-only Trino query."""
+        """Solicita al modelo una consulta de lectura para Trino."""
         assert_safe_prompt(question)
         allowed_tables = _catalog_prompt(catalog)
         if not allowed_tables:
@@ -28,6 +28,7 @@ class TextToSqlGenerator:
 
 
 def _catalog_prompt(catalog: Sequence[Mapping[str, object]]) -> str:
+    """Devuelve las tablas y columnas permitidas para el prompt."""
     lines = []
     for entry in catalog:
         table = entry.get("table")
