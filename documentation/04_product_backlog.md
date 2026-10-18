@@ -33,8 +33,11 @@ Este backlog rige la ejecución técnica de 4 días intensivos para construir el
 
 ```mermaid
 flowchart TD
-    subgraph DIA1["Día 1: Domingo 18 Octubre (Fundaciones)"]
+    subgraph PRE_SPRINT["Fase Previa: Sábado 17 Octubre (Hoy - Infraestructura Base)"]
         H_INFRA01["HU-INFRA-01: Monodocker Base, Red Unificada & Postgres Multi-Tenant"]
+    end
+
+    subgraph DIA1["Día 1: Domingo 18 Octubre (Fundaciones de Servicios)"]
         H_LAKE01["HU-LAKE-01: Storage MinIO S3 & Tablas Iceberg v2"]
         H_BACK01["HU-BACK-01: FastAPI Gateway Core & Telemetría SSE"]
         H_FRONT01["HU-FRONT-01: React Flow Pipeline Canvas Base"]
@@ -94,10 +97,10 @@ flowchart TD
 
 #### HU-INFRA-01: Orquestación Monodocker Base, Red Unificada & Postgres Multi-Tenant
 - **ID:** `HU-INFRA-01`
-- **Responsable:** Daniel Echeverría (Backend Lead) / Pair: Edgar Corzo
+- **Responsable:** Daniel Echeverría (Backend Lead) / Revisor: N/A (Aprobación Directa Líder)
 - **Rama Oficial:** `feature/infra-monodocker-foundation`
 - **Módulo de Código:** `docker/`, `.env.example`, `scripts/`
-- **Fecha Límite:** Domingo 18 de Octubre (12:00)
+- **Fecha Límite:** Sábado 17 de Octubre de 2026 (Hoy - 23:59)
 - **Historia de Usuario:**  
   *Como Backend Lead, quiero aprovisionar la infraestructura base Docker Compose con red bridge unificada y PostgreSQL multi-tenant, para desbloquear el arranque de almacenamiento, ingesta, gobernanza y API sin colisiones de puertos.*
 - **Criterios de Aceptación:**
