@@ -20,6 +20,25 @@ El Copiloto Agéntico de Midas trasciende el paradigma de "pregunta y respuesta 
 
 ## 2. Grafo de Estados del Agente (LangGraph Architecture)
 
+La implementación inicial del diálogo usa estos nodos y mantiene la ruta
+analítica en este orden: `route_intent` → `introspect_schema` →
+`proactive_suggest` → `generate_sql` → `validate_guardrails` → `execute_query` →
+`synthesize_storytelling`. Los saludos, el descubrimiento y las preguntas ambiguas
+terminan después de `proactive_suggest`; una solicitud analítica completa sigue
+hasta la síntesis.
+
+La memoria de cada sesión se guarda con el checkpointer `PostgresSaver` de
+LangGraph en la base operacional PostgreSQL existente. Cada llamada debe incluir
+un `thread_id` estable en `configurable`; conversaciones con IDs distintos no
+comparten estado. La aplicación prepara las tablas de checkpoint al iniciar el
+servicio. Las conexiones a OpenMetadata, generación SQL y Trino se entregan al
+grafo como servicios, para que sus nodos no simulen resultados cuando una
+integración no esté disponible.
+
+El catálogo de demostración muestra las tres fuentes definidas en la sección 3.1.
+En despliegue, el proveedor de fuentes activas debe consultar el registro de
+conectores y reemplazar ese catálogo de demostración.
+
 ```mermaid
 flowchart TD
     START([Mensaje del Usuario o Inicio de Sesión]) --> INTENT_ROUTER{Enrutador de Intención}
