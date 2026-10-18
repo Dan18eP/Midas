@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from typing import Any
 
+from langchain_core.messages import AIMessage
+
 from src.agent.state import AgentState
 
 
@@ -27,10 +29,15 @@ def make_introspector(
         sources = state.get("sources")
         if sources is None:
             sources = source_provider() if source_provider else DEMO_SOURCES
-        schemas = [
-            {"source": source["name"], "tables": source["tables"]}
-            for source in sources
-        ]
+        schemas = []
+        for source in sources:
+            schemas.extend(source.get("schemas", []))
+            for table in source.get("tables", []):
+                if isinstance(table, dict) and table.get("columns"):
+                    schemas.append({
+                        "table": table.get("table") or table.get("name"),
+                        "columns": table["columns"],
+                    })
         return {"sources": sources, "schemas": schemas}
 
     return introspect_schema
@@ -40,7 +47,12 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
     """Ofrece opciones o pregunta lo que falta para continuar."""
     if state.get("needs_clarification"):
         question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026?"
-        return {"clarification": question, "response": question, "suggestions": []}
+        return {
+            "clarification": question,
+            "response": question,
+            "suggestions": [],
+            "messages": [AIMessage(content=question)],
+        }
 
     suggestions = list(SUGGESTIONS)
     if state.get("intent") == "discovery":
@@ -53,6 +65,10 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
         response += "\n".join(source_lines)
         response += "\n\n¿Con cuál empezamos? También puedes elegir:\n"
         response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
-        return {"suggestions": suggestions, "response": response}
+        return {
+            "suggestions": suggestions,
+            "response": response,
+            "messages": [AIMessage(content=response)],
+        }
 
     return {"suggestions": suggestions}

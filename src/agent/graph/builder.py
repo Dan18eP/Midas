@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -23,7 +24,7 @@ def postgres_checkpointer(database_url: str) -> Iterator[PostgresSaver]:
 
 
 def build_graph(
-    checkpointer: PostgresSaver,
+    checkpointer: BaseCheckpointSaver,
     *,
     generate_sql: SqlGenerator | None = None,
     execute_query: QueryExecutor | None = None,

@@ -1,18 +1,16 @@
 """Pasos analíticos que se conectan con el generador y Trino."""
 
-import re
 from collections.abc import Callable
 
+from langchain_core.messages import AIMessage
+
+from src.agent.guardrails.prompt_injection_shield import PromptInjectionError, assert_safe_prompt
+from src.agent.guardrails.query_guardrail import QueryValidationError, validate_query
 from src.agent.state import AgentState
 
 
 SqlGenerator = Callable[[str, list[dict[str, object]]], str]
 QueryExecutor = Callable[[str], list[dict[str, object]]]
-_FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|create|truncate|grant|revoke)\b", re.I)
-_SELECT = re.compile(r"^\s*(select|with)\b", re.I)
-_LIMIT = re.compile(r"\blimit\s+\d+\b", re.I)
-
-
 def make_analytic_nodes(
     generate_sql: SqlGenerator | None,
     execute_query: QueryExecutor | None,
@@ -21,15 +19,32 @@ def make_analytic_nodes(
     def generate(state: AgentState) -> dict[str, object]:
         if generate_sql is None:
             return {"query_error": "El generador SQL no está configurado."}
-        sql = generate_sql(state.get("user_message", ""), state.get("schemas", []))
+        schemas = state.get("schemas", [])
+        if not any(
+            isinstance(entry, dict)
+            and isinstance(entry.get("table"), str)
+            and bool(entry.get("columns"))
+            for entry in schemas
+        ):
+            return {"query_error": "El catálogo de Trino no está disponible."}
+        try:
+            message = state.get("user_message", "")
+            # Detiene los intentos de anular las reglas antes de llamar al modelo.
+            assert_safe_prompt(message)
+            sql = generate_sql(message, schemas)
+        except PromptInjectionError as error:
+            return {"query_error": str(error)}
+        except Exception:
+            return {"query_error": "No pude generar una consulta segura."}
         return {"sql": sql, "query_error": ""}
 
     def validate(state: AgentState) -> dict[str, object]:
-        sql = state.get("sql", "").strip()
-        if not sql or not _SELECT.match(sql) or _FORBIDDEN.search(sql) or ";" in sql:
-            return {"query_error": state.get("query_error") or "La consulta fue bloqueada por seguridad."}
-        if not _LIMIT.search(sql):
-            sql = f"{sql.rstrip()} LIMIT 1000"
+        if state.get("query_error"):
+            return {"query_error": state["query_error"]}
+        try:
+            sql = validate_query(state.get("sql", ""), state.get("schemas", []))
+        except QueryValidationError:
+            return {"query_error": "La consulta fue bloqueada por seguridad."}
         return {"sql": sql, "query_error": ""}
 
     def execute(state: AgentState) -> dict[str, object]:
@@ -43,8 +58,10 @@ def make_analytic_nodes(
     def synthesize(state: AgentState) -> dict[str, object]:
         error = state.get("query_error", "")
         if error:
-            return {"response": error}
-        rows = state.get("query_rows", [])
-        return {"response": f"La consulta terminó. Encontré {len(rows)} filas."}
+            response = error
+        else:
+            rows = state.get("query_rows", [])
+            response = f"La consulta terminó. Encontré {len(rows)} filas."
+        return {"response": response, "messages": [AIMessage(content=response)]}
 
     return generate, validate, execute, synthesize

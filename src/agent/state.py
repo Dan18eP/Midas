@@ -10,6 +10,8 @@ class AgentState(TypedDict, total=False):
 
     messages: Annotated[list[Any], add_messages]
     user_message: str
+    pending_intent: str
+    pending_query: str
     intent: str
     needs_clarification: bool
     clarification: str
