@@ -15,8 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python requirements
-COPY src/api/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY src/api/requirements.txt /app/requirements-api.txt
+COPY src/agent/requirements.txt /app/requirements-agent.txt
+RUN pip install --no-cache-dir -r requirements-api.txt -r requirements-agent.txt
 
 # Copy source code tree
 COPY src /app/src

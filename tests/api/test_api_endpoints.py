@@ -120,3 +120,61 @@ def test_telemetry_stream_reconnection_with_last_event_id():
         assert evt_ids[2] in content_str
         # Event 0 should NOT be replayed because it was already received
         assert evt_ids[0] not in content_str
+
+
+def test_auth_roles_endpoint():
+    """Verify /api/v1/auth/roles returns the 3 canonical Zero-Trust test identities."""
+    resp = client.get("/api/v1/auth/roles")
+    assert resp.status_code == 200
+    roles = resp.json()
+    assert len(roles) == 3
+
+    role_ids = [r["role_id"] for r in roles]
+    assert "director_general" in role_ids
+    assert "gerente_norte" in role_ids
+    assert "analista_externo" in role_ids
+
+    # Validate Ranger policies defined for roles
+    gerente = next(r for r in roles if r["role_id"] == "gerente_norte")
+    assert gerente["ranger_row_filter"] == "region = 'NORTE'"
+
+    analista = next(r for r in roles if r["role_id"] == "analista_externo")
+    assert "gold_marts" in analista["locked_nodes"]
+
+
+def test_telemetry_scenarios_endpoints():
+    """Verify /api/v1/telemetry/scenarios lists T0-T3 and retrieves scenario snapshots."""
+    list_resp = client.get("/api/v1/telemetry/scenarios")
+    assert list_resp.status_code == 200
+    scenarios = list_resp.json()
+    assert set(scenarios.keys()) == {"T0", "T1", "T2", "T3"}
+
+    # Get T1 (Incidente Inyectado F3)
+    t1_resp = client.get("/api/v1/telemetry/scenarios/T1")
+    assert t1_resp.status_code == 200
+    t1_data = t1_resp.json()
+    assert t1_data["scenario_id"] == "T1"
+    assert t1_data["event_count"] >= 2
+    # Verify presence of F3 negative amount anomaly
+    slv_event = next(e for e in t1_data["events"] if e["node_id"] == "silver_cleansing")
+    assert slv_event["status"] == "DEGRADED"
+    assert slv_event["details"]["anomaly_type"] == "F3_NEGATIVE_AMOUNT"
+
+
+def test_telemetry_scenario_injection():
+    """Verify injecting a scenario broadcasts events to the hub and buffer."""
+    inject_resp = client.post("/api/v1/telemetry/scenarios/inject/T2")
+    assert inject_resp.status_code == 200
+    data = inject_resp.json()
+    assert data["status"] == "injected"
+    assert data["scenario_id"] == "T2"
+
+    # Verify hub buffer now has the Guardian PB-03 auto-healing events
+    buf_resp = client.get("/api/v1/telemetry/buffer")
+    assert buf_resp.status_code == 200
+    events = buf_resp.json()["events"]
+    guardian_evts = [e for e in events if e["node_id"] == "guardian_monitor"]
+    assert len(guardian_evts) >= 1
+    assert guardian_evts[0]["status"] == "AUTO_HEALING"
+    assert guardian_evts[0]["details"]["playbook_id"] == "PB-03-QUARANTINE"
+

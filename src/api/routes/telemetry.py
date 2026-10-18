@@ -1,7 +1,7 @@
 """Telemetry Server-Sent Events (SSE) streaming and event publishing routes."""
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Header, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -106,3 +106,66 @@ async def reset_buffer() -> Dict[str, Any]:
     hub = get_telemetry_hub()
     hub.clear()
     return {"status": "cleared", "buffer_size": 0}
+
+
+# ==============================================================================
+# Time-Travel Replay Scenarios (HU-FRONT-03 / Canvas Demo)
+# ==============================================================================
+
+
+@router.get(
+    "/scenarios",
+    summary="List Predefined Time-Travel Scenarios",
+    description="Returns available Time-Travel demo scenarios (T0, T1, T2, T3) per canonical frontend specification.",
+)
+async def get_scenarios() -> Dict[str, str]:
+    """List available Time-Travel scenarios."""
+    from src.core.telemetry.scenarios import list_available_scenarios
+
+    return list_available_scenarios()
+
+
+@router.get(
+    "/scenarios/{scenario_id}",
+    summary="Get Events for a Time-Travel Scenario",
+    description="Returns the snapshot events for a given scenario (T0, T1, T2, T3).",
+)
+async def get_scenario(scenario_id: str) -> Dict[str, Any]:
+    """Retrieve snapshot events for a specific scenario."""
+    from src.core.telemetry.scenarios import get_scenario_events
+
+    try:
+        events = get_scenario_events(scenario_id)
+        return {
+            "scenario_id": scenario_id.upper(),
+            "event_count": len(events),
+            "events": [e.to_dict() for e in events],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/scenarios/inject/{scenario_id}",
+    summary="Inject a Time-Travel Scenario into Live SSE Hub",
+    description="Broadcasts all events from scenario T0, T1, T2, or T3 to all active SSE subscribers.",
+)
+async def inject_scenario(scenario_id: str) -> Dict[str, Any]:
+    """Inject scenario events into live SSE stream."""
+    from src.core.telemetry.scenarios import get_scenario_events
+
+    try:
+        events = get_scenario_events(scenario_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    hub = get_telemetry_hub()
+    for event in events:
+        await hub.publish(event)
+
+    return {
+        "status": "injected",
+        "scenario_id": scenario_id.upper(),
+        "injected_events": len(events),
+    }
+

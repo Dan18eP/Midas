@@ -19,6 +19,25 @@ class NodeStatus(str, Enum):
     AUTO_HEALING = "AUTO_HEALING"
 
 
+class AnomalyType(str, Enum):
+    """Canonical Midas Guardian anomaly types (F1-F5) per specification 04."""
+    F1_DUPLICATE_KEY = "F1_DUPLICATE_KEY"
+    F2_VOLUME_SPIKE = "F2_VOLUME_SPIKE"
+    F3_NEGATIVE_AMOUNT = "F3_NEGATIVE_AMOUNT"
+    F4_SCHEMA_DRIFT = "F4_SCHEMA_DRIFT"
+    F5_ORPHAN_FOREIGN_KEY = "F5_ORPHAN_FOREIGN_KEY"
+
+
+class GuardianDetails(BaseModel):
+    """Structured operational details for Midas Guardian auto-healing events."""
+    anomaly_type: Optional[AnomalyType] = Field(None, description="Identified anomaly pattern.")
+    playbook_id: Optional[str] = Field(None, description="Identifier of the executing playbook (e.g. PB-03-QUARANTINE).")
+    action_taken: Optional[str] = Field(None, description="Automated remediation action performed.")
+    quarantined_records: int = Field(0, ge=0, description="Count of diverted quarantined records.")
+    message: Optional[str] = Field(None, description="Diagnostic human-readable message.")
+
+
+
 class TelemetryEvent(BaseModel):
     """Canonical telemetry event emitted by Lakehouse and pipeline nodes."""
 

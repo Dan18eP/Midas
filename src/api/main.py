@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.middleware import CorrelationIdMiddleware
+from src.api.routes.auth import router as auth_router
 from src.api.routes.health import router as health_router
 from src.api.routes.telemetry import router as telemetry_router
 from src.core.telemetry.hub import get_telemetry_hub
@@ -40,7 +41,8 @@ app = FastAPI(
         "Key Services:\n"
         "- **Server-Sent Events (SSE) Hub**: Real-time event broadcasting to React Flow Canvas.\n"
         "- **Distributed Tracing**: Automated X-Correlation-ID propagation.\n"
-        "- **Pipeline Observability**: Telemetry ingestion for Bronze, Silver, Gold, and Guardian nodes."
+        "- **Pipeline Observability**: Telemetry ingestion for Bronze, Silver, Gold, and Guardian nodes.\n"
+        "- **Zero-Trust Lens**: Security role switching and Ranger policy simulation."
     ),
     version="1.0.0",
     docs_url="/docs",
@@ -59,12 +61,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Correlation-ID", "Last-Event-ID", "Content-Type"],
+    expose_headers=["X-Correlation-ID", "X-User-Role", "Last-Event-ID", "Content-Type"],
 )
 
 # 3. Register Route Controllers
 app.include_router(health_router)
 app.include_router(telemetry_router)
+app.include_router(auth_router)
 
 
 @app.get("/", include_in_schema=False)
