@@ -109,7 +109,15 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
     intent = result_state.get("intent")
     needs_clarification = result_state.get("needs_clarification", False)
 
-    # If raw_response is a serialized JSON string (from storytelling synthesis), unpack it safely
+    # Check structured storytelling_result from HU-AI-03
+    storytelling_result = result_state.get("storytelling_result")
+    if isinstance(storytelling_result, dict):
+        if not echarts_option and "echarts_option" in storytelling_result:
+            echarts_option = storytelling_result["echarts_option"]
+        if not metrics_summary and "metrics_summary" in storytelling_result:
+            metrics_summary = storytelling_result["metrics_summary"]
+
+    # If raw_response is a serialized JSON string (fallback), unpack it safely
     clean_markdown = raw_response
     if isinstance(raw_response, str) and raw_response.strip().startswith("{") and raw_response.strip().endswith("}"):
         try:

@@ -21,4 +21,5 @@ class AgentState(TypedDict, total=False):
     sql: str
     query_error: str
     query_rows: list[dict[str, Any]]
+    storytelling_result: dict[str, Any] | None
     response: str
