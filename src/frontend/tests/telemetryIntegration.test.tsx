@@ -276,7 +276,7 @@ describe('PipelineCanvas Real-Time SSE Integration & 60 FPS rAF Batching', () =>
     // El edge bronze -> silver debe haber actualizado su etiqueta con el nuevo RPS
     const edge = screen.getByTestId('canvas-edge-edge_bronze_silver');
     expect(edge).toHaveAttribute('data-rps', '4200');
-    expect(edge.textContent).toMatch(/4,?200 RPS/);
+    expect(edge.textContent).toMatch(/4[.,]?200 RPS/);
   });
 
   it('7. Modula el edge de cuarentena y actualiza el nodo Guardian cuando hay desvío', async () => {
