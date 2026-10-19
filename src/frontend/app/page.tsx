@@ -2,11 +2,13 @@
 
 import React from 'react';
 import { PipelineCanvas } from '@/components/canvas/PipelineCanvas';
-import { Shield, Sparkles, Database, Terminal, Cpu } from 'lucide-react';
+import { Shield } from 'lucide-react';
+import { CopilotChatDrawer, CopilotChatPanel, CopilotChatProvider, CopilotChatWidget } from '@/components/copilot';
 
 export default function MidasConsolePage() {
   return (
-    <div className="flex h-screen w-screen flex-col bg-[#0B0F17]">
+    <CopilotChatProvider>
+      <div className="flex h-screen w-screen flex-col bg-[#0B0F17]">
       {/* 1. Header Ejecutivo Corporativo */}
       <header className="flex h-14 w-full items-center justify-between border-b border-slate-800/80 bg-slate-950/80 px-6 backdrop-blur-md">
         {/* Marca y Subtítulo */}
@@ -70,64 +72,19 @@ export default function MidasConsolePage() {
           <PipelineCanvas />
         </section>
 
-        {/* Panel Derecho: Copiloto Agéntico (35% width - Placeholder HU-FRONT-04 / HU-AI-01) */}
+        {/* Panel Derecho: Copiloto Agéntico (35% width - HU-FRONT-04 / HU-AI-01) */}
         <section
           aria-label="Copiloto Agéntico y Data Storytelling"
           className="hidden xl:flex w-[420px] flex-col bg-slate-950/80 border-l border-slate-800/60 p-4"
         >
-          {/* Header Copiloto */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-950 text-indigo-400">
-                <Sparkles className="h-4 w-4" />
-              </div>
-              <div>
-                <h2 className="text-xs font-bold text-slate-100">Copiloto Agéntico</h2>
-                <span className="text-[10px] text-slate-400">LangGraph · Data Storytelling</span>
-              </div>
-            </div>
-            <span className="rounded-full bg-emerald-950/60 border border-emerald-600/40 px-2 py-0.5 text-[10px] font-mono text-emerald-400">
-              En Línea
-            </span>
-          </div>
-
-          {/* Área de Conversación Mock / Frontera */}
-          <div className="flex-1 overflow-y-auto py-4 space-y-3 pr-1 text-xs">
-            {/* Mensaje Proactivo de Bienvenida */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5 space-y-2">
-              <div className="flex items-center gap-1.5 text-indigo-400 font-semibold text-[11px]">
-                <Cpu className="h-3.5 w-3.5" />
-                <span>Briefing Matutino Proactivo:</span>
-              </div>
-              <p className="text-slate-300 leading-relaxed text-[11px]">
-                "Detectadas 3 fuentes de datos sincronizadas en MinIO Bronze. Se completó el lote de 6,690 registros. Silver identificó 14 transacciones con anomalías F3 desviadas a cuarentena por Midas Guardian."
-              </p>
-              <div className="rounded bg-slate-950/80 p-2 font-mono text-[10px] text-slate-400 border border-slate-800/80 flex items-center justify-between">
-                <span>✓ Sello Calidad: 100% Contratos</span>
-                <span className="text-emerald-400 font-bold">Iceberg v2</span>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-4 text-center">
-              <p className="text-[11px] text-slate-500">
-                Superficie reservada para el chat interactivo de Joshua Gonzales (<code className="text-indigo-400">HU-FRONT-04</code>) y el motor conversacional de Elian Rivera (<code className="text-indigo-400">HU-AI-01</code>).
-              </p>
-            </div>
-          </div>
-
-          {/* Input Prompt Footer */}
-          <div className="pt-3 border-t border-slate-800">
-            <div className="relative">
-              <input
-                type="text"
-                disabled
-                placeholder="Pregunta a Midas o escribe 'Crea vista Gold...' (HU-FRONT-04)"
-                className="w-full rounded-xl border border-slate-800 bg-slate-900/50 px-3.5 py-2.5 text-xs text-slate-400 placeholder-slate-600 cursor-not-allowed focus:outline-none"
-              />
-            </div>
-          </div>
+          <CopilotChatPanel />
         </section>
       </main>
-    </div>
+
+      {/* Frontera HU-FRONT-04: Widget flotante + Drawer expandible del Copiloto */}
+      <CopilotChatWidget />
+      <CopilotChatDrawer />
+      </div>
+    </CopilotChatProvider>
   );
 }
