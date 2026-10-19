@@ -10,7 +10,12 @@ class QueryValidationError(ValueError):
     """La consulta no cumple el contrato de solo lectura del catálogo."""
 
 
-def validate_query(sql: str, catalog: Sequence[Mapping[str, object]]) -> str:
+def validate_query(
+    sql: str,
+    catalog: Sequence[Mapping[str, object]],
+    *,
+    add_limit: bool = True,
+) -> str:
     """Validate one Trino SELECT and add the required row limit."""
     if not catalog:
         raise QueryValidationError("El catálogo de Trino no está disponible.")
@@ -68,7 +73,7 @@ def validate_query(sql: str, catalog: Sequence[Mapping[str, object]]) -> str:
         if not all(column.name.casefold() in tables[name] for name in table_aliases.values()):
             raise QueryValidationError(f"La columna '{column.name}' no es válida en todas las tablas consultadas.")
 
-    if query.args.get("limit") is None:
+    if add_limit and query.args.get("limit") is None:
         query = query.limit(1000)
     return query.sql(dialect="trino")
 
