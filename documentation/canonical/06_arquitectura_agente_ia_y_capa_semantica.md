@@ -129,10 +129,33 @@ no se genera ni ejecuta una consulta analítica.
 - Ranger intercepta y aplica las políticas de enmascaramiento y filtrado de forma transparente.
 
 ### 3.5. `StorytellingNode` y Chips de "Explícame esta Cifra"
-- Redacta la respuesta en 3 bloques ejecutivos: **1) Hallazgo Principal, 2) Comparativa Histórica, 3) Recomendación de Negocio**.
-- Convierte cada métrica calculada en un chip interactivo con enlace a su linaje completo (abriendo el Drawer de linaje al hacer clic).
-- Genera la especificación JSON de **Apache ECharts** para renderizar gráficos de líneas, barras o donas directamente en el chat.
-- Adjunta el **Sello de Certificación** (frescura en MinIO y % de calidad en OpenMetadata).
+- Sintetiza exclusivamente las filas devueltas por Trino en un resultado estructurado con tres campos:
+  - `narrative`: resumen Markdown con hallazgos y recomendación de negocio.
+  - `echarts_option`: opción compatible con Apache ECharts, con título, tooltip,
+    leyenda, ejes cuando correspondan y la paleta Midas (`#0F766E`, `#14B8A6`,
+    `#F59E0B`, `#1E293B`).
+  - `metrics_summary`: lista de cifras observadas con etiqueta, valor original,
+    columna de origen e índice de fila para que el cliente pueda abrir el drawer
+    de linaje correspondiente.
+- El generador narrativo no calcula cifras nuevas. Cada número en `narrative`
+  debe copiarse literalmente de un valor numérico presente en las filas de
+  Trino; conteos, porcentajes, diferencias y promedios no observados no se
+  agregan.
+- El sintetizador de gráficos decide el tipo a partir de los valores y nombres
+  de columnas, en este orden: una dimensión temporal con valores numéricos usa
+  línea con área; dos columnas numéricas usan dispersión; una categoría
+  discreta junto a una columna numérica usa barras horizontales. Si no hay
+  suficientes datos para esos casos, devuelve una opción ECharts válida sin
+  series y explica la limitación sin inventar cifras.
+- El contrato del estado del agente separa el texto para el chat de los datos
+  de visualización: `state.response` contiene solo `narrative` en Markdown y el
+  historial `messages` presenta ese mismo texto. `state.storytelling_result`
+  conserva el objeto serializable con `narrative`, `echarts_option` y
+  `metrics_summary`, para que la API exponga los gráficos y el linaje en campos
+  estructurados sin mostrarlos como JSON crudo en el chat.
+- Ante un error de consulta, `state.response` contiene el mensaje de error y
+  `state.storytelling_result` queda vacío. La síntesis se ejecuta después de
+  Trino y no altera las filas recibidas.
 
 ### 3.6. `TextToGoldPlannerNode` (Pipeline-as-a-Prompt Multi-Fuente)
 - Cuando el usuario solicita un cruce complejo (ej. transacciones de PostgreSQL con metas del Excel):
@@ -140,6 +163,15 @@ no se genera ni ejecuta una consulta analítica.
   2. Valida que el costo de escaneo sea seguro (**Semáforo Verde**).
   3. Muestra una vista previa de 5 filas en el chat.
   4. Genera el contrato declarativo en `s3://midas-governance/airflow-specs/` y pide la aprobación del usuario para activar el DAG en Airflow.
+
+### 3.7. Confirmación y contrato de materialización Gold
+- La materialización solo se publica después de una confirmación explícita del usuario.
+- El backend valida una única consulta `SELECT` con el catálogo de Trino, conserva el SQL validado y deriva un nombre seguro para el DAG y la tabla `gold`.
+- El YAML en `midas-governance/airflow-specs/dag_gold_<nombre>.yaml` contiene `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table` y `quality_policies`. No contiene código Python generado por el modelo.
+- La fábrica de Airflow vuelve a consultar el prefijo `airflow-specs/` durante el ciclo de parseo del scheduler; así puede registrar nuevos DAGs sin reiniciar el scheduler. Cada DAG ejecuta la transformación Spark con sus políticas de calidad y publica un aviso SSE.
+- Después de publicar el YAML, se emite un evento SSE `telemetry` con `details.event_type = NEW_GOLD_NODE_AVAILABLE`, el identificador del DAG y la tabla destino. El cliente usa `node_id` para agregar o actualizar el nodo Gold.
+- El botón de aprobación del Canvas envía `Materializa este reporte como tabla Gold diaria` por `POST /api/v1/agent/chat`. El backend reutiliza el SQL y el catálogo validados en ese `thread_id`; sin una consulta previa, devuelve un conflicto y no publica.
+- El endpoint `POST /api/v1/agent/materialize` también permite publicar contratos desde clientes que envían explícitamente el SQL, el catálogo, el nombre del reporte, el cron y `confirmed`. Si `confirmed` es falso, no escribe el contrato ni emite el evento.
 
 ---
 

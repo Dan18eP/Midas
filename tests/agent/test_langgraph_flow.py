@@ -44,7 +44,10 @@ def test_analytic_request_runs_sql_guardrails_and_query():
     result = invoke_turn(graph, "session-1", "Compara ingresos para 2026")
 
     assert seen_queries == ["SELECT region FROM silver.crm_transacciones LIMIT 1000"]
-    assert "1 filas" in result["response"]
+    assert result["response"] == result["storytelling_result"]["narrative"]
+    assert result["response"].startswith("## Hallazgo principal")
+    assert result["storytelling_result"]["echarts_option"]["series"] == []
+    assert result["storytelling_result"]["metrics_summary"] == []
 
 
 def test_session_memory_is_isolated_by_thread_id():

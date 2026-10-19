@@ -138,9 +138,86 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_URL: ${OPERATIONAL_DB_URL:-postgresql://midas_admin:midas_secret_password_2026@midas-postgres:5432/midas_operational}
       MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-midas_minio_admin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
     ports:
       - "${API_PORT:-8000}:8000"
+    networks:
+      - midas-network
+
+  # --------------------------------------------------------------------------
+  # 5. Airflow DAG Factory for approved Gold pipeline specs
+  # --------------------------------------------------------------------------
+  midas-airflow-init:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: midas-airflow-init
+    profiles: ["orchestration", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+      midas-minio-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/bash", "/opt/airflow/init.sh"]
+    environment: &airflow-environment
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-midas_admin}:${POSTGRES_PASSWORD:-midas_secret_password_2026}@midas-postgres:5432/airflow_db
+      AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 30
+      AIRFLOW_CONN_SPARK_DEFAULT: ${AIRFLOW_CONN_SPARK_DEFAULT:-spark://midas-spark-master:7077}
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-midas_airflow_admin_2026}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@midas.local}
+      MIDAS_MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      MIDAS_GOLD_SPARK_JOB: ${MIDAS_GOLD_SPARK_JOB:-/opt/midas/jobs/materialize_gold.py}
+      MIDAS_TELEMETRY_PUBLISH_URL: http://midas-api:8000/api/v1/telemetry/publish
+      PYTHONPATH: /opt/midas
+    volumes: &airflow-volumes
+      - ./docker/airflow/init.sh:/opt/airflow/init.sh:ro
+      - ./src/orchestration:/opt/airflow/dags:ro
+      - ./src:/opt/midas/src:ro
+      - ./jobs:/opt/midas/jobs:ro
+    networks:
+      - midas-network
+
+  midas-airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: midas-airflow-webserver
+    restart: unless-stopped
+    profiles: ["orchestration", "full"]
+    depends_on:
+      midas-airflow-init:
+        condition: service_completed_successfully
+    command: webserver
+    environment: *airflow-environment
+    volumes: *airflow-volumes
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT:-8085}:8080"
+    networks:
+      - midas-network
+
+  midas-airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: midas-airflow-scheduler
+    restart: unless-stopped
+    profiles: ["orchestration", "full"]
+    depends_on:
+      midas-airflow-init:
+        condition: service_completed_successfully
+    command: scheduler
+    environment: *airflow-environment
+    volumes: *airflow-volumes
     networks:
       - midas-network
