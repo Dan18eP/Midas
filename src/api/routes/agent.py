@@ -7,12 +7,14 @@ and Punto 2.5 of documentation/reviews/review-pr-023-hu-ai-01-langgraph.md.
 from datetime import datetime, timezone
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 import uuid
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("midas.api.agent")
+GOLD_MATERIALIZATION_CONFIRMATION = "materializa este reporte como tabla gold diaria"
 
 router = APIRouter(prefix="/api/v1/agent", tags=["Copilot Agent & Conversational AI"])
 
@@ -36,6 +38,24 @@ class ChatResponse(BaseModel):
     echarts_option: Optional[Dict[str, Any]] = Field(None, description="Apache ECharts JSON configuration option.")
     metrics_summary: List[Dict[str, Any]] = Field(default_factory=list, description="Structured lineage metrics summary.")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MaterializeRequest(BaseModel):
+    """Confirmed request to schedule a validated Gold query."""
+
+    report_name: str = Field(..., min_length=1)
+    sql: str = Field(..., min_length=1)
+    catalog: List[Dict[str, Any]]
+    cron_schedule: str = "0 0 * * *"
+    confirmed: bool = False
+
+
+class MaterializeResponse(BaseModel):
+    """Location of the contract consumed by Airflow."""
+
+    spec_uri: str
+    pipeline_id: str
+    output_table: str
 
 
 # Lazily-compiled LangGraph singleton
@@ -93,7 +113,34 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
         from src.agent.graph.builder import invoke_turn
 
         graph = get_agent_graph()
+        if _is_gold_materialization_confirmation(user_message):
+            snapshot = graph.get_state({"configurable": {"thread_id": thread_id}})
+            previous_state = snapshot.values if snapshot else {}
+            sql = previous_state.get("sql")
+            schemas = previous_state.get("schemas", [])
+            if not sql or not schemas:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Run a validated report in this chat before confirming Gold materialization.",
+                )
+
+            from src.agent.tools.dag_generator import build_pipeline_spec, publish_pipeline_spec
+
+            spec = build_pipeline_spec(
+                previous_state.get("user_message", "Gold report"),
+                sql,
+                schemas,
+            )
+            spec_uri = publish_pipeline_spec(spec, confirmed=True)
+            return ChatResponse(
+                thread_id=thread_id,
+                intent="materialize_gold",
+                response=f"Gold pipeline **{spec.pipeline_id}** is scheduled daily. Contract: `{spec_uri}`.",
+            )
+
         result_state = invoke_turn(graph=graph, thread_id=thread_id, user_message=user_message)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Error executing agent turn for thread '%s': %s", thread_id, exc, exc_info=True)
         raise HTTPException(
@@ -140,3 +187,36 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
         echarts_option=echarts_option if isinstance(echarts_option, dict) else None,
         metrics_summary=metrics_summary if isinstance(metrics_summary, list) else [],
     )
+
+
+@router.post(
+    "/materialize",
+    response_model=MaterializeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Publish a confirmed Gold pipeline",
+)
+async def materialize_gold_pipeline(payload: MaterializeRequest) -> MaterializeResponse:
+    """Publish a safe declarative contract after explicit user approval."""
+    from src.agent.tools.dag_generator import build_pipeline_spec, publish_pipeline_spec
+
+    try:
+        spec = build_pipeline_spec(
+            payload.report_name,
+            payload.sql,
+            payload.catalog,
+            cron_schedule=payload.cron_schedule,
+        )
+        uri = publish_pipeline_spec(spec, confirmed=payload.confirmed)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Could not publish Gold pipeline contract")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not publish the pipeline contract") from exc
+
+    return MaterializeResponse(spec_uri=uri, pipeline_id=spec.pipeline_id, output_table=spec.output_table)
+
+
+def _is_gold_materialization_confirmation(message: str) -> bool:
+    """Match the confirmation text sent by the frontend approval card."""
+    normalized = re.sub(r"[.!?\s]+", " ", message.casefold()).strip()
+    return normalized == GOLD_MATERIALIZATION_CONFIRMATION
