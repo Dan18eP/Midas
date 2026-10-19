@@ -1,5 +1,6 @@
 """Pasos analíticos que se conectan con el generador y Trino."""
 
+import json
 from collections.abc import Callable
 
 from langchain_core.messages import AIMessage
@@ -7,6 +8,7 @@ from langchain_core.messages import AIMessage
 from src.agent.guardrails.prompt_injection_shield import PromptInjectionError, assert_safe_prompt
 from src.agent.guardrails.query_guardrail import QueryValidationError, validate_query
 from src.agent.state import AgentState
+from src.agent.storytelling import synthesize_storytelling
 
 
 SqlGenerator = Callable[[str, list[dict[str, object]]], str]
@@ -59,9 +61,14 @@ def make_analytic_nodes(
         error = state.get("query_error", "")
         if error:
             response = error
+            result = None
         else:
             rows = state.get("query_rows", [])
-            response = f"La consulta terminó. Encontré {len(rows)} filas."
-        return {"response": response, "messages": [AIMessage(content=response)]}
+            result = synthesize_storytelling(rows)
+            response = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        update: dict[str, object] = {"response": response, "messages": [AIMessage(content=response)]}
+        if result is not None:
+            update["storytelling_result"] = result
+        return update
 
     return generate, validate, execute, synthesize

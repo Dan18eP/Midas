@@ -129,10 +129,26 @@ no se genera ni ejecuta una consulta analítica.
 - Ranger intercepta y aplica las políticas de enmascaramiento y filtrado de forma transparente.
 
 ### 3.5. `StorytellingNode` y Chips de "Explícame esta Cifra"
-- Redacta la respuesta en 3 bloques ejecutivos: **1) Hallazgo Principal, 2) Comparativa Histórica, 3) Recomendación de Negocio**.
-- Convierte cada métrica calculada en un chip interactivo con enlace a su linaje completo (abriendo el Drawer de linaje al hacer clic).
-- Genera la especificación JSON de **Apache ECharts** para renderizar gráficos de líneas, barras o donas directamente en el chat.
-- Adjunta el **Sello de Certificación** (frescura en MinIO y % de calidad en OpenMetadata).
+- Sintetiza exclusivamente las filas devueltas por Trino en una respuesta JSON con tres campos:
+  - `narrative`: resumen Markdown con hallazgos y recomendación de negocio.
+  - `echarts_option`: opción compatible con Apache ECharts, con título, tooltip,
+    leyenda, ejes cuando correspondan y la paleta Midas (`#0F766E`, `#14B8A6`,
+    `#F59E0B`, `#1E293B`).
+  - `metrics_summary`: lista de cifras observadas con etiqueta, valor original,
+    columna de origen e índice de fila para que el cliente pueda abrir el drawer
+    de linaje correspondiente.
+- El generador narrativo no calcula cifras nuevas. Cada número en `narrative`
+  debe copiarse literalmente de un valor numérico presente en las filas de
+  Trino; conteos, porcentajes, diferencias y promedios no observados no se
+  agregan.
+- El sintetizador de gráficos decide el tipo a partir de los valores y nombres
+  de columnas, en este orden: una dimensión temporal con valores numéricos usa
+  línea con área; dos columnas numéricas usan dispersión; una categoría
+  discreta junto a una columna numérica usa barras horizontales. Si no hay
+  suficientes datos para esos casos, devuelve una opción ECharts válida sin
+  series y explica la limitación sin inventar cifras.
+- El formato público se mantiene como JSON serializable para el consumidor del
+  chat. La síntesis se ejecuta después de Trino y no altera las filas recibidas.
 
 ### 3.6. `TextToGoldPlannerNode` (Pipeline-as-a-Prompt Multi-Fuente)
 - Cuando el usuario solicita un cruce complejo (ej. transacciones de PostgreSQL con metas del Excel):
