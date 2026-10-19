@@ -37,9 +37,14 @@ def build_narrative(rows: list[dict[str, object]]) -> str:
             "Usar estos resultados como base para revisar el comportamiento observado y definir la acción adecuada con el equipo responsable.",
         ]
     )
+    _validate_source_numbers(narrative, source_numbers)
+    return narrative
+
+
+def _validate_source_numbers(narrative: str, source_numbers: set[str]) -> None:
+    """Reject any figure that is not present in the Trino values."""
     if any(token not in source_numbers for token in _NUMBER.findall(narrative)):
         raise ValueError("La narrativa contiene una cifra que no proviene de Trino.")
-    return narrative
 
 
 def _is_number(value: object) -> bool:

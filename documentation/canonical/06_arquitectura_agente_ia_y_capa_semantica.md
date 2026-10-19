@@ -129,7 +129,7 @@ no se genera ni ejecuta una consulta analítica.
 - Ranger intercepta y aplica las políticas de enmascaramiento y filtrado de forma transparente.
 
 ### 3.5. `StorytellingNode` y Chips de "Explícame esta Cifra"
-- Sintetiza exclusivamente las filas devueltas por Trino en una respuesta JSON con tres campos:
+- Sintetiza exclusivamente las filas devueltas por Trino en un resultado estructurado con tres campos:
   - `narrative`: resumen Markdown con hallazgos y recomendación de negocio.
   - `echarts_option`: opción compatible con Apache ECharts, con título, tooltip,
     leyenda, ejes cuando correspondan y la paleta Midas (`#0F766E`, `#14B8A6`,
@@ -147,8 +147,15 @@ no se genera ni ejecuta una consulta analítica.
   discreta junto a una columna numérica usa barras horizontales. Si no hay
   suficientes datos para esos casos, devuelve una opción ECharts válida sin
   series y explica la limitación sin inventar cifras.
-- El formato público se mantiene como JSON serializable para el consumidor del
-  chat. La síntesis se ejecuta después de Trino y no altera las filas recibidas.
+- El contrato del estado del agente separa el texto para el chat de los datos
+  de visualización: `state.response` contiene solo `narrative` en Markdown y el
+  historial `messages` presenta ese mismo texto. `state.storytelling_result`
+  conserva el objeto serializable con `narrative`, `echarts_option` y
+  `metrics_summary`, para que la API exponga los gráficos y el linaje en campos
+  estructurados sin mostrarlos como JSON crudo en el chat.
+- Ante un error de consulta, `state.response` contiene el mensaje de error y
+  `state.storytelling_result` queda vacío. La síntesis se ejecuta después de
+  Trino y no altera las filas recibidas.
 
 ### 3.6. `TextToGoldPlannerNode` (Pipeline-as-a-Prompt Multi-Fuente)
 - Cuando el usuario solicita un cruce complejo (ej. transacciones de PostgreSQL con metas del Excel):

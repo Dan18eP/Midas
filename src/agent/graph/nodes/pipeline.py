@@ -1,6 +1,5 @@
 """Pasos analíticos que se conectan con el generador y Trino."""
 
-import json
 from collections.abc import Callable
 
 from langchain_core.messages import AIMessage
@@ -65,10 +64,11 @@ def make_analytic_nodes(
         else:
             rows = state.get("query_rows", [])
             result = synthesize_storytelling(rows)
-            response = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-        update: dict[str, object] = {"response": response, "messages": [AIMessage(content=response)]}
-        if result is not None:
-            update["storytelling_result"] = result
-        return update
+            response = str(result["narrative"])
+        return {
+            "response": response,
+            "messages": [AIMessage(content=response)],
+            "storytelling_result": result,
+        }
 
     return generate, validate, execute, synthesize
