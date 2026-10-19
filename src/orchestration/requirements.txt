@@ -1,0 +1,4 @@
+apache-airflow-providers-apache-spark==4.9.0
+minio>=7.2.0,<8.0.0
+PyYAML>=6.0,<7.0
+sqlglot>=26.0,<28.0

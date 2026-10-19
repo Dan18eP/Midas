@@ -164,6 +164,15 @@ no se genera ni ejecuta una consulta analítica.
   3. Muestra una vista previa de 5 filas en el chat.
   4. Genera el contrato declarativo en `s3://midas-governance/airflow-specs/` y pide la aprobación del usuario para activar el DAG en Airflow.
 
+### 3.7. Confirmación y contrato de materialización Gold
+- La materialización solo se publica después de una confirmación explícita del usuario.
+- El backend valida una única consulta `SELECT` con el catálogo de Trino, conserva el SQL validado y deriva un nombre seguro para el DAG y la tabla `gold`.
+- El YAML en `midas-governance/airflow-specs/dag_gold_<nombre>.yaml` contiene `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table` y `quality_policies`. No contiene código Python generado por el modelo.
+- La fábrica de Airflow vuelve a consultar el prefijo `airflow-specs/` durante el ciclo de parseo del scheduler; así puede registrar nuevos DAGs sin reiniciar el scheduler. Cada DAG ejecuta la transformación Spark con sus políticas de calidad y publica un aviso SSE.
+- Después de publicar el YAML, se emite un evento SSE `telemetry` con `details.event_type = NEW_GOLD_NODE_AVAILABLE`, el identificador del DAG y la tabla destino. El cliente usa `node_id` para agregar o actualizar el nodo Gold.
+- El botón de aprobación del Canvas envía `Materializa este reporte como tabla Gold diaria` por `POST /api/v1/agent/chat`. El backend reutiliza el SQL y el catálogo validados en ese `thread_id`; sin una consulta previa, devuelve un conflicto y no publica.
+- El endpoint `POST /api/v1/agent/materialize` también permite publicar contratos desde clientes que envían explícitamente el SQL, el catálogo, el nombre del reporte, el cron y `confirmed`. Si `confirmed` es falso, no escribe el contrato ni emite el evento.
+
 ---
 
 ## 4. Ejemplos de Diálogo Guiado en la Plataforma
