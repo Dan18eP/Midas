@@ -13,7 +13,7 @@ const STAGE_CONFIG = {
     titleColor: 'text-[#1C1E21]',
     iconBg: 'bg-[#FAF2EE] border border-[#E2B7A6]',
     borderClass: 'border-2 border-[#ECCFC5] shadow-[0_3px_10px_rgba(200,106,67,0.06)]',
-    tagBg: 'bg-[#FAF8F5] border border-[#EAE4D9] text-[#4B4639]',
+    tagBg: 'bg-[#FAFAFA] border border-[#F0EDE7] text-[#4B4639]',
     bulletColor: 'text-[#C86A43]',
     outHandleBg: '!bg-[#C86A43]',
   },
@@ -24,7 +24,7 @@ const STAGE_CONFIG = {
     titleColor: 'text-[#1C1E21]',
     iconBg: 'bg-[#F1F5F9] border border-[#CBD5E1]',
     borderClass: 'border-2 border-[#CBD5E1] shadow-[0_3px_10px_rgba(100,116,139,0.06)]',
-    tagBg: 'bg-[#F8FAFC] border border-[#E2E8F0] text-[#4B4639]',
+    tagBg: 'bg-[#FAFAFA] border border-[#F0EDE7] text-[#4B4639]',
     bulletColor: 'text-[#64748B]',
     outHandleBg: '!bg-[#D4AF37]',
   },
@@ -33,9 +33,9 @@ const STAGE_CONFIG = {
     badgeText: 'Gold · Certified Marts',
     accentColor: 'text-[#B8860B]',
     titleColor: 'text-[#8C6D1F]',
-    iconBg: 'bg-[#FCF8EC] border border-[#D4AF37]',
+    iconBg: 'bg-[#FBF8EF] border border-[#D4AF37]',
     borderClass: 'border-2 border-[#D4AF37] shadow-[0_4px_16px_rgba(212,175,55,0.14)]',
-    tagBg: 'bg-[#FDFBF7] border border-[#EFE5C8] text-[#8C6D1F]',
+    tagBg: 'bg-[#FBF8EF] border border-[#F0EDE7] text-[#8C6D1F]',
     bulletColor: 'text-[#B8860B]',
     outHandleBg: '!bg-[#D4AF37]',
   },
@@ -55,7 +55,7 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
       className={`relative w-72 rounded-xl bg-[#FFFFFF] p-3.5 transition-all duration-200 ${
         stageMeta.borderClass
       } ${
-        selected ? 'ring-2 ring-[#D4AF37] ring-offset-2 ring-offset-[#FFFFFF]' : 'hover:border-[#BFA882]'
+        selected ? 'ring-2 ring-[#D4AF37] ring-offset-2 ring-offset-[#FFFFFF]' : 'hover:border-[#D4AF37]'
       }`}
     >
       {/* Puerto de Entrada (Left) */}
@@ -63,11 +63,11 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
         type="target"
         position={Position.Left}
         id="in"
-        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#BFA882] transition-transform hover:!scale-125"
+        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#D4AF37] transition-transform hover:!scale-125"
       />
 
       {/* Cabecera del Nodo Medallón */}
-      <div className="flex items-center justify-between pb-2 border-b border-[#F2ECE1]">
+      <div className="flex items-center justify-between pb-2 border-b border-[#F0EDE7]">
         <div className="flex items-center gap-2.5">
           <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${stageMeta.iconBg} ${stageMeta.accentColor}`}>
             <IconComponent className="h-4.5 w-4.5" aria-hidden="true" />
@@ -96,13 +96,13 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
 
       {/* Métricas Principales */}
       <div className="mt-2.5 grid grid-cols-2 gap-2 text-[10px] font-mono">
-        <div className="rounded bg-[#FAF8F5] border border-[#EAE4D9] p-2">
+        <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Recibidas</span>
           <span className="text-xs font-semibold text-[#1E293B]">
             {nodeData.recordsIn !== undefined ? nodeData.recordsIn.toLocaleString() : 'N/D'}
           </span>
         </div>
-        <div className="rounded bg-[#FAF8F5] border border-[#EAE4D9] p-2">
+        <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Válidas</span>
           <span className="text-xs font-semibold text-[#4D7C0F]">
             {nodeData.recordsOut !== undefined ? nodeData.recordsOut.toLocaleString() : 'N/D'}

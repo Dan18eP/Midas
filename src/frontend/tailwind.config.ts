@@ -11,17 +11,17 @@ const config: Config = {
     extend: {
       colors: {
         neutral: {
-          base: '#FBF9F5',
+          background: '#FFFFFF',
           card: '#FFFFFF',
-          elevated: '#FAF8F5',
-          subtle: '#F4F1EA',
-          border: '#E8E0D0',
-          borderMuted: '#EFECE6',
+          elevated: '#FAFAFA',
+          subtle: '#F7F7F5',
+          border: '#E8E4DC',
+          borderMuted: '#F0EDE7',
         },
         midas: {
           gold: '#B8860B',
           goldLight: '#D4AF37',
-          goldSubtle: '#FDFBF3',
+          goldSubtle: '#FBF8EF',
           bronze: '#8C4022',
           bronzeSubtle: '#FCF5F2',
           slate: '#4B4639',

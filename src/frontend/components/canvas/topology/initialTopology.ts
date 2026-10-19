@@ -256,8 +256,8 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'gold_marts',
     type: 'dataflow',
     animated: false,
-    style: { stroke: '#BFA882', strokeWidth: 1.2, strokeDasharray: '3 3' },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#BFA882' },
+    style: { stroke: '#D4AF37', strokeWidth: 1.2, strokeDasharray: '3 3' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#D4AF37' },
     data: { label: 'Gatekeeper', volume: 0, status: 'HEALTHY' },
   },
 ];

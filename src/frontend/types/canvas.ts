@@ -88,8 +88,8 @@ export const NODE_STATUS_REGISTRY: Record<NodeStatus, NodeStatusConfig> = {
   },
   IN_PROGRESS: {
     label: 'En Progreso',
-    bgClass: 'bg-[#FCFAF4]',
-    borderClass: 'border-[#E5DCB8]',
+    bgClass: 'bg-[#FBF8EF]',
+    borderClass: 'border-[#F0EDE7]',
     textClass: 'text-[#8C6D1F]',
     dotClass: 'bg-[#D4AF37] animate-pulse',
     glowClass: 'shadow-sm shadow-amber-500/10',
@@ -106,7 +106,7 @@ export const NODE_STATUS_REGISTRY: Record<NodeStatus, NodeStatusConfig> = {
   },
   AUTO_HEALING: {
     label: 'Auto-Sanación',
-    bgClass: 'bg-[#FCFAF4]',
+    bgClass: 'bg-[#FBF8EF]',
     borderClass: 'border-[#D4AF37]',
     textClass: 'text-[#8C6D1F]',
     dotClass: 'bg-[#D4AF37] animate-pulse',
@@ -124,10 +124,10 @@ export const NODE_STATUS_REGISTRY: Record<NodeStatus, NodeStatusConfig> = {
   },
   UNKNOWN: {
     label: 'No Disponible',
-    bgClass: 'bg-[#F4F1EA]',
-    borderClass: 'border-[#DFD5C0]',
+    bgClass: 'bg-[#F7F7F5]',
+    borderClass: 'border-[#F0EDE7]',
     textClass: 'text-[#787164]',
-    dotClass: 'bg-[#BFA882]',
+    dotClass: 'bg-[#D4AF37]',
     glowClass: 'shadow-none',
     accessibleDescription: 'Estado del nodo aún no reportado por el Hub de telemetría.',
   },

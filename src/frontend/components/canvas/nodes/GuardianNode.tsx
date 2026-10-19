@@ -32,7 +32,7 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
       />
 
       {/* Cabecera de Midas Guardian */}
-      <div className="flex items-center justify-between pb-2 border-b border-[#F2ECE1]">
+      <div className="flex items-center justify-between pb-2 border-b border-[#F0EDE7]">
         <div className="flex items-center gap-2">
           <div
             className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
@@ -60,7 +60,7 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
       </div>
 
       {/* Playbook Activo */}
-      <div className="mt-2.5 bg-[#FAF8F5] p-2 rounded border border-[#EAE4D9] space-y-1">
+      <div className="mt-2.5 bg-[#FAFAFA] p-2 rounded border border-[#F0EDE7] space-y-1">
         <div className="flex items-center justify-between text-[10px] font-mono">
           <span className="text-[#787164]">Playbook:</span>
           <span className="font-mono text-[#A8422B] font-semibold px-1 rounded bg-[#FDF1ED] border border-[#ECCFC5]">
@@ -73,8 +73,8 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
       </div>
 
       {/* Métricas de Cuarentena y Desvío */}
-      <div className="mt-2.5 pt-2 border-t border-[#F2ECE1] grid grid-cols-2 gap-2 text-[10px] font-mono">
-        <div className="rounded bg-[#FAF8F5] border border-[#EAE4D9] p-2">
+      <div className="mt-2.5 pt-2 border-t border-[#F0EDE7] grid grid-cols-2 gap-2 text-[10px] font-mono">
+        <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Aisladas</span>
           <span className="text-xs font-bold text-[#A8422B]">
             {nodeData.guardianDetails?.quarantined_records !== undefined
@@ -82,7 +82,7 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
               : nodeData.quarantinedRecords ?? 0}
           </span>
         </div>
-        <div className="rounded bg-[#FAF8F5] border border-[#EAE4D9] p-2">
+        <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Patrón WAP</span>
           <span className="text-xs font-bold text-[#4D7C0F]">Activo / Seguro</span>
         </div>
@@ -93,7 +93,7 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
         type="source"
         position={Position.Right}
         id="wap-out"
-        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#BFA882] transition-transform hover:!scale-125"
+        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#D4AF37] transition-transform hover:!scale-125"
       />
     </div>
   );

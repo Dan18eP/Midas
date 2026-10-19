@@ -3,17 +3,17 @@
 @tailwind utilities;
 
 :root {
-  --background: #FBF9F5;
+  --background: #FFFFFF;
   --foreground: #1C1E21;
-  --neutral-base: #FBF9F5;
+  --neutral-background: #FFFFFF;
   --neutral-card: #FFFFFF;
-  --neutral-elevated: #FAF8F5;
-  --neutral-subtle: #F4F1EA;
-  --neutral-border: #E8E0D0;
-  --neutral-border-muted: #EFECE6;
+  --neutral-elevated: #FAFAFA;
+  --neutral-subtle: #F7F7F5;
+  --neutral-border: #E8E4DC;
+  --neutral-border-muted: #F0EDE7;
   --midas-gold: #B8860B;
   --midas-gold-light: #D4AF37;
-  --midas-gold-subtle: #FDFBF3;
+  --midas-gold-subtle: #FBF8EF;
   --midas-bronze: #8C4022;
   --midas-bronze-subtle: #FCF5F2;
   --midas-slate: #4B4639;
@@ -35,11 +35,11 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #FBF9F5;
+  background: #FAFAFA;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #E8E0D0;
+  background: #E8E4DC;
   border-radius: 9999px;
 }
 

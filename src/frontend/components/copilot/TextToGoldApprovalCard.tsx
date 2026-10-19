@@ -40,30 +40,30 @@ export function TextToGoldApprovalCard({ state = 'idle', preview, onApprove }: T
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-amber-600/40 bg-gradient-to-br from-amber-950/50 to-slate-950/70"
+      className="overflow-hidden rounded-xl border border-[#E8E4DC] bg-[#FFFFFF] shadow-sm"
       data-testid="text-to-gold-card"
       data-approval-state={state}
     >
-      <div className="flex items-center gap-2 border-b border-amber-700/30 bg-amber-950/40 px-3 py-2">
-        <PlaneTakeoff className="h-3.5 w-3.5 text-amber-400" />
-        <span className="text-[11px] font-semibold text-amber-200">Propuesta Text-to-Gold</span>
-        <span className="ml-auto rounded bg-slate-950/70 px-1.5 py-0.5 font-mono text-[9px] text-amber-400">
+      <div className="flex items-center gap-2 border-b border-[#F0EDE7] bg-[#FBF8EF] px-3 py-2">
+        <PlaneTakeoff className="h-3.5 w-3.5 text-[#B8860B]" />
+        <span className="text-[11px] font-semibold text-[#1C1E21]">Propuesta Text-to-Gold</span>
+        <span className="ml-auto rounded border border-[#F0EDE7] bg-[#FFFFFF] px-1.5 py-0.5 font-mono text-[9px] text-[#B8860B]">
           Pipeline-as-a-Prompt
         </span>
       </div>
 
       <div className="space-y-3 p-3">
-        <p className="text-[11px] leading-relaxed text-slate-300">{copy.hint}</p>
+        <p className="text-[11px] leading-relaxed text-[#4B4639]">{copy.hint}</p>
 
         {previewTable && (
-          <div className="overflow-auto rounded-lg border border-slate-800 bg-slate-950/70">
+          <div className="overflow-auto rounded-lg border border-[#F0EDE7] bg-[#FAFAFA]">
             <table className="w-full border-collapse text-left text-[10px]" data-testid="text-to-gold-preview">
               <thead>
                 <tr>
                   {previewTable.columns.map((column, index) => (
                     <th
                       key={`${column}-${index}`}
-                      className="whitespace-nowrap border-b border-slate-800 px-2.5 py-1.5 font-mono uppercase tracking-wider text-slate-500"
+                      className="whitespace-nowrap border-b border-[#F0EDE7] bg-[#F7F7F5] px-2.5 py-1.5 font-mono uppercase tracking-wider text-[#4B4639]"
                     >
                       {column}
                     </th>
@@ -72,9 +72,9 @@ export function TextToGoldApprovalCard({ state = 'idle', preview, onApprove }: T
               </thead>
               <tbody>
                 {previewTable.rows.map((row, rowIndex) => (
-                  <tr key={`preview-${rowIndex}`} className="border-b border-slate-800/60">
+                  <tr key={`preview-${rowIndex}`} className="border-b border-[#F0EDE7]">
                     {row.map((cell, cellIndex) => (
-                      <td key={`preview-${rowIndex}-${cellIndex}`} className="whitespace-nowrap px-2.5 py-1 text-slate-400">
+                      <td key={`preview-${rowIndex}-${cellIndex}`} className="whitespace-nowrap px-2.5 py-1 text-[#1C1E21]">
                         {String(cell ?? '—')}
                       </td>
                     ))}
@@ -86,7 +86,7 @@ export function TextToGoldApprovalCard({ state = 'idle', preview, onApprove }: T
         )}
 
         {previewTable && (
-          <p className="flex items-center gap-1.5 font-mono text-[10px] text-slate-500">
+          <p className="flex items-center gap-1.5 font-mono text-[10px] text-[#4B4639]/70">
             <TableProperties className="h-3 w-3" />
             Vista previa: {previewTable.rows.length} de {previewTable.total} filas
           </p>
@@ -97,12 +97,12 @@ export function TextToGoldApprovalCard({ state = 'idle', preview, onApprove }: T
           onClick={onApprove}
           disabled={isBusy || isDone}
           data-testid="approve-pipeline-button"
-          className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[12px] font-bold transition focus:outline-none focus:ring-2 focus:ring-amber-500/60 disabled:cursor-not-allowed ${
+          className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[12px] font-bold transition focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/50 disabled:cursor-not-allowed ${
             isDone
-              ? 'bg-emerald-950/70 text-emerald-300 ring-1 ring-emerald-600/40'
+              ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-300'
               : isBusy
-                ? 'bg-amber-700/40 text-amber-200'
-                : 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                ? 'border border-[#D4AF37]/40 bg-[#FBF8EF] text-[#B8860B]'
+                : 'bg-[#B8860B] text-white hover:bg-[#D4AF37]'
           }`}
         >
           {isBusy ? (

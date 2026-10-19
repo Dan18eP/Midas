@@ -27,14 +27,14 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
     <div
       role="region"
       aria-label={`${nodeData.label} - Estado: ${statusConfig.label}`}
-      className={`relative w-64 rounded-xl border border-[#DFD5C0] bg-[#FFFFFF] p-3 shadow-[0_2px_8px_rgba(30,20,5,0.04)] transition-all duration-200 ${
-        selected ? 'ring-2 ring-[#D4AF37] ring-offset-2 ring-offset-[#FFFFFF]' : 'hover:border-[#BFA882]'
+      className={`relative w-64 rounded-xl border border-[#E8E4DC] bg-[#FFFFFF] p-3 shadow-[0_2px_8px_rgba(30,20,5,0.04)] transition-all duration-200 ${
+        selected ? 'ring-2 ring-[#D4AF37] ring-offset-2 ring-offset-[#FFFFFF]' : 'hover:border-[#D4AF37]'
       }`}
     >
       {/* Cabecera del Nodo */}
-      <div className="flex items-center justify-between pb-2 border-b border-[#F2ECE1]">
+      <div className="flex items-center justify-between pb-2 border-b border-[#F0EDE7]">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F8F6F0] border border-[#E5DCB8] text-[#787164]">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F7F7F5] border border-[#F0EDE7] text-[#787164]">
             <IconComponent className="h-4 w-4" aria-hidden="true" />
           </div>
           <div>
@@ -55,13 +55,13 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
 
       {/* Métricas Principales */}
       <div className="mt-2.5 grid grid-cols-2 gap-2 text-[10px] font-mono">
-        <div className="rounded bg-[#FAF8F5] border border-[#EAE4D9] p-2">
+        <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Emitidas</span>
           <span className="text-xs font-semibold text-[#1E293B]">
             {nodeData.recordsOut !== undefined ? nodeData.recordsOut.toLocaleString() : 'N/D'}
           </span>
         </div>
-        <div className="rounded bg-[#FAF8F5] border border-[#EAE4D9] p-2">
+        <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Latencia</span>
           <span className="text-xs font-semibold text-[#1E293B]">
             {nodeData.latencyMs !== undefined ? `${nodeData.latencyMs} ms` : 'N/D'}
@@ -74,7 +74,7 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
         type="source"
         position={Position.Right}
         id="out"
-        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#BFA882] transition-transform hover:!scale-125"
+        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#D4AF37] transition-transform hover:!scale-125"
       />
     </div>
   );

@@ -69,8 +69,8 @@ export const DataFlowEdge = memo(({
   const labelClass = isQuarantine
     ? 'bg-[#FFF8F5] text-[#A8422B] border border-[#ECCFC5]'
     : isWap
-    ? 'bg-[#FCFAF4] text-[#996515] border border-[#D4AF37]'
-    : 'bg-[#FFFFFF] text-[#1E293B] border border-[#DFD5C0]';
+    ? 'bg-[#FBF8EF] text-[#8C6D1F] border border-[#D4AF37]'
+    : 'bg-[#FFFFFF] text-[#1E293B] border border-[#E8E4DC]';
 
   // Compute modulated particle duration from recordsPerSecond if provided, or use explicit duration
   const particleDuration =

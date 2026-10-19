@@ -356,7 +356,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden bg-[#FBF9F5] ${className}`}
+      className={`relative h-full w-full overflow-hidden bg-[#FFFFFF] ${className}`}
       data-testid="pipeline-canvas-container"
     >
       {/* Controles de Cabecera Izquierda */}
@@ -393,16 +393,16 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         attributionPosition="bottom-left"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#D5CBBA" />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#E8E4DC" />
         <Controls
-          className="!bottom-4 !left-4 !border-[#E5DCB8] !bg-[#FFFFFF] !fill-[#6B6557] [&>button]:!border-[#EAE4D9] [&>button]:!bg-[#FFFFFF] [&>button]:hover:!bg-[#FAF8F5] [&>button]:hover:!fill-[#1C1E21] shadow-sm rounded overflow-hidden"
+          className="!bottom-4 !left-4 !border-[#F0EDE7] !bg-[#FFFFFF] !fill-[#6B6557] [&>button]:!border-[#F0EDE7] [&>button]:!bg-[#FFFFFF] [&>button]:hover:!bg-[#FAFAFA] [&>button]:hover:!fill-[#1C1E21] shadow-sm rounded overflow-hidden"
           showInteractive={false}
         />
         <MiniMap
           nodeColor={nodeColor}
           nodeStrokeWidth={3}
-          maskColor="rgba(251, 249, 245, 0.75)"
-          className="!bottom-4 !right-4 !rounded !border !border-[#E5DCB8] !bg-[#FFFFFF] !shadow-sm"
+          maskColor="rgba(255, 255, 255, 0.75)"
+          className="!bottom-4 !right-4 !rounded !border !border-[#F0EDE7] !bg-[#FFFFFF] !shadow-sm"
         />
       </ReactFlow>
 
