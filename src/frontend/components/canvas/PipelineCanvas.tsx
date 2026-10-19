@@ -402,7 +402,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           nodeColor={nodeColor}
           nodeStrokeWidth={3}
           maskColor="rgba(255, 255, 255, 0.75)"
-          className="!bottom-4 !right-4 !rounded !border !border-[#F0EDE7] !bg-[#FFFFFF] !shadow-sm"
+          className="!bottom-4 !right-24 !rounded !border !border-[#F0EDE7] !bg-[#FFFFFF] !shadow-sm"
         />
       </ReactFlow>
 

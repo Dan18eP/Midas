@@ -1,8 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Shield } from 'lucide-react';
-import { CopilotChatDrawer, CopilotChatPanel, CopilotChatProvider, CopilotChatWidget } from '@/components/copilot';
+import { CopilotChatDrawer, CopilotChatProvider, CopilotChatWidget } from '@/components/copilot';
 
 const PipelineCanvas = dynamic(
   () => import('@/components/canvas/PipelineCanvas').then((mod) => mod.PipelineCanvas),
@@ -103,22 +102,13 @@ export default function MidasConsolePage() {
         </div>
       </header>
 
-      {/* 2. Cuerpo Principal Dividido (Split Console) */}
+      {/* 2. Cuerpo Principal: Canvas Topológico React Flow (Full-Width) */}
       <main className="flex flex-1 overflow-hidden">
-        {/* Panel Izquierdo: Canvas Topológico React Flow (65% width) */}
         <section
           aria-label="Topología del Pipeline Lakehouse"
-          className="relative flex-1 h-full border-r border-[#E8E4DC] bg-[#FFFFFF]"
+          className="relative flex-1 h-full bg-[#FFFFFF]"
         >
           <PipelineCanvas />
-        </section>
-
-        {/* Panel Derecho: Copiloto Agéntico (35% width - HU-FRONT-04 / HU-AI-01) */}
-        <section
-          aria-label="Copiloto Agéntico y Data Storytelling"
-          className="hidden xl:flex w-96 flex-col justify-between shrink-0 z-30 border-l border-[#E8E4DC] bg-[#FFFFFF] shadow-[-1px_0_4px_rgba(40,30,10,0.02)]"
-        >
-          <CopilotChatPanel />
         </section>
       </main>
 
