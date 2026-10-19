@@ -188,9 +188,9 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'bronze_raw',
     type: 'dataflow',
     animated: true,
-    style: { stroke: '#10B981', strokeWidth: 2 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
-    data: { label: '4,520 filas/s', volume: 4520, status: 'HEALTHY' },
+    style: { stroke: '#2563EB', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#2563EB' },
+    data: { label: '4,520 r/s', volume: 4520, status: 'HEALTHY' },
   },
   {
     id: 'edge_excel_bronze',
@@ -198,9 +198,9 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'bronze_raw',
     type: 'dataflow',
     animated: true,
-    style: { stroke: '#10B981', strokeWidth: 2 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
-    data: { label: '320 filas/s', volume: 320, status: 'HEALTHY' },
+    style: { stroke: '#2563EB', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#2563EB' },
+    data: { label: '320 r/s', volume: 320, status: 'HEALTHY' },
   },
   {
     id: 'edge_api_bronze',
@@ -208,9 +208,9 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'bronze_raw',
     type: 'dataflow',
     animated: true,
-    style: { stroke: '#10B981', strokeWidth: 2 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
-    data: { label: '1,850 filas/s', volume: 1850, status: 'HEALTHY' },
+    style: { stroke: '#2563EB', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#2563EB' },
+    data: { label: '1,850 r/s', volume: 1850, status: 'HEALTHY' },
   },
 
   // De Bronze a Silver
@@ -220,9 +220,9 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'silver_cleansing',
     type: 'dataflow',
     animated: true,
-    style: { stroke: '#10B981', strokeWidth: 2.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
-    data: { label: 'PySpark Cleanse & Quality Gate', volume: 6690, status: 'HEALTHY' },
+    style: { stroke: '#3B82F6', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#3B82F6' },
+    data: { label: 'Spark Cleanse', volume: 6690, status: 'HEALTHY' },
   },
 
   // De Silver a Gold
@@ -232,9 +232,9 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'gold_marts',
     type: 'dataflow',
     animated: true,
-    style: { stroke: '#10B981', strokeWidth: 2.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
-    data: { label: 'WAP Verified Promotion', volume: 6676, status: 'HEALTHY' },
+    style: { stroke: '#B8860B', strokeWidth: 2 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#B8860B' },
+    data: { label: 'WAP Verified', volume: 6676, status: 'HEALTHY', isWap: true },
   },
 
   // De Silver a Guardian (Cuarentena y telemetría de resiliencia)
@@ -244,9 +244,9 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'guardian_monitor',
     type: 'dataflow',
     animated: true,
-    style: { stroke: '#F59E0B', strokeWidth: 2, strokeDasharray: '4 4' },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#F59E0B' },
-    data: { label: '14 en Cuarentena', volume: 14, status: 'DEGRADED' },
+    style: { stroke: '#C86A43', strokeWidth: 1.5, strokeDasharray: '4 4' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#C86A43' },
+    data: { label: 'Cuarentena', volume: 14, status: 'DEGRADED' },
   },
 
   // De Guardian a Gold (Aprobación WAP)
@@ -256,8 +256,8 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     target: 'gold_marts',
     type: 'dataflow',
     animated: false,
-    style: { stroke: '#6B7280', strokeWidth: 1.5, strokeDasharray: '2 2' },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#6B7280' },
-    data: { label: 'WAP Gatekeeper', volume: 0, status: 'HEALTHY' },
+    style: { stroke: '#BFA882', strokeWidth: 1.2, strokeDasharray: '3 3' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#BFA882' },
+    data: { label: 'Gatekeeper', volume: 0, status: 'HEALTHY' },
   },
 ];

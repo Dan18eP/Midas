@@ -3,8 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --background: #0b0f17;
-  --foreground: #f8fafc;
+  --background: #FBF9F5;
+  --foreground: #1C1E21;
+  --neutral-base: #FBF9F5;
+  --neutral-card: #FFFFFF;
+  --neutral-elevated: #FAF8F5;
+  --neutral-subtle: #F4F1EA;
+  --neutral-border: #E8E0D0;
+  --neutral-border-muted: #EFECE6;
+  --midas-gold: #B8860B;
+  --midas-gold-light: #D4AF37;
+  --midas-gold-subtle: #FDFBF3;
+  --midas-bronze: #8C4022;
+  --midas-bronze-subtle: #FCF5F2;
+  --midas-slate: #4B4639;
+  --midas-slate-dark: #1C1E21;
+  --midas-silver: #64748B;
 }
 
 body {
@@ -14,21 +28,45 @@ body {
   overflow: hidden;
 }
 
-/* Custom Scrollbar for Drawer */
+/* Custom Scrollbar for Drawer & Panels */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #FBF9F5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #E8E0D0;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #B8860B;
+}
+
+/* Accessible focus styling */
+:focus-visible {
+  outline: 2px solid #B8860B;
+  outline-offset: 2px;
+}
+
+/* Selection highlight */
+::selection {
+  background-color: rgba(184, 134, 11, 0.18);
+  color: #1C1E21;
+}
+
+/* Accessibility: Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

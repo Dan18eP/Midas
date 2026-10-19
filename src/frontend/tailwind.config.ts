@@ -10,12 +10,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        neutral: {
+          base: '#FBF9F5',
+          card: '#FFFFFF',
+          elevated: '#FAF8F5',
+          subtle: '#F4F1EA',
+          border: '#E8E0D0',
+          borderMuted: '#EFECE6',
+        },
         midas: {
-          dark: '#0B0F17',
-          surface: '#111827',
-          border: '#1F2937',
-          accent: '#3B82F6',
-          gold: '#F59E0B',
+          gold: '#B8860B',
+          goldLight: '#D4AF37',
+          goldSubtle: '#FDFBF3',
+          bronze: '#8C4022',
+          bronzeSubtle: '#FCF5F2',
+          slate: '#4B4639',
+          slateDark: '#1C1E21',
+          silver: '#64748B',
         },
       },
     },
