@@ -52,25 +52,26 @@ Para evitar conflictos de fusión (*merge conflicts*) y bloqueos mutuos entre co
 
 ### Paso 1: Sincronización con `develop`
 Antes de iniciar cualquier tarea:
-```powershell
+```bash
 git checkout develop
 git pull origin develop
 ```
 
 ### Paso 2: Creación de la Rama Oficial de la HU
-```powershell
+```bash
 git checkout -b feature/<area>-<nombre-hu>
-# Ejemplo: git checkout -b feature/lakehouse-spark-silver-cleanse
+# Ejemplo: git checkout -b feature/frontend-sse-telemetry
 ```
 
 ### Paso 3: Delimitación Estricta de Módulos (Single-Area Ownership en Midas)
 Para garantizar cero pisadas de código entre áreas técnicas:
-- **Lakehouse & Ingesta (`lakehouse`):** Solo crea/modifica archivos bajo `src/lakehouse/` (PySpark jobs, conectores JDBC/Excel, tablas Iceberg).
-- **Orquestación (`orchestration`):** Solo crea/modifica archivos bajo `src/orchestration/` (DAGs de Airflow, DAG Factory, sensores).
-- **Seguridad & Gobernanza (`security_governance`):** Solo crea/modifica archivos bajo `src/security_governance/` (políticas de Ranger, llamadas a APIs de Atlas y OpenMetadata).
-- **Agente de IA & Semántica (`agent`):** Solo crea/modifica archivos bajo `src/agent/` (FastAPI, grafos LangGraph, cliente Trino, guardrails OWASP).
-- **Frontend & Canvas (`frontend`):** Solo crea/modifica archivos bajo `src/frontend/` (React Flow Canvas, componentes de Chat, ECharts, Server-Sent Events).
-- **Infraestructura (`docker`):** Solo crea/modifica archivos bajo `docker/` y `docker-compose.yml`.
+- **Frontend & Canvas (`frontend`):** Propiedad de **Dilan Chávez (`dilandcv`)** y Joshua Gonzales. Solo crea/modifica archivos bajo `src/frontend/` (`components/`, `hooks/`, `types/`, `tests/`) y scripts de workspace frontend en `package.json`.
+- **Lakehouse & Ingesta (`lakehouse`):** Propiedad de Edgar Corzo y Daniel Echeverría. Solo crea/modifica archivos bajo `src/lakehouse/` (PySpark jobs, conectores JDBC/Excel, tablas Iceberg).
+- **Backend & Telemetría Hub (`backend` / `api`):** Propiedad de Daniel Echeverría y Edgar Corzo. Solo crea/modifica archivos bajo `src/api/` y `src/core/` (FastAPI routes, Telemetry Hub SSE, Event models).
+- **Orquestación (`orchestration`):** Propiedad de Edgar Corzo y Dilan Chávez. Solo crea/modifica archivos bajo `src/orchestration/` (DAGs de Airflow, DAG Factory, sensores).
+- **Seguridad & Gobernanza (`security_governance`):** Propiedad de Sebastian Castiblanco. Solo crea/modifica archivos bajo `src/security_governance/` (políticas de Ranger, llamadas a APIs de Atlas y OpenMetadata).
+- **Agente de IA & Semántica (`agent`):** Propiedad de Elian Rivera y Daniel Echeverría. Solo crea/modifica archivos bajo `src/agent/` (FastAPI, grafos LangGraph, cliente Trino, guardrails OWASP, storytelling ECharts).
+- **Infraestructura (`docker`):** Propiedad de Daniel Echeverría. Solo crea/modifica archivos bajo `docker/` y `docker-compose.yml`.
 
 ---
 
@@ -80,23 +81,26 @@ Cada vez que una Historia de Usuario se implementa y prueba exitosamente, se DEB
 
 ```
 documentation/done/
-├── lakehouse/
-│   ├── lakehouse-ingesta-universal-01.md
-│   └── lakehouse-spark-silver-cleanse-02.md
-├── orchestration/
-│   ├── orchestration-airflow-dag-factory-01.md
-│   └── orchestration-sensor-minio-02.md
-├── security/
-│   ├── security-ranger-trino-masking-01.md
-│   └── security-atlas-autotag-pii-02.md
-├── agent/
-│   ├── agent-langgraph-dialogic-01.md
-│   └── agent-storytelling-echarts-02.md
 ├── frontend/
-│   ├── frontend-canvas-reactflow-01.md
-│   └── frontend-replay-timetravel-02.md
+│   ├── frontend-reactflow-canvas-01.md
+│   ├── frontend-sse-telemetry-02.md
+│   ├── frontend-copilot-chat-echarts-04.md
+│   └── frontend-time-travel-replay-03.md
+├── lakehouse/
+│   ├── lakehouse-storage-minio-iceberg-01.md
+│   └── lakehouse-universal-ingestion-02.md
+├── backend/
+│   └── backend-api-gateway-sse-01.md
+├── orchestration/
+│   └── orchestration-airflow-dag-factory-01.md
+├── security/
+│   └── security-ranger-trino-masking-01.md
+├── agent/
+│   ├── agent-langgraph-state-machine-01.md
+│   ├── agent-text-to-gold-guardrails-02.md
+│   └── agent-storytelling-echarts-03.md
 └── other/
-    └── docker-cluster-unificado-01.md
+    └── infra-monodocker-foundation-01.md
 ```
 
 ### 3.1. Formato Obligatorio del Nombre de Archivo
@@ -105,19 +109,21 @@ documentation/done/
 ### 3.2. Estructura Obligatoria del Documento en `documentation/done/`
 1. **Encabezado y Metadatos:**
    - Título oficial de la HU.
-   - ID de la HU (ej. `DATA-01`, `SEC-02`, `UI-03`).
+   - ID de la HU (ej. `HU-FRONT-02`, `HU-LAKE-02`, `HU-AI-01`).
    - Rama Git en la que se desarrolló.
+   - Responsable y Pair / Revisor.
    - Documento canónico de referencia (`documentation/canonical/0X_...md` o `ADR-XXX`).
 2. **Checklist Anti-Code Drift Verificado:**
    - [x] ¿Se verificó no alterar las fórmulas canónicas del negocio?
-   - [x] ¿Los esquemas de datos coinciden exactamente con la especificación 03?
+   - [x] ¿Los esquemas de datos y contratos SSE coinciden exactamente con la especificación?
    - [x] ¿Se respetaron los guardrails de seguridad y permisos de Ranger?
+   - [x] ¿Single-Area Ownership respetado al 100%?
 3. **Detalle de Implementación Técnica:**
-   - Módulos, clases, métodos o endpoints creados/modificados.
+   - Módulos, clases, componentes React, hooks o endpoints creados/modificados.
    - Decisiones de diseño aplicadas.
 4. **Verificación y Pruebas Automatizadas:**
-   - Pruebas unitarias o de integración ejecutadas.
-   - Comando exacto para correr las pruebas y evidencia de éxito.
+   - Pruebas unitarias o de integración ejecutadas (ej. `npm test` para frontend o `pytest` para backend/agente).
+   - Comando exacto para correr las pruebas y evidencia de éxito (100% pass).
 5. **Impacto y Coordinación con el Equipo:**
    - Confirmación de cero impacto negativo o bloqueos a otros miembros.
 
@@ -129,15 +135,19 @@ documentation/done/
    `git commit -m "feat(<scope>): <descripción concisa referenciando doc oficial>"`
 2. **Bitácora Diaria:**
    Registrar la entrega terminada en `documentation/changelog/[DD]-[MM]-[YYYY]-changelog.md`:
-   `[Day]-[DD/MM/YYYY]-[HH:MM] - [Autor] : [feat/fix/chore: descripción concisa]`
+   `[Day]-[DD/MM/YYYY]-[HH:MM] - [Autor] : [HU-XXX: descripción concisa y técnica]`
 3. **Integración Obligatoria vía Pull Request (PR) hacia `develop`:**
    - **Prohibición de Merge Directo:** Prohibido realizar `git merge` directo local hacia `develop` o `main`.
    - **Única Excepción:** Salvo que Daniel Echeverría lo apruebe explícitamente (ej. cambio quirúrgico).
    - **Flujo Estándar de PR:**
-     - Subir la rama a `origin`: `git push -u origin feature/<area>-<nombre-hu>`
-     - Crear Pull Request formal hacia `develop` usando GitHub CLI:
-       ```powershell
+     - Subir la rama a `origin`:
+       ```bash
+       git push -u origin feature/<area>-<nombre-hu>
+       ```
+     - Si GitHub CLI (`gh`) está disponible:
+       ```bash
        gh pr create --base develop --head feature/<area>-<nombre-hu> --title "feat(<area>): <título-hu>" --body "Implementación según documentación oficial."
        ```
+     - Si `gh` no está instalado: Abrir el PR en la interfaz web de GitHub desde `feature/<area>-<nombre-hu>` hacia `develop`.
      - Adjuntar checklist anti-code drift y el enlace al documento en `documentation/done/`.
      - Esperar revisión y aprobación por **Daniel Echeverría**.
