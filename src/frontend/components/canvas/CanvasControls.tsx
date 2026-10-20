@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import { Maximize2, RotateCcw, Activity, ShieldCheck } from 'lucide-react';
+import { Maximize2, RotateCcw, Activity } from 'lucide-react';
 
 interface CanvasControlsProps {
   totalNodes: number;
@@ -48,12 +48,6 @@ export const CanvasControls = memo(({ totalNodes, healthyNodes, onResetLayout }:
           <span>Restablecer</span>
         </button>
       )}
-
-      {/* Badge de Resiliencia Midas */}
-      <div className="flex items-center gap-1.5 rounded bg-[#FBF8EF] text-[#4B4639] border border-[#D4AF37]/40 px-2 py-0.5 text-[11px] shadow-xs">
-        <ShieldCheck className="h-3 w-3 text-[#B8860B]" aria-hidden="true" />
-        <span className="font-mono text-[10px] text-[#8C6D1F] font-semibold">WAP Protected</span>
-      </div>
     </div>
   );
 });
