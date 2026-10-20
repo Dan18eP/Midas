@@ -2,17 +2,30 @@
 
 import { ReactNode } from 'react';
 import { AlertTriangle, Info, Sparkles, User } from 'lucide-react';
+import {
+  FIGURE_TOKEN_PATTERN,
+  MetricFigure,
+  buildExplainTarget,
+  useOptionalExplainNumber,
+} from '@/components/lineage';
 import { EChartsRenderer } from './EChartsRenderer';
 import { QuickPromptPills } from './QuickPromptPills';
 import { TextToGoldApprovalCard } from './TextToGoldApprovalCard';
 import { formatChartValue, optionToTable } from './chartOptions';
-import type { CopilotMessage } from './types';
+import type { CopilotMessage, CopilotMetricSummary } from './types';
 
-function renderInline(text: string, keyBase: string): ReactNode[] {
+interface InlineFigureContext {
+  messageId: string;
+  messageTimestampIso: string;
+  metricsSummary?: CopilotMetricSummary[];
+}
+
+const INLINE_PATTERN = new RegExp(`(\\*\\*[^*]+\\*\\*|\`[^\`]+\`|${FIGURE_TOKEN_PATTERN})`, 'g');
+
+function renderInline(text: string, keyBase: string, figures?: InlineFigureContext): ReactNode[] {
   const parts: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
   let lastIndex = 0;
-  let match = pattern.exec(text);
+  let match = INLINE_PATTERN.exec(text);
 
   while (match !== null) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
@@ -23,7 +36,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
           {token.slice(2, -2)}
         </strong>,
       );
-    } else {
+    } else if (token.startsWith('`')) {
       parts.push(
         <code
           key={`${keyBase}-c-${match.index}`}
@@ -32,9 +45,21 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
           {token.slice(1, -1)}
         </code>,
       );
+    } else if (figures) {
+      parts.push(
+        <MetricFigure
+          key={`${keyBase}-f-${match.index}`}
+          token={token}
+          messageId={figures.messageId}
+          messageTimestampIso={figures.messageTimestampIso}
+          metricsSummary={figures.metricsSummary}
+        />,
+      );
+    } else {
+      parts.push(token);
     }
     lastIndex = match.index + token.length;
-    match = pattern.exec(text);
+    match = INLINE_PATTERN.exec(text);
   }
 
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
@@ -58,7 +83,7 @@ function splitRow(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
-function Narrative({ content }: { content: string }) {
+function Narrative({ content, figures }: { content: string; figures?: InlineFigureContext }) {
   const lines = content.split('\n');
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -119,7 +144,7 @@ function Narrative({ content }: { content: string }) {
         <ul key={`ul-${key}`} className="ml-4 list-disc space-y-1 marker:text-[#B8860B]">
           {items.map((item, itemIndex) => (
             <li key={`li-${itemIndex}`} className="text-[#1C1E21]">
-              {renderInline(item, `li-${key}-${itemIndex}`)}
+              {renderInline(item, `li-${key}-${itemIndex}`, figures)}
             </li>
           ))}
         </ul>,
@@ -138,7 +163,7 @@ function Narrative({ content }: { content: string }) {
         <ol key={`ol-${key}`} className="ml-4 list-decimal space-y-1 marker:text-[#B8860B]">
           {items.map((item, itemIndex) => (
             <li key={`li-${itemIndex}`} className="text-[#1C1E21]">
-              {renderInline(item, `ol-${key}-${itemIndex}`)}
+              {renderInline(item, `ol-${key}-${itemIndex}`, figures)}
             </li>
           ))}
         </ol>,
@@ -151,7 +176,7 @@ function Narrative({ content }: { content: string }) {
     if (heading) {
       blocks.push(
         <p key={`h-${key}`} className="pt-1 text-[12px] font-bold text-[#1C1E21]">
-          {renderInline(heading[2], `h-${key}`)}
+          {renderInline(heading[2], `h-${key}`, figures)}
         </p>,
       );
       key += 1;
@@ -166,7 +191,7 @@ function Narrative({ content }: { content: string }) {
 
     blocks.push(
       <p key={`p-${key}`} className="text-[#1C1E21]">
-        {renderInline(line, `p-${key}`)}
+        {renderInline(line, `p-${key}`, figures)}
       </p>,
     );
     key += 1;
@@ -193,6 +218,11 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
   const hasChart = Boolean(message.echartsOption);
   const metrics = message.metricsSummary ?? [];
   const preview = hasChart ? optionToTable(message.echartsOption) : null;
+  const explain = useOptionalExplainNumber();
+  const figures: InlineFigureContext | undefined =
+    !isUser && explain
+      ? { messageId: message.id, messageTimestampIso: message.timestamp, metricsSummary: metrics }
+      : undefined;
 
   return (
     <article
@@ -222,7 +252,7 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
                 : 'rounded-bl-sm border border-[#E8E4DC] bg-[#FFFFFF] text-[#1C1E21] shadow-sm'
           }`}
         >
-          <Narrative content={message.content} />
+          <Narrative content={message.content} figures={figures} />
         </div>
 
         {!isUser && metrics.length > 0 && (
@@ -230,19 +260,52 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
             {metrics.map((metric, index) => {
               const label = String(metric.label ?? metric.name ?? `Métrica ${index + 1}`);
               const value = metric.value === undefined || metric.value === null ? '—' : formatChartValue(metric.value);
-              return (
-                <span
-                  key={`${label}-${index}`}
-                  className="inline-flex items-center gap-1 rounded-md border border-[#F0EDE7] bg-[#FAFAFA] px-2 py-1 font-mono text-[10px] text-[#4B4639]"
-                  title={typeof metric.description === 'string' ? metric.description : label}
-                >
+              const description = typeof metric.description === 'string' ? metric.description : label;
+              const chipContent = (
+                <>
                   <Info className="h-3 w-3 text-[#B8860B]" />
                   {label}
                   <span className="font-bold text-[#B8860B]">
                     {value}
                     {metric.unit ? ` ${metric.unit}` : ''}
                   </span>
-                </span>
+                </>
+              );
+              if (!explain) {
+                return (
+                  <span
+                    key={`${label}-${index}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-[#F0EDE7] bg-[#FAFAFA] px-2 py-1 font-mono text-[10px] text-[#4B4639]"
+                    title={description}
+                  >
+                    {chipContent}
+                  </span>
+                );
+              }
+              return (
+                <button
+                  key={`${label}-${index}`}
+                  type="button"
+                  data-testid="metrics-chip"
+                  title="Explícame esta cifra"
+                  aria-label={`Explícame esta cifra ${label}`}
+                  onClick={() =>
+                    explain.open(
+                      buildExplainTarget({
+                        messageId: message.id,
+                        messageTimestampIso: message.timestamp,
+                        label,
+                        rawValue: metric.value ?? null,
+                        unit: metric.unit,
+                        description,
+                        metricsSummary: metrics,
+                      }),
+                    )
+                  }
+                  className="inline-flex cursor-help items-center gap-1 rounded-md border border-[#F0EDE7] bg-[#FAFAFA] px-2 py-1 font-mono text-[10px] text-[#4B4639] transition-colors hover:border-[#D4AF37] hover:bg-[#FBF8EF] hover:text-[#B8860B]"
+                >
+                  {chipContent}
+                </button>
               );
             })}
           </div>
