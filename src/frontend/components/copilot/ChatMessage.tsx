@@ -2,39 +2,64 @@
 
 import { ReactNode } from 'react';
 import { AlertTriangle, Info, Sparkles, User } from 'lucide-react';
+import {
+  FIGURE_TOKEN_PATTERN,
+  MetricFigure,
+  buildExplainTarget,
+  useOptionalExplainNumber,
+} from '@/components/lineage';
 import { EChartsRenderer } from './EChartsRenderer';
 import { QuickPromptPills } from './QuickPromptPills';
 import { TextToGoldApprovalCard } from './TextToGoldApprovalCard';
 import { formatChartValue, optionToTable } from './chartOptions';
-import type { CopilotMessage } from './types';
+import type { CopilotMessage, CopilotMetricSummary } from './types';
 
-function renderInline(text: string, keyBase: string): ReactNode[] {
+interface InlineFigureContext {
+  messageId: string;
+  messageTimestampIso: string;
+  metricsSummary?: CopilotMetricSummary[];
+}
+
+const INLINE_PATTERN = new RegExp(`(\\*\\*[^*]+\\*\\*|\`[^\`]+\`|${FIGURE_TOKEN_PATTERN})`, 'g');
+
+function renderInline(text: string, keyBase: string, figures?: InlineFigureContext): ReactNode[] {
   const parts: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
   let lastIndex = 0;
-  let match = pattern.exec(text);
+  let match = INLINE_PATTERN.exec(text);
 
   while (match !== null) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     const token = match[0];
     if (token.startsWith('**')) {
       parts.push(
-        <strong key={`${keyBase}-b-${match.index}`} className="font-semibold text-slate-100">
+        <strong key={`${keyBase}-b-${match.index}`} className="font-semibold text-[#1C1E21]">
           {token.slice(2, -2)}
         </strong>,
       );
-    } else {
+    } else if (token.startsWith('`')) {
       parts.push(
         <code
           key={`${keyBase}-c-${match.index}`}
-          className="rounded border border-slate-800 bg-slate-950/80 px-1 py-0.5 font-mono text-[10px] text-amber-300"
+          className="rounded border border-[#F0EDE7] bg-[#FAFAFA] px-1 py-0.5 font-mono text-[10px] text-[#B8860B]"
         >
           {token.slice(1, -1)}
         </code>,
       );
+    } else if (figures) {
+      parts.push(
+        <MetricFigure
+          key={`${keyBase}-f-${match.index}`}
+          token={token}
+          messageId={figures.messageId}
+          messageTimestampIso={figures.messageTimestampIso}
+          metricsSummary={figures.metricsSummary}
+        />,
+      );
+    } else {
+      parts.push(token);
     }
     lastIndex = match.index + token.length;
-    match = pattern.exec(text);
+    match = INLINE_PATTERN.exec(text);
   }
 
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
@@ -58,7 +83,7 @@ function splitRow(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
-function Narrative({ content }: { content: string }) {
+function Narrative({ content, figures }: { content: string; figures?: InlineFigureContext }) {
   const lines = content.split('\n');
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -77,14 +102,14 @@ function Narrative({ content }: { content: string }) {
       const header = splitRow(bodyRows[0] ?? '');
       const rows = bodyRows.slice(1).map(splitRow);
       blocks.push(
-        <div key={`table-${key}`} className="overflow-auto rounded-lg border border-slate-800 bg-slate-950/60">
+        <div key={`table-${key}`} className="overflow-auto rounded-lg border border-[#E8E4DC] bg-[#FFFFFF]">
           <table className="w-full border-collapse text-left text-[11px]">
             <thead>
               <tr>
                 {header.map((cell, cellIndex) => (
                   <th
                     key={`th-${cellIndex}`}
-                    className="whitespace-nowrap border-b border-slate-800 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500"
+                    className="whitespace-nowrap border-b border-[#F0EDE7] bg-[#FAFAFA] px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[#4B4639]"
                   >
                     {cell}
                   </th>
@@ -93,9 +118,9 @@ function Narrative({ content }: { content: string }) {
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => (
-                <tr key={`tr-${rowIndex}`} className="border-b border-slate-800/60">
+                <tr key={`tr-${rowIndex}`} className="border-b border-[#F0EDE7]">
                   {row.map((cell, cellIndex) => (
-                    <td key={`td-${rowIndex}-${cellIndex}`} className="whitespace-nowrap px-2.5 py-1.5 text-slate-400">
+                    <td key={`td-${rowIndex}-${cellIndex}`} className="whitespace-nowrap px-2.5 py-1.5 text-[#1C1E21]">
                       {cell}
                     </td>
                   ))}
@@ -116,10 +141,10 @@ function Narrative({ content }: { content: string }) {
         index += 1;
       }
       blocks.push(
-        <ul key={`ul-${key}`} className="ml-4 list-disc space-y-1 marker:text-indigo-400">
+        <ul key={`ul-${key}`} className="ml-4 list-disc space-y-1 marker:text-[#B8860B]">
           {items.map((item, itemIndex) => (
-            <li key={`li-${itemIndex}`} className="text-slate-300">
-              {renderInline(item, `li-${key}-${itemIndex}`)}
+            <li key={`li-${itemIndex}`} className="text-[#1C1E21]">
+              {renderInline(item, `li-${key}-${itemIndex}`, figures)}
             </li>
           ))}
         </ul>,
@@ -135,10 +160,10 @@ function Narrative({ content }: { content: string }) {
         index += 1;
       }
       blocks.push(
-        <ol key={`ol-${key}`} className="ml-4 list-decimal space-y-1 marker:text-indigo-400">
+        <ol key={`ol-${key}`} className="ml-4 list-decimal space-y-1 marker:text-[#B8860B]">
           {items.map((item, itemIndex) => (
-            <li key={`li-${itemIndex}`} className="text-slate-300">
-              {renderInline(item, `ol-${key}-${itemIndex}`)}
+            <li key={`li-${itemIndex}`} className="text-[#1C1E21]">
+              {renderInline(item, `ol-${key}-${itemIndex}`, figures)}
             </li>
           ))}
         </ol>,
@@ -150,8 +175,8 @@ function Narrative({ content }: { content: string }) {
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);
     if (heading) {
       blocks.push(
-        <p key={`h-${key}`} className="pt-1 text-[12px] font-bold text-slate-100">
-          {renderInline(heading[2], `h-${key}`)}
+        <p key={`h-${key}`} className="pt-1 text-[12px] font-bold text-[#1C1E21]">
+          {renderInline(heading[2], `h-${key}`, figures)}
         </p>,
       );
       key += 1;
@@ -165,8 +190,8 @@ function Narrative({ content }: { content: string }) {
     }
 
     blocks.push(
-      <p key={`p-${key}`} className="text-slate-300">
-        {renderInline(line, `p-${key}`)}
+      <p key={`p-${key}`} className="text-[#1C1E21]">
+        {renderInline(line, `p-${key}`, figures)}
       </p>,
     );
     key += 1;
@@ -193,6 +218,11 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
   const hasChart = Boolean(message.echartsOption);
   const metrics = message.metricsSummary ?? [];
   const preview = hasChart ? optionToTable(message.echartsOption) : null;
+  const explain = useOptionalExplainNumber();
+  const figures: InlineFigureContext | undefined =
+    !isUser && explain
+      ? { messageId: message.id, messageTimestampIso: message.timestamp, metricsSummary: metrics }
+      : undefined;
 
   return (
     <article
@@ -203,10 +233,12 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
       {!isUser && (
         <span
           className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-            message.error ? 'bg-rose-950 text-rose-400' : 'bg-gradient-to-br from-indigo-600 to-amber-500'
+            message.error
+              ? 'border border-rose-200 bg-rose-50 text-rose-600'
+              : 'border border-[#D4AF37]/40 bg-[#FBF8EF] text-[#B8860B]'
           }`}
         >
-          {message.error ? <AlertTriangle className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5 text-white" />}
+          {message.error ? <AlertTriangle className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5 text-[#B8860B]" />}
         </span>
       )}
 
@@ -214,13 +246,13 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
         <div
           className={`rounded-2xl px-3.5 py-2.5 text-[12px] leading-relaxed ${
             isUser
-              ? 'rounded-br-sm bg-indigo-600/90 text-white'
+              ? 'rounded-br-sm border border-[#D4AF37]/50 bg-[#FBF8EF] text-[#1C1E21]'
               : message.error
-                ? 'rounded-bl-sm border border-rose-800/60 bg-rose-950/40 text-rose-200'
-                : 'rounded-bl-sm border border-slate-800 bg-slate-900/70 text-slate-300'
+                ? 'rounded-bl-sm border border-rose-200 bg-rose-50/70 text-rose-800'
+                : 'rounded-bl-sm border border-[#E8E4DC] bg-[#FFFFFF] text-[#1C1E21] shadow-sm'
           }`}
         >
-          <Narrative content={message.content} />
+          <Narrative content={message.content} figures={figures} />
         </div>
 
         {!isUser && metrics.length > 0 && (
@@ -228,19 +260,52 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
             {metrics.map((metric, index) => {
               const label = String(metric.label ?? metric.name ?? `Métrica ${index + 1}`);
               const value = metric.value === undefined || metric.value === null ? '—' : formatChartValue(metric.value);
-              return (
-                <span
-                  key={`${label}-${index}`}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-slate-950/80 px-2 py-1 font-mono text-[10px] text-slate-300"
-                  title={typeof metric.description === 'string' ? metric.description : label}
-                >
-                  <Info className="h-3 w-3 text-indigo-400" />
+              const description = typeof metric.description === 'string' ? metric.description : label;
+              const chipContent = (
+                <>
+                  <Info className="h-3 w-3 text-[#B8860B]" />
                   {label}
-                  <span className="font-bold text-amber-300">
+                  <span className="font-bold text-[#B8860B]">
                     {value}
                     {metric.unit ? ` ${metric.unit}` : ''}
                   </span>
-                </span>
+                </>
+              );
+              if (!explain) {
+                return (
+                  <span
+                    key={`${label}-${index}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-[#F0EDE7] bg-[#FAFAFA] px-2 py-1 font-mono text-[10px] text-[#4B4639]"
+                    title={description}
+                  >
+                    {chipContent}
+                  </span>
+                );
+              }
+              return (
+                <button
+                  key={`${label}-${index}`}
+                  type="button"
+                  data-testid="metrics-chip"
+                  title="Explícame esta cifra"
+                  aria-label={`Explícame esta cifra ${label}`}
+                  onClick={() =>
+                    explain.open(
+                      buildExplainTarget({
+                        messageId: message.id,
+                        messageTimestampIso: message.timestamp,
+                        label,
+                        rawValue: metric.value ?? null,
+                        unit: metric.unit,
+                        description,
+                        metricsSummary: metrics,
+                      }),
+                    )
+                  }
+                  className="inline-flex cursor-help items-center gap-1 rounded-md border border-[#F0EDE7] bg-[#FAFAFA] px-2 py-1 font-mono text-[10px] text-[#4B4639] transition-colors hover:border-[#D4AF37] hover:bg-[#FBF8EF] hover:text-[#B8860B]"
+                >
+                  {chipContent}
+                </button>
               );
             })}
           </div>
@@ -259,7 +324,7 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
         )}
 
         {!isUser && message.needsClarification && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-600/40 bg-amber-950/40 px-2.5 py-1 text-[10px] font-medium text-amber-300">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D4AF37]/50 bg-[#FBF8EF] px-2.5 py-1 text-[10px] font-medium text-[#B8860B]">
             <AlertTriangle className="h-3 w-3" />
             Requiere aclaración para continuar
           </span>
@@ -274,11 +339,11 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
           />
         )}
 
-        <span className="px-1 font-mono text-[9px] text-slate-600">{formatTime(message.timestamp)}</span>
+        <span className="px-1 font-mono text-[9px] text-[#4B4639]/60">{formatTime(message.timestamp)}</span>
       </div>
 
       {isUser && (
-        <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-300">
+        <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#E8E4DC] bg-[#FAFAFA] text-[#4B4639]">
           <User className="h-3.5 w-3.5" />
         </span>
       )}
