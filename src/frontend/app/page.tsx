@@ -4,10 +4,12 @@ import React from 'react';
 import { PipelineCanvas } from '@/components/canvas/PipelineCanvas';
 import { Shield } from 'lucide-react';
 import { CopilotChatDrawer, CopilotChatPanel, CopilotChatProvider, CopilotChatWidget } from '@/components/copilot';
+import { ExplainNumberDrawer, ExplainNumberProvider } from '@/components/lineage';
 
 export default function MidasConsolePage() {
   return (
-    <CopilotChatProvider>
+    <ExplainNumberProvider>
+      <CopilotChatProvider>
       <div className="flex h-screen w-screen flex-col bg-[#0B0F17]">
       {/* 1. Header Ejecutivo Corporativo */}
       <header className="flex h-14 w-full items-center justify-between border-b border-slate-800/80 bg-slate-950/80 px-6 backdrop-blur-md">
@@ -84,7 +86,11 @@ export default function MidasConsolePage() {
       {/* Frontera HU-FRONT-04: Widget flotante + Drawer expandible del Copiloto */}
       <CopilotChatWidget />
       <CopilotChatDrawer />
+
+      {/* Frontera HU-FRONT-06: Drawer de linaje "Explícame esta cifra" */}
+      <ExplainNumberDrawer />
       </div>
     </CopilotChatProvider>
+    </ExplainNumberProvider>
   );
 }
