@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps, Node } from '@xyflow/react';
-import { Database, FileSpreadsheet, Globe, Activity } from 'lucide-react';
+import { Database, FileSpreadsheet, Globe, Lock } from 'lucide-react';
 import { MidasNodeData, NODE_STATUS_REGISTRY } from '@/types/canvas';
 
 export type SourceCanvasNode = Node<MidasNodeData, 'source'>;
@@ -22,6 +22,7 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
   const statusConfig = NODE_STATUS_REGISTRY[nodeData.status] || NODE_STATUS_REGISTRY.UNKNOWN;
   const IconComponent = (nodeData.subType && SUBTYPE_ICONS[nodeData.subType as keyof typeof SUBTYPE_ICONS]) || Database;
   const tagLabel = (nodeData.subType && SUBTYPE_TAGS[nodeData.subType as keyof typeof SUBTYPE_TAGS]) || 'Fuente de Datos';
+  const isMasked = Boolean((nodeData as { securityMask?: { enabled?: boolean } }).securityMask?.enabled);
 
   return (
     <div
@@ -31,8 +32,14 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
         statusConfig.borderClass
       } ${statusConfig.glowClass} ${
         selected ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-950' : 'hover:border-slate-500'
-      }`}
+      } ${isMasked ? 'opacity-30 grayscale-[0.2]' : ''}`}
     >
+      {isMasked && (
+        <div className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/20 text-amber-300 shadow-lg shadow-amber-900/30">
+          <Lock className="h-3.5 w-3.5" aria-label="Acceso restringido" />
+        </div>
+      )}
+
       {/* Cabecera del Nodo */}
       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
         <div className="flex items-center gap-2">
@@ -70,6 +77,12 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
           </span>
         </div>
       </div>
+
+      {isMasked && (
+        <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-amber-300">
+          Datos protegidos por política
+        </div>
+      )}
 
       {/* Puerto de Salida (Right) */}
       <Handle

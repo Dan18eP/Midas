@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps, Node } from '@xyflow/react';
-import { Layers, CheckCircle2, Sparkles, AlertTriangle, HardDrive } from 'lucide-react';
+import { Layers, CheckCircle2, Sparkles, AlertTriangle, HardDrive, Lock } from 'lucide-react';
 import { MidasNodeData, NODE_STATUS_REGISTRY } from '@/types/canvas';
 
 export type StageCanvasNode = Node<MidasNodeData, 'stage'>;
@@ -35,6 +35,7 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
   const stageType = (nodeData.subType as 'bronze' | 'silver' | 'gold') || 'silver';
   const stageMeta = STAGE_CONFIG[stageType] || STAGE_CONFIG.silver;
   const IconComponent = stageMeta.icon;
+  const isMasked = Boolean((nodeData as { securityMask?: { enabled?: boolean } }).securityMask?.enabled);
 
   return (
     <div
@@ -44,8 +45,14 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
         statusConfig.borderClass
       } ${statusConfig.glowClass} ${
         selected ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-950' : 'hover:border-slate-500'
-      }`}
+      } ${isMasked ? 'opacity-30 grayscale-[0.2]' : ''}`}
     >
+      {isMasked && (
+        <div className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/20 text-amber-300 shadow-lg shadow-amber-900/30">
+          <Lock className="h-3.5 w-3.5" aria-label="Acceso restringido" />
+        </div>
+      )}
+
       {/* Puerto de Entrada (Left) */}
       <Handle
         type="target"
@@ -77,10 +84,16 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
       </div>
 
       {/* Identificador de Tabla y Path */}
-      <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-400 font-mono truncate">
+      <div className="mt-2 flex items-center gap-1 truncate text-[10px] font-mono text-slate-400">
         <HardDrive className="h-3 w-3 shrink-0 text-slate-500" />
         <span className="truncate">{nodeData.catalogTable || nodeData.storagePath || 'Iceberg Table'}</span>
       </div>
+
+      {isMasked && (
+        <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-amber-300">
+          Datos protegidos por política
+        </div>
+      )}
 
       {/* Métricas Principales */}
       <div className="mt-2.5 grid grid-cols-2 gap-2 text-slate-300">
