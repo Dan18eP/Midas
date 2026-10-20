@@ -40,51 +40,14 @@ export default function MidasConsolePage() {
           </div>
         </div>
 
-        {/* Frontera HU-FRONT-03: Barra Time-Travel Replay */}
-        <nav className="hidden lg:flex items-center bg-[#F7F7F5] border border-[#F0EDE7] rounded-md p-0.5 text-xs shadow-inner">
-          <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono px-2 py-1 font-medium">Replay:</span>
-          <div className="flex items-center space-x-0.5">
-            <button
-              type="button"
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#FFFFFF] text-[#1C1E21] font-medium border border-[#D4AF37] shadow-xs transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-[#4D7C0F]" />
-              <span className="font-mono text-[11px] font-semibold text-[#8C6D1F]">LIVE</span>
-            </button>
-            <button
-              type="button"
-              disabled
-              className="px-2 py-1 rounded text-[#6B6557] hover:text-[#1C1E21] hover:bg-[#FAFAFA] transition-colors font-mono text-[11px] cursor-not-allowed"
-              title="Preparado para HU-FRONT-03: Time-Travel Replay"
-            >
-              T0 Normal
-            </button>
-            <button
-              type="button"
-              disabled
-              className="px-2 py-1 rounded text-[#6B6557] hover:text-[#1C1E21] hover:bg-[#FAFAFA] transition-colors font-mono text-[11px] cursor-not-allowed"
-              title="Preparado para HU-FRONT-03: Incidente Inyectado"
-            >
-              T1 Incidente
-            </button>
-            <button
-              type="button"
-              disabled
-              className="px-2 py-1 rounded text-[#6B6557] hover:text-[#1C1E21] hover:bg-[#FAFAFA] transition-colors font-mono text-[11px] cursor-not-allowed"
-              title="Preparado para HU-FRONT-03: Guardian Auto-Healing"
-            >
-              T2 Guardian
-            </button>
-            <button
-              type="button"
-              disabled
-              className="px-2 py-1 rounded text-[#6B6557] hover:text-[#1C1E21] hover:bg-[#FAFAFA] transition-colors font-mono text-[11px] cursor-not-allowed"
-              title="Preparado para HU-FRONT-03: Snapshot Publicado"
-            >
-              T3 Publicado
-            </button>
-          </div>
-        </nav>
+        {/* Frontera HU-FRONT-03: Time-Travel Replay Status */}
+        <div className="hidden lg:flex items-center bg-[#F7F7F5] border border-[#F0EDE7] rounded-md px-2.5 py-1 text-xs shadow-inner gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono font-medium">Time-Travel Replay:</span>
+          <span className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#FFFFFF] text-[#1C1E21] font-medium border border-[#D4AF37]/40 shadow-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#4D7C0F] animate-pulse" />
+            <span className="font-mono text-[10px] font-semibold text-[#8C6D1F]">24h Operational Buffer Active</span>
+          </span>
+        </div>
 
         {/* Frontera HU-FRONT-05: Selector Zero-Trust Roles */}
         <div className="flex items-center space-x-3">

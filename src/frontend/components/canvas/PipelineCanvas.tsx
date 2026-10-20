@@ -21,6 +21,10 @@ import '@xyflow/react/dist/style.css';
 import { MidasNodeData } from '@/types/canvas';
 import { TelemetryEventPayload } from '@/types/telemetry';
 import { useTelemetryStream } from '@/hooks/useTelemetryStream';
+import { useTimeTravel } from '@/hooks/useTimeTravel';
+import { TimeTravelScrubber } from './TimeTravelScrubber';
+import { TimeTravelMode, PipelineSnapshot } from '@/types/timeTravel';
+import { HistoricalSnapshotStore } from '@/services/historicalTelemetryService';
 import { SourceNode } from './nodes/SourceNode';
 import { StageNode } from './nodes/StageNode';
 import { GuardianNode } from './nodes/GuardianNode';
@@ -49,6 +53,10 @@ export interface PipelineCanvasProps {
   autoConnectSSE?: boolean;
   eventSourceFactory?: (url: string) => EventSource;
   onTelemetryEvent?: (event: TelemetryEventPayload) => void;
+  timeTravelStore?: HistoricalSnapshotStore;
+  initialTimeTravelMode?: TimeTravelMode;
+  onTimeTravelModeChange?: (mode: TimeTravelMode) => void;
+  onSnapshotChange?: (snapshot: PipelineSnapshot | null) => void;
 }
 
 function extractRate(event: TelemetryEventPayload): number {
@@ -82,10 +90,22 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   autoConnectSSE = true,
   eventSourceFactory,
   onTelemetryEvent,
+  timeTravelStore,
+  initialTimeTravelMode = 'LIVE',
+  onTimeTravelModeChange,
+  onSnapshotChange,
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MidasNodeData>>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeData, setSelectedNodeData] = useState<MidasNodeData | null>(null);
+
+  // Time-Travel Replay Engine (HU-FRONT-03)
+  const timeTravel = useTimeTravel({
+    store: timeTravelStore,
+    initialMode: initialTimeTravelMode,
+    onModeChange: onTimeTravelModeChange,
+    onSnapshotChange,
+  });
 
   // Queue of events for 60 FPS requestAnimationFrame batching
   const pendingEventsRef = useRef<TelemetryEventPayload[]>([]);
@@ -269,21 +289,146 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
     );
   }, [setNodes, setEdges]);
 
-  // Handler for each incoming telemetry event: queues for rAF
+  // Handler for each incoming telemetry event: buffers in store & queues for rAF
   const handleIncomingTelemetry = useCallback(
     (event: TelemetryEventPayload) => {
-      pendingEventsRef.current.push(event);
+      // 1. Background event buffering into history store (AC-02, AC-03)
+      timeTravel.recordLiveTelemetry(event);
 
-      if (rafIdRef.current === null && typeof window !== 'undefined') {
-        rafIdRef.current = requestAnimationFrame(flushBatchUpdates);
+      // 2. Only push to active canvas visual queue if in LIVE mode
+      if (timeTravel.mode === 'LIVE') {
+        pendingEventsRef.current.push(event);
+
+        if (rafIdRef.current === null && typeof window !== 'undefined') {
+          rafIdRef.current = requestAnimationFrame(flushBatchUpdates);
+        }
       }
 
       if (onTelemetryEvent) {
         onTelemetryEvent(event);
       }
     },
-    [flushBatchUpdates, onTelemetryEvent]
+    [flushBatchUpdates, onTelemetryEvent, timeTravel]
   );
+
+  // Effect: Apply active historical snapshot to nodes and edges in REPLAY mode (AC-03)
+  useEffect(() => {
+    if (timeTravel.mode !== 'REPLAY' || !timeTravel.activeSnapshot) {
+      return;
+    }
+
+    const snap = timeTravel.activeSnapshot;
+
+    // 1. Reconstruct nodes according to snapshot
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        const snapNode = snap.nodesState[node.id];
+        if (!snapNode) return node;
+
+        const updatedData: MidasNodeData = {
+          ...node.data,
+          status: snapNode.status,
+          recordsIn: snapNode.recordsIn,
+          recordsOut: snapNode.recordsOut,
+          latencyMs: snapNode.latencyMs ?? node.data.latencyMs,
+          lastUpdated: snap.timestamp,
+          quarantinedRecords: snapNode.quarantinedRecords ?? 0,
+          guardianDetails: snapNode.guardianDetails || node.data.guardianDetails,
+        };
+
+        if (selectedNodeIdRef.current === node.id) {
+          setSelectedNodeData(updatedData);
+        }
+
+        return {
+          ...node,
+          data: updatedData,
+        };
+      })
+    );
+
+    // 2. Reconstruct edge flow rates and quarantine state
+    setEdges((currentEdges) =>
+      currentEdges.map((edge) => {
+        let updatedEdge = edge;
+
+        if (edge.id === 'edge_bronze_silver') {
+          const rate = snap.sparkRps ?? 350;
+          updatedEdge = {
+            ...edge,
+            data: {
+              ...edge.data,
+              volume: snap.recordsProcessed,
+              recordsPerSecond: rate,
+              label: `PySpark Cleanse (${rate.toLocaleString()} RPS)`,
+            },
+          };
+        } else if (edge.id === 'edge_silver_gold') {
+          const rate = snap.sparkRps ?? 350;
+          updatedEdge = {
+            ...edge,
+            data: {
+              ...edge.data,
+              volume: snap.recordsProcessed,
+              recordsPerSecond: rate,
+              label: `WAP Promotion (${rate.toLocaleString()} RPS)`,
+            },
+          };
+        } else if (edge.id === 'edge_silver_guardian') {
+          const qRec = snap.recordsQuarantined;
+          updatedEdge = {
+            ...edge,
+            data: {
+              ...edge.data,
+              volume: qRec,
+              recordsPerSecond: qRec,
+              status: qRec > 0 ? 'DEGRADED' : 'HEALTHY',
+              label: `${qRec} en Cuarentena`,
+            },
+          };
+        }
+
+        return updatedEdge;
+      })
+    );
+  }, [timeTravel.mode, timeTravel.activeSnapshot, setNodes, setEdges]);
+
+  // Effect: Instant restoration of latest live telemetry state when returning to LIVE (AC-02, AC-04)
+  const prevModeRef = useRef<TimeTravelMode>('LIVE');
+  useEffect(() => {
+    if (prevModeRef.current === 'REPLAY' && timeTravel.mode === 'LIVE') {
+      const latestSnap = timeTravel.availableSnapshots.slice(-1)[0];
+      if (latestSnap) {
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            const snapNode = latestSnap.nodesState[node.id];
+            if (!snapNode) return node;
+
+            const restoredData: MidasNodeData = {
+              ...node.data,
+              status: snapNode.status,
+              recordsIn: snapNode.recordsIn,
+              recordsOut: snapNode.recordsOut,
+              latencyMs: snapNode.latencyMs ?? node.data.latencyMs,
+              lastUpdated: latestSnap.timestamp,
+              quarantinedRecords: snapNode.quarantinedRecords ?? 0,
+              guardianDetails: snapNode.guardianDetails || node.data.guardianDetails,
+            };
+
+            if (selectedNodeIdRef.current === node.id) {
+              setSelectedNodeData(restoredData);
+            }
+
+            return {
+              ...node,
+              data: restoredData,
+            };
+          })
+        );
+      }
+    }
+    prevModeRef.current = timeTravel.mode;
+  }, [timeTravel.mode, timeTravel.availableSnapshots, setNodes]);
 
   // Subscribe to SSE stream
   const { connectionStatus, lastEvent, reconnectAttempts, connect } = useTelemetryStream({
@@ -405,6 +550,27 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           className="!bottom-4 !right-24 !rounded !border !border-[#F0EDE7] !bg-[#FFFFFF] !shadow-sm"
         />
       </ReactFlow>
+
+      {/* Barra de Replay Temporal e Inspección Histórica (HU-FRONT-03) */}
+      <TimeTravelScrubber
+        mode={timeTravel.mode}
+        isPlaying={timeTravel.isPlaying}
+        speed={timeTravel.speed}
+        currentTimeMs={timeTravel.currentTimeMs}
+        liveNowMs={timeTravel.liveNowMs}
+        windowStartMs={timeTravel.windowStartMs}
+        windowEndMs={timeTravel.windowEndMs}
+        activeSnapshot={timeTravel.activeSnapshot}
+        relativeOffsetMinutes={timeTravel.relativeOffsetMinutes}
+        relativeOffsetLabel={timeTravel.relativeOffsetLabel}
+        timelinePoints={timeTravel.timelinePoints}
+        onPlay={timeTravel.play}
+        onPause={timeTravel.pause}
+        onTogglePlay={timeTravel.togglePlay}
+        onSetSpeed={timeTravel.setSpeed}
+        onSeek={timeTravel.seekTo}
+        onReturnToLive={timeTravel.returnToLive}
+      />
 
       {/* Panel Lateral de Inspección (Drawer) */}
       <NodeInspectionDrawer
