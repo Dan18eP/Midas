@@ -122,6 +122,27 @@ services:
       - midas-network
 
   # ----------------------------------------------------------------------------
+  # 3.1. Motor de Consultas Distribuido (Trino 450)
+  # Catálogos federados sobre Apache Iceberg REST y PostgreSQL Operacional
+  # ----------------------------------------------------------------------------
+  midas-trino:
+    image: trinodb/trino:450
+    container_name: midas-trino
+    restart: unless-stopped
+    profiles: ["lakehouse", "query", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+      midas-minio:
+        condition: service_healthy
+    ports:
+      - "${TRINO_PORT:-8082}:8080"
+    volumes:
+      - ./docker/trino/etc:/etc/trino:ro
+    networks:
+      - midas-network
+
+  # ----------------------------------------------------------------------------
   # 4. Core Backend FastAPI & Hub Telemetría SSE (Squad 1 - Daniel Echeverría)
   # ----------------------------------------------------------------------------
   midas-api:
