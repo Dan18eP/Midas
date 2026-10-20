@@ -41,7 +41,7 @@ export function ChatConversation({ autoFocus = false }: ChatConversationProps) {
         <ChatStatusIndicator status={status} />
       </div>
 
-      <div className="space-y-3 border-t border-slate-800/80 pt-3">
+      <div className="space-y-3 border-t border-[#F0EDE7] pt-3">
         <QuickPromptPills pills={suggestions} onSelect={send} disabled={!idle} />
         <PromptComposer onSubmit={send} suggestions={suggestions} status={status} inputRef={inputRef} />
       </div>

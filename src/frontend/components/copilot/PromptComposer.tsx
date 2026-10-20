@@ -51,7 +51,7 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
           id={listId}
           role="listbox"
           aria-label="Autocompletado del Copiloto"
-          className="absolute bottom-full left-0 z-20 mb-2 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur"
+          className="absolute bottom-full left-0 z-20 mb-2 w-full overflow-hidden rounded-xl border border-[#E8E4DC] bg-[#FFFFFF] shadow-xl backdrop-blur"
         >
           {matches.map((match, index) => (
             <li key={match} role="option" aria-selected="false">
@@ -63,7 +63,7 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
                   setValue(match);
                   textareaRef.current?.focus();
                 }}
-                className="w-full px-3 py-2 text-left text-[11px] text-slate-300 transition hover:bg-slate-900"
+                className="w-full px-3 py-2 text-left text-[11px] text-[#1C1E21] transition hover:bg-[#FAFAFA]"
               >
                 {match}
               </button>
@@ -72,7 +72,7 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
         </ul>
       )}
 
-      <div className="flex items-end gap-2 rounded-2xl border border-slate-800 bg-slate-900/70 p-2 focus-within:border-indigo-500/60">
+      <div className="flex items-end gap-2 rounded-2xl border border-[#E8E4DC] bg-[#FAFAFA] p-2 focus-within:border-[#D4AF37] focus-within:bg-[#FFFFFF] transition-colors">
         <textarea
           ref={textareaRef}
           rows={1}
@@ -90,7 +90,7 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
               submit(value);
             }
           }}
-          className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[12px] text-slate-200 placeholder-slate-500 focus:outline-none disabled:cursor-not-allowed"
+          className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[12px] text-[#1C1E21] placeholder-[#4B4639]/50 focus:outline-none disabled:cursor-not-allowed"
         />
         <button
           type="button"
@@ -98,13 +98,13 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
           disabled={busy || value.trim().length === 0}
           aria-label="Enviar mensaje"
           data-testid="copilot-send-button"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#B8860B] text-white transition hover:bg-[#D4AF37] disabled:cursor-not-allowed disabled:bg-[#F0EDE7] disabled:text-[#4B4639]/40"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </button>
       </div>
 
-      <p className="mt-1.5 flex items-center gap-1 text-[9px] text-slate-600">
+      <p className="mt-1.5 flex items-center gap-1 text-[9px] text-[#4B4639]/60">
         <CornerDownLeft className="h-2.5 w-2.5" />
         Enter para enviar · Shift+Enter para salto de línea
       </p>
