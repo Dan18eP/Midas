@@ -12,6 +12,14 @@ export type ReplaySpeed = 1 | 2 | 5;
 export const REPLAY_SPEEDS: readonly ReplaySpeed[] = [1, 2, 5] as const;
 
 /**
+ * Canonical operational scenarios (T0-T3) exposed as quick-jump milestones on the
+ * Time-Travel scrubber. The historical store holds several snapshots per scenario
+ * (T0 exists at T-24h, T-12h, T-2h and LIVE), so milestone pills are deduplicated by
+ * scenarioId. The array order defines the rendering order of those pills.
+ */
+export const CANONICAL_SCENARIO_IDS: readonly string[] = ['T0', 'T1', 'T2', 'T3'] as const;
+
+/**
  * Historical state of an individual node in the pipeline at snapshot time T.
  */
 export interface PipelineSnapshotNodeState {

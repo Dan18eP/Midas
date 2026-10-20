@@ -133,4 +133,35 @@ describe('TimeTravelScrubber component', () => {
     fireEvent.click(pillT1);
     expect(onSeek).toHaveBeenCalledWith(t1Snapshot.timestampMs);
   });
+
+  it('7. Deduplicates milestone pills by canonical scenario, keeping T0 on LIVE (AC-01)', () => {
+    const onSeek = vi.fn();
+    render(<TimeTravelScrubber {...baseProps} onSeek={onSeek} />);
+
+    // The canonical store holds 7 snapshots but only 4 canonical scenarios (T0-T3)
+    expect(snapshots.filter((s) => s.scenarioId === 'T0')).toHaveLength(4);
+
+    const pills = screen.getAllByTestId(/^scenario-pill-/);
+    expect(pills).toHaveLength(4);
+    expect(pills.map((pill) => pill.textContent)).toEqual(['T0', 'T1', 'T2', 'T3']);
+
+    // No duplicated data-testid across the milestone pills
+    ['T0', 'T1', 'T2', 'T3'].forEach((scenarioId) => {
+      expect(screen.getAllByTestId(`scenario-pill-${scenarioId}`)).toHaveLength(1);
+    });
+
+    // T0 must reference the most recent snapshot ("En Vivo (LIVE)")
+    expect(liveSnapshot.stageLabel).toBe('En Vivo (LIVE)');
+    fireEvent.click(screen.getByTestId('scenario-pill-T0'));
+    expect(onSeek).toHaveBeenCalledWith(liveSnapshot.timestampMs);
+  });
+
+  it('8. Keeps every historical snapshot reachable on the timeline track (AC-03)', () => {
+    const { container } = render(<TimeTravelScrubber {...baseProps} />);
+
+    // All 7 snapshots remain rendered as track markers even though pills are deduplicated
+    const markers = container.querySelectorAll('div[title]');
+    expect(markers).toHaveLength(7);
+    expect(snapshots).toHaveLength(7);
+  });
 });

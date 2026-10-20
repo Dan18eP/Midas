@@ -34,9 +34,6 @@ export default function MidasConsolePage() {
             <span className="text-[10px] font-mono text-[#787164] tracking-tight border-l border-[#E8E4DC] pl-2.5">
               Active Lakehouse
             </span>
-            <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded text-[#4D7C0F] bg-[#4D7C0F]/10 border border-[#4D7C0F]/25 font-medium">
-              v2.4 Prod
-            </span>
           </div>
         </div>
 
@@ -50,11 +47,7 @@ export default function MidasConsolePage() {
         </div>
 
         {/* Frontera HU-FRONT-05: Selector Zero-Trust Roles */}
-        <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 text-xs text-[#787164] font-mono border-r border-[#E8E4DC] pr-3">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#4D7C0F]" />
-            <span>eu-west-1</span>
-          </div>
+        <div className="flex items-center">
           <div className="flex items-center space-x-2 bg-[#FAFAFA] border border-[#E8E4DC] px-2.5 py-1 rounded-md shadow-xs">
             <div className="w-4 h-4 rounded bg-[#FBF8EF] flex items-center justify-center text-[#996515] text-[10px] font-bold font-serif">
               D

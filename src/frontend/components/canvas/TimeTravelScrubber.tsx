@@ -15,6 +15,7 @@ import {
   TimeTravelMode,
   ReplaySpeed,
   REPLAY_SPEEDS,
+  CANONICAL_SCENARIO_IDS,
   PipelineSnapshot,
   HistoricalTimelinePoint,
 } from '@/types/timeTravel';
@@ -82,6 +83,37 @@ export const TimeTravelScrubber: React.FC<TimeTravelScrubberProps> = memo(({
 }) => {
   // Format current display timestamp
   const displayTime = useMemo(() => formatDateTime(currentTimeMs), [currentTimeMs]);
+
+  /**
+   * Canonical milestone bookmarks for the quick-jump pills (AC-01).
+   * The store keeps several snapshots per canonical scenario (T0 exists at T-24h, T-12h, T-2h
+   * and LIVE), so pills are deduplicated by scenarioId keeping the most recent snapshot of
+   * each one — for T0 that is the "En Vivo (LIVE)" reference, which seekTo maps back to LIVE mode.
+   */
+  const milestonePoints = useMemo(() => {
+    const latestByScenario = new Map<string, HistoricalTimelinePoint>();
+
+    for (const point of timelinePoints) {
+      if (!point.scenarioId) continue;
+      const current = latestByScenario.get(point.scenarioId);
+      if (!current || point.timestampMs >= current.timestampMs) {
+        latestByScenario.set(point.scenarioId, point);
+      }
+    }
+
+    const scenarioRank = (scenarioId: string) => {
+      const index = CANONICAL_SCENARIO_IDS.indexOf(scenarioId);
+      return index === -1 ? CANONICAL_SCENARIO_IDS.length : index;
+    };
+
+    return Array.from(latestByScenario.entries())
+      .map(([scenarioId, point]) => ({ scenarioId, point }))
+      .sort((a, b) => {
+        const rankDiff = scenarioRank(a.scenarioId) - scenarioRank(b.scenarioId);
+        if (rankDiff !== 0) return rankDiff;
+        return a.point.timestampMs - b.point.timestampMs;
+      });
+  }, [timelinePoints]);
 
   // Handle range slider scrub
   const handleSliderChange = useCallback(
@@ -278,18 +310,16 @@ export const TimeTravelScrubber: React.FC<TimeTravelScrubberProps> = memo(({
         {/* Quick Scenario Bookmark Pills */}
         <div className="hidden md:flex items-center gap-1.5">
           <span className="text-[11px] text-[#787164] font-medium mr-1">Escenarios:</span>
-          {timelinePoints
-            .filter((p) => p.scenarioId)
-            .map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onSeek(p.timestampMs)}
-                data-testid={`scenario-pill-${p.scenarioId}`}
-                className="text-[11px] px-2 py-0.5 rounded-md border border-[#E8E4DC] bg-[#FFFFFF] hover:bg-[#FBF8EF] hover:border-[#D4AF37] text-[#4B4639] hover:text-[#8C6D1F] font-mono transition-colors cursor-pointer"
-              >
-                {p.scenarioId}
-              </button>
-            ))}
+          {milestonePoints.map(({ scenarioId, point }) => (
+            <button
+              key={scenarioId}
+              onClick={() => onSeek(point.timestampMs)}
+              data-testid={`scenario-pill-${scenarioId}`}
+              className="text-[11px] px-2 py-0.5 rounded-md border border-[#E8E4DC] bg-[#FFFFFF] hover:bg-[#FBF8EF] hover:border-[#D4AF37] text-[#4B4639] hover:text-[#8C6D1F] font-mono transition-colors cursor-pointer"
+            >
+              {scenarioId}
+            </button>
+          ))}
         </div>
 
         {/* Active Snapshot Metrics Preview */}
