@@ -1,0 +1,56 @@
+{
+  "_comentario": [
+    "Midas - Politica de Filtrado por Filas / Row-Level Security (HU-GOV-03, ST-GOV-03.2).",
+    "Responsable: Sebastian Castiblanco (Governance Lead).",
+    "Formato nativo de Apache Ranger (policyType 2 = Row Filter): importable tal",
+    "cual en Ranger Admin. El motor local lee el mismo campo filterExpr y lo",
+    "inyecta como predicado en la consulta antes de enviarla a Trino.",
+    "El recurso usa comodin sobre el esquema gold: toda tabla de consumo",
+    "analitico queda cubierta sin enumerarla."
+  ],
+  "service": "midas_trino",
+  "serviceType": "trino",
+  "name": "midas-regional-row-level-security",
+  "description": "Restringe las filas visibles en las tablas de consumo segun el territorio asignado al rol.",
+  "policyType": 2,
+  "policyPriority": 0,
+  "isEnabled": true,
+  "isAuditEnabled": true,
+  "resources": {
+    "catalog": { "values": ["iceberg"], "isExcludes": false, "isRecursive": false },
+    "schema": { "values": ["gold", "silver"], "isExcludes": false, "isRecursive": false },
+    "table": { "values": ["*"], "isExcludes": false, "isRecursive": false }
+  },
+  "rowFilterPolicyItems": [
+    {
+      "_rol": "Gerente Regional Norte - canonical/05 seccion 3.2",
+      "roles": ["gerente_norte"],
+      "users": ["user_manager"],
+      "accesses": [{ "type": "select", "isAllowed": true }],
+      "rowFilterInfo": {
+        "filterExpr": "region = 'NORTE'",
+        "_descripcion": "Trino solo devuelve transacciones y metricas del territorio NORTE."
+      }
+    },
+    {
+      "_rol": "Director General (Admin): sin restriccion territorial",
+      "roles": ["director_general"],
+      "users": ["user_admin"],
+      "accesses": [{ "type": "select", "isAllowed": true }],
+      "rowFilterInfo": {
+        "filterExpr": "",
+        "_descripcion": "Filtro vacio: acceso a todas las filas."
+      }
+    },
+    {
+      "_rol": "Analista Externo (Auditor): sin restriccion de filas, PII enmascarada",
+      "roles": ["analista_externo"],
+      "users": ["user_analyst"],
+      "accesses": [{ "type": "select", "isAllowed": true }],
+      "rowFilterInfo": {
+        "filterExpr": "",
+        "_descripcion": "La restriccion de este rol es por columna, no por fila."
+      }
+    }
+  ]
+}

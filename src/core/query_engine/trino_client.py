@@ -19,6 +19,10 @@ except ImportError:
 import sqlglot
 from sqlglot import exp
 
+from src.security_governance.ranger.policy_engine import (
+    apply_policies,
+    ranger_trino_plugin_enabled,
+)
 from src.core.query_engine.guardrails import (
     enforce_limit_and_read_only,
     mask_sensitive_credentials,
@@ -51,6 +55,8 @@ class QueryResult:
     truncated: bool
     cost_estimate: Optional[QueryCostEstimate] = None
     query_id: Optional[str] = None
+    # Políticas Zero-Trust aplicadas a esta consulta (HU-GOV-03).
+    security_policy: Optional[Dict[str, Any]] = None
 
 
 class TrinoClient:
@@ -211,6 +217,13 @@ class TrinoClient:
             max_limit=self.max_limit,
         )
 
+        # 1.1. Políticas Zero-Trust de Apache Ranger (HU-GOV-03): enmascaramiento
+        # dinámico de columnas PII y filtrado por filas según el rol. El motor
+        # falla cerrado: si una política aplica y no puede garantizarse, lanza
+        # PolicyEnforcementError y la consulta no llega a Trino.
+        policy_decision = apply_policies(safe_sql, user_role)
+        safe_sql = policy_decision.effective_sql
+
         cost_est = await self.estimate_query_cost(safe_sql, target_catalog, target_schema)
 
         # 2. Intentar ejecución contra el cluster Trino si está activo
@@ -220,7 +233,11 @@ class TrinoClient:
             "X-Trino-Schema": target_schema,
             "X-Trino-Source": "midas-api",
         }
-        if user_role:
+        # HU-GOV-03: la impersonación por cabecera solo es válida cuando el
+        # plugin de Ranger está instalado en Trino y conoce el rol. Sin él,
+        # Trino responde "Access Denied: Cannot set role" y rechaza la consulta.
+        # Mientras tanto, la restricción la aplica el motor de políticas local.
+        if user_role and ranger_trino_plugin_enabled():
             headers["X-Trino-Role"] = f"system=ROLE{{{user_role}}}"
 
         client = self._get_async_client()
@@ -263,6 +280,7 @@ class TrinoClient:
             if self.fallback_for_testing and isinstance(exc, httpx.ConnectError):
                 return self._execute_deterministic_local_engine(
                     safe_sql, target_catalog, target_schema, start_time, cost_est,
+                    security_policy=policy_decision.to_dict(),
                 )
             raise ConnectionError("Trino coordinator is unavailable") from None
 
@@ -271,6 +289,7 @@ class TrinoClient:
             row_count=len(data_rows), execution_time_ms=round((time.perf_counter() - start_time) * 1000, 2),
             catalog=target_catalog, schema_name=target_schema,
             truncated=len(data_rows) >= self.max_limit, cost_estimate=cost_est, query_id=query_id,
+            security_policy=policy_decision.to_dict(),
         )
 
     def _execute_deterministic_local_engine(
@@ -280,6 +299,7 @@ class TrinoClient:
         schema_name: str,
         start_time: float,
         cost_est: QueryCostEstimate,
+        security_policy: Optional[Dict[str, Any]] = None,
     ) -> QueryResult:
         """
         Ejecuta la consulta analizando el AST real contra el catálogo canónico de Midas.
@@ -347,6 +367,7 @@ class TrinoClient:
 
         exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
         return QueryResult(
+            security_policy=security_policy,
             columns=columns,
             column_types=column_types,
             data=data_rows,

@@ -131,7 +131,7 @@ export function useTelemetryStream(
     try {
       const es = eventSourceFactory
         ? eventSourceFactory(streamUrl)
-        : new EventSource(streamUrl);
+        : new EventSource(streamUrl, { withCredentials: true });
 
       eventSourceRef.current = es;
 
