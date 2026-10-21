@@ -12,9 +12,9 @@ export const DEFAULT_SUGGESTIONS = [
 const WELCOME_CONTENT = [
   '¡Hola! Soy el **Copiloto Agéntico de Midas**. Introspecciono tus fuentes conectadas y respondo en lenguaje natural con narrativa ejecutiva y gráficos Apache ECharts.',
   'Fuentes activas:',
-  '- 🗄️ PostgreSQL: `crm_operaciones` (clientes, transacciones)',
-  '- 📁 Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)',
-  '- 🌐 API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)',
+  '- PostgreSQL: `crm_operaciones` (clientes, transacciones)',
+  '- Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)',
+  '- API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)',
   '¿Qué analizamos hoy?',
 ].join('\n');
 
@@ -56,6 +56,8 @@ export interface CopilotChatController {
   toggleDrawer: () => void;
   toggleExpanded: () => void;
   startNewChat: () => void;
+  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string) => void;
+  setThreadId: (id: string) => void;
 }
 
 export function useCopilotChat(): CopilotChatController {
@@ -65,7 +67,7 @@ export function useCopilotChat(): CopilotChatController {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [unread, setUnread] = useState(0);
-  const [threadId] = useState(() => createId('session'));
+  const [threadId, setThreadId] = useState<string>(() => createId('session'));
 
   const phaseTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const wasOpenRef = useRef(false);
@@ -183,10 +185,21 @@ export function useCopilotChat(): CopilotChatController {
 
   const startNewChat = useCallback(() => {
     clearPhaseTimers();
+    setThreadId(createId('session'));
     setMessages([createWelcomeMessage()]);
     setSuggestions(DEFAULT_SUGGESTIONS);
     setStatus('idle');
   }, [clearPhaseTimers]);
+
+  const loadSessionMessages = useCallback(
+    (newMessages: CopilotMessage[], newThreadId: string) => {
+      clearPhaseTimers();
+      setThreadId(newThreadId);
+      setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage()]);
+      setStatus('idle');
+    },
+    [clearPhaseTimers]
+  );
 
   wasOpenRef.current = drawerOpen;
 
@@ -206,6 +219,8 @@ export function useCopilotChat(): CopilotChatController {
       toggleDrawer,
       toggleExpanded,
       startNewChat,
+      loadSessionMessages,
+      setThreadId,
     }),
     [
       messages,
@@ -222,6 +237,8 @@ export function useCopilotChat(): CopilotChatController {
       toggleDrawer,
       toggleExpanded,
       startNewChat,
+      loadSessionMessages,
+      setThreadId,
     ],
   );
 }

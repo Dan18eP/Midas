@@ -200,6 +200,19 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeData, setSelectedNodeData] = useState<MidasNodeData | null>(null);
 
+  // Sincronización reactiva con la sesión activa (HU-FRONT-07 / ADR-010)
+  useEffect(() => {
+    if (initialNodes) {
+      setNodes(initialNodes);
+    }
+  }, [initialNodes, setNodes]);
+
+  useEffect(() => {
+    if (initialEdges) {
+      setEdges(initialEdges);
+    }
+  }, [initialEdges, setEdges]);
+
   /**
    * HU-FRONT-08: la política de acceso por nodo proviene del catálogo de
    * identidades del backend. El hardcode local queda como **respaldo declarado**
