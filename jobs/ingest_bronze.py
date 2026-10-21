@@ -109,7 +109,7 @@ def main() -> None:
         columns = rows.columns
         count = rows.count()
         payload = F.to_json(F.struct(*[F.col(name) for name in columns]))
-        enriched = (rows.withColumn("_raw_id", F.sha2(F.concat(F.lit(batch_id), payload), 256))
+        enriched = (rows.withColumn("_raw_id", F.expr("uuid()"))
                     .withColumn("_source_type", F.lit({"postgres": "JDBC_POSTGRES", "csv": "CSV_STORAGE", "rest_api": "REST_API_CRM", "excel": "EXCEL_SPREADSHEET"}[source["type"]]))
                     .withColumn("_source_origin", F.lit(source.get("table", source.get("path", source.get("url", spec['conn_id'])))))
                     .withColumn("_ingested_at", F.current_timestamp())

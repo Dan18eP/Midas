@@ -71,7 +71,7 @@ def get_agent_graph() -> Any:
     global _compiled_graph
     if _compiled_graph is None:
         try:
-            # InMemorySaver provides resilient zero-failure operation in local and test environments
+            # Tests can use memory; configured deployments use PostgreSQL.
             from langgraph.checkpoint.memory import InMemorySaver
             from src.agent.graph.builder import build_graph
 

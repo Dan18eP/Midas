@@ -9,7 +9,7 @@ The complete Spark pipeline and the required governance controls remain release 
 | Item | Value |
 |---|---|
 | Date | 2026-10-21 |
-| Base | `origin/develop`, `ad819ce`, including PR #56 session/upload changes |
+| Base | `origin/develop`, `c6edcc4`, including PR #56 session/uploads and PR #57 frontend history/lineage |
 | Branch | `feature/orchestration-airflow-dag-factory-audit-repairs` |
 | Backlog | HU-ORCH-01 (#42), integration follow-ups to HU-LAKE-02/03/04/05, HU-BACK-01/02/03, HU-AI-01/04, HU-FRONT-01/02/03 |
 | Responsible | aZian10; review pending from the module owners and Daniel Echeverría |
@@ -28,11 +28,13 @@ The complete Spark pipeline and the required governance controls remain release 
 
 ## Executed checks
 
-- Python 3.11: `python -B -m pytest -p no:cacheprovider -q tests --maxfail=3`.
-  The final count is recorded in the PR after the final verification pass.
+- Python 3.11: `python -B -m pytest -p no:cacheprovider -q tests --maxfail=3`:
+  **238 passed**, two FastAPI deprecation warnings.
 - `npm ci --ignore-scripts --no-audit --no-fund`: succeeded.
-- `npm test -- --reporter=json --outputFile=.venv/frontend-tests.json`: **79 passed**.
-- `npm run build`: **passed**, including TypeScript validation and static page generation.
+- After integrating PR #57, `npm test -- --reporter=json --outputFile=.venv/frontend-tests.json`:
+  **110 passed**, zero failures. Demo topology is passed explicitly in fixture tests.
+- `npm run build`: passed after the upstream merge, including type validation and
+  static page generation. The final small history-restoration correction is rebuilt before publication.
 - `docker compose --profile full config --quiet`: **passed**.
 - Real Airflow in a disposable, network-disabled container using the cached local
   runtime image: built and serialized all three DAGs, verified the Bronze-to-Silver
@@ -47,10 +49,25 @@ The complete Spark pipeline and the required governance controls remain release 
   the host was short of memory with existing team/unrelated stacks running.
   Those existing containers and volumes were preserved.
 
-The temporary database contains synthetic audit records only. Its volume is retained;
+The temporary database contains synthetic audit records only and was stopped after verification. Its volume is retained;
 no volumes were deleted and no production systems were contacted.
 
 ## Remaining requirements and next steps
+
+### Reassessment of the previous audit
+
+The assessment in `documentation/reviews/auditoria_integral_arquitectura_y_mvp_dorado.md`
+is historical evidence, not a current specification or a verified runtime report.
+
+| Previous claim | Current assessment |
+|---|---|
+| Spark services and Java absent | Resolved upstream before these repairs; declared services and Java are present. Runtime interoperability remains unverified. |
+| Missing `airflow connections add` proves no connection | Unsupported: Airflow accepts environment connections. These repairs correct the actual JSON connection parsing issue, verified with the real hook. |
+| Factory only generates Gold DAGs | Resolved in upstream code; these repairs connect source publication, Bronze completion, Silver triggers and dataset scheduling. Live execution remains unverified. |
+| No source registry / isolation | Partially resolved: registry existed; activation/publication and managed paths are repaired here. Distributed consistency and CDC remain incomplete. |
+| No lineage/history endpoints | Resolved upstream. These repairs persist history and preserve unknown quality; automated lineage coverage remains partial. |
+| Fake operational canvas / replay | Partially resolved by PR #57 and this branch: no default demo topology, real history/authentication, explicit demo fixtures. Live browser pipeline still unverified. |
+| Previous versions, line numbers and test counts | Superseded by inspected files and the commands recorded above; suggested package versions were not copied blindly. |
 
 | Priority | Requirement / gap | Small next step | Rough effort |
 |---|---|---|---|

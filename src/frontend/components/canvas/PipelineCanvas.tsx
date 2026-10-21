@@ -718,6 +718,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
     hydratedSnapshotRef.current = latest.id;
     // Restore observed nodes after refreshing the browser.
     for (const [nodeId, state] of Object.entries(latest.nodesState)) {
+      if (nodesRef.current.some((node) => node.id === nodeId)) continue;
       pendingEventsRef.current.push({ event_id: `history_${latest.id}_${nodeId}`,
         pipeline_id: 'history', node_id: nodeId, status: state.status,
         records_in: state.recordsIn, records_out: state.recordsOut,

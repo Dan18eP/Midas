@@ -38,7 +38,7 @@ def main() -> None:
         transformed = source
         amount_fields = silver.get("amount_fields", [])
         date_fields = silver.get("date_fields", [])
-        keys = silver.get("primary_key_fields", ["_raw_payload_hash"])
+        keys = silver.get("primary_key_fields") or ["_raw_payload_hash"]
         missing = set(keys + amount_fields + date_fields) - set(source.columns)
         if missing:
             raise ValueError(f"Required columns are missing: {sorted(missing)}")

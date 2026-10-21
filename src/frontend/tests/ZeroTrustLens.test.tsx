@@ -6,6 +6,7 @@ import { SourceNode } from '../components/canvas/nodes/SourceNode';
 import { StageNode } from '../components/canvas/nodes/StageNode';
 import { PipelineCanvas } from '../components/canvas/PipelineCanvas';
 import type { MidasNodeData } from '../types/canvas';
+import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '../components/canvas/topology/initialTopology';
 
 // Mock de ReactFlow para renderizado estático en JSDOM
 vi.mock('@xyflow/react', async () => {
@@ -255,7 +256,7 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
   });
 
   it('10. PipelineCanvas atenúa nodos restringidos según el perfil de seguridad', () => {
-    render(<PipelineCanvas securityRole="rbac" autoConnectSSE={false} />);
+    render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} securityRole="rbac" autoConnectSSE={false} />);
     const postgresNode = screen.getByTestId('canvas-node-source_postgres');
     expect(postgresNode).toHaveAttribute('data-masked', 'true');
     expect(postgresNode.style.opacity).toBe('0.3');
@@ -268,6 +269,8 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
   it('11. PipelineCanvas aplica la política real del catálogo de identidades del backend', () => {
     render(
       <PipelineCanvas
+        initialNodes={INITIAL_CANVAS_NODES}
+        initialEdges={INITIAL_CANVAS_EDGES}
         securityRole="compliance"
         autoConnectSSE={false}
         securityPolicy={{

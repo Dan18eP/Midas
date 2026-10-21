@@ -358,6 +358,8 @@ describe('PipelineCanvas Dynamic Graph · HU-FRONT-08', () => {
       new MockEventSourceIntegration(url) as unknown as EventSource;
     render(
       <PipelineCanvas
+        initialNodes={INITIAL_CANVAS_NODES}
+        initialEdges={INITIAL_CANVAS_EDGES}
         sseUrl="http://localhost:8000/api/v1/telemetry/stream"
         autoConnectSSE={true}
         eventSourceFactory={factory}
