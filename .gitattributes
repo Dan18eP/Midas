@@ -1,0 +1,17 @@
+# Normalizacion de finales de linea.
+# Los scripts y configuraciones de docker/ se montan dentro de contenedores
+# Linux: con CRLF el interprete falla (`set: Illegal option -`) y la JVM de
+# Trino rechaza las opciones de jvm.config. Forzamos LF siempre.
+* text=auto eol=lf
+
+*.sh          text eol=lf
+*.sql         text eol=lf
+*.conf        text eol=lf
+*.properties  text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+Dockerfile    text eol=lf
+
+*.png binary
+*.jpg binary
+*.jar binary

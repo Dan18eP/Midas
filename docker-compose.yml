@@ -49,10 +49,12 @@ services:
   # Buckets: bronze, silver, gold, quarantine, governance
   # ----------------------------------------------------------------------------
   midas-minio:
-    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    # minio/minio fue retirada de Docker Hub y quay.io exige credenciales.
+    # bitnamilegacy publica el ultimo build comunitario de MinIO.
+    image: bitnamilegacy/minio:latest
     container_name: midas-minio
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    user: "0"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
@@ -60,26 +62,30 @@ services:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     networks:
       - midas-network
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
 
   # ----------------------------------------------------------------------------
   # 2.1. Inicializador de Buckets MinIO (Squad 1 - Edgar Corzo)
   # ----------------------------------------------------------------------------
   midas-minio-init:
-    image: minio/mc:RELEASE.2024-05-09T17-04-24Z
+    # minio/mc fue retirada de Docker Hub junto con minio/minio.
+    image: bitnamilegacy/minio-client:latest
     container_name: midas-minio-init
     restart: "no"
     depends_on:
       midas-minio:
         condition: service_healthy
-    entrypoint: ["/bin/sh", "/init_buckets.sh"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - sed 's#/usr/bin/mc#mc#g' /init_buckets.sh > /tmp/init_buckets.sh && exec /bin/sh /tmp/init_buckets.sh
     volumes:
       - ./docker/minio/init_buckets.sh:/init_buckets.sh:ro
     environment:
@@ -147,7 +153,8 @@ services:
   # Motor de procesamiento distribuido para transformaciones Bronze, Silver y Gold
   # ----------------------------------------------------------------------------
   midas-spark-master:
-    image: bitnami/spark:3.5.1
+    # bitnami/spark:3.5.1 fue movida al namespace bitnamilegacy.
+    image: bitnamilegacy/spark:3.5.1
     container_name: midas-spark-master
     restart: unless-stopped
     profiles: ["lakehouse", "spark", "orchestration", "full"]
@@ -166,14 +173,15 @@ services:
       - "${SPARK_MASTER_PORT:-7077}:7077"
       - "${SPARK_MASTER_WEBUI_PORT:-8086}:8080"
     volumes:
-      - ./docker/spark/jars:/opt/bitnami/spark/jars
+      - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
       - ./jobs:/opt/midas/jobs:ro
     networks:
       - midas-network
 
   midas-spark-worker:
-    image: bitnami/spark:3.5.1
+    # bitnami/spark:3.5.1 fue movida al namespace bitnamilegacy.
+    image: bitnamilegacy/spark:3.5.1
     container_name: midas-spark-worker
     restart: unless-stopped
     profiles: ["lakehouse", "spark", "orchestration", "full"]
@@ -192,7 +200,7 @@ services:
     ports:
       - "${SPARK_WORKER_WEBUI_PORT:-8081}:8081"
     volumes:
-      - ./docker/spark/jars:/opt/bitnami/spark/jars
+      - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
       - ./jobs:/opt/midas/jobs:ro
     networks:
@@ -264,7 +272,7 @@ services:
       - ./src/orchestration:/opt/airflow/dags:ro
       - ./src:/opt/midas/src:ro
       - ./jobs:/opt/midas/jobs:ro
-      - ./docker/spark/jars:/opt/spark/jars:ro
+      - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
     networks:
       - midas-network

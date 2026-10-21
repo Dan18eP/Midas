@@ -1,4 +1,6 @@
-apache-airflow-providers-apache-spark==4.9.0
+# El constraints oficial de Airflow 2.9.3 / Python 3.11 fija 4.8.2;
+# pedir 4.9.0 rompe la resolucion de dependencias en el build.
+apache-airflow-providers-apache-spark==4.8.2
 pyspark>=3.5.0,<3.6.0
 minio>=7.2.0,<8.0.0
 PyYAML>=6.0,<7.0
