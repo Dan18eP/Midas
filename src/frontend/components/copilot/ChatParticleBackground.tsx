@@ -196,7 +196,7 @@ export function ChatParticleBackground({
           p.x += p.vx;
           p.y += p.vy;
 
-          // Reacción suave al cursor (repulsión elástica)
+          // Reacción activa y rápida al cursor (repulsión elástica + aceleración dinámica)
           if (mouse.x !== null && mouse.y !== null) {
             const mdx = p.x - mouse.x;
             const mdy = p.y - mouse.y;
@@ -204,10 +204,24 @@ export function ChatParticleBackground({
 
             if (mDistSq < mouseDistSq && mDistSq > 0) {
               const mDist = Math.sqrt(mDistSq);
-              const force = (1 - mDist / mouseRadius) * 0.5;
-              p.x += (mdx / mDist) * force * 1.8;
-              p.y += (mdy / mDist) * force * 1.8;
+              const force = (1 - mDist / mouseRadius);
+              // Desplazamiento dinámico acelerado
+              p.x += (mdx / mDist) * force * 3.8;
+              p.y += (mdy / mDist) * force * 3.8;
+              // Impulso de velocidad para que se muevan visiblemente más rápido al paso del cursor
+              p.vx += (mdx / mDist) * force * 0.85;
+              p.vy += (mdy / mDist) * force * 0.85;
             }
+          }
+
+          // Amortiguación gradual para regresar suavemente a la velocidad de crucero
+          const currentSpeed = Math.hypot(p.vx, p.vy);
+          if (currentSpeed > 3.8) {
+            p.vx = (p.vx / currentSpeed) * 3.8;
+            p.vy = (p.vy / currentSpeed) * 3.8;
+          } else if (currentSpeed > 0.42) {
+            p.vx *= 0.955;
+            p.vy *= 0.955;
           }
 
           // Rebote suave en los bordes del contenedor
