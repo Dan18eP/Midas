@@ -9,7 +9,6 @@ import {
   useOptionalExplainNumber,
 } from '@/components/lineage';
 import { EChartsRenderer } from './EChartsRenderer';
-import { QuickPromptPills } from './QuickPromptPills';
 import { TextToGoldApprovalCard } from './TextToGoldApprovalCard';
 import { formatChartValue, optionToTable } from './chartOptions';
 import type { CopilotMessage, CopilotMetricSummary } from './types';
@@ -328,15 +327,6 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
             <AlertTriangle className="h-3 w-3" />
             Requiere aclaración para continuar
           </span>
-        )}
-
-        {!isUser && message.suggestions && message.suggestions.length > 0 && onSuggestion && (
-          <QuickPromptPills
-            pills={message.suggestions.slice(0, 4)}
-            onSelect={onSuggestion}
-            label="Continuar con"
-            testIdPrefix="message-suggestion"
-          />
         )}
 
         <span className="px-1 font-mono text-[9px] text-[#4B4639]/60">{formatTime(message.timestamp)}</span>

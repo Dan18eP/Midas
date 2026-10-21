@@ -69,6 +69,7 @@
 | `CopilotChatDrawer.tsx` | Drawer expandible con cierre por `Escape`, backdrop, `aria-modal` y nueva conversación. |
 | `CopilotChatWidget.tsx` | Widget flotante con badge de no leídos y pulso de actividad. |
 | `CopilotChatPanel.tsx` | Panel inline de 420px integrado en la consola maestro. |
+| `ChatParticleBackground.tsx` | Fondo animado interactivo Aether Flow adaptado a modo claro (partículas doradas #D4AF37/#B8860B en canvas transparente). |
 | `index.ts` | Barrel de exportaciones del módulo. |
 
 ### 3.2. Integración en la Consola Maestro (`src/frontend/app/page.tsx`)
@@ -85,6 +86,13 @@ El backend expone un único POST por turno; mientras la promesa está pendiente,
 
 - `echarts` `^6.1.0` y `echarts-for-react` `^3.0.6` (ambas con peer range compatible).
 - Se usa `echarts-for-react/lib/core` con `echarts/core` y registro modular de `BarChart`, `LineChart`, `ScatterChart`, `HeatmapChart`, `Grid`, `Tooltip`, `Title`, `Legend`, `VisualMap`, `DataZoom`, `MarkLine`, `Dataset`, `Transform` y `CanvasRenderer`. Esto reduce el *First Load JS* de la ruta `/` de 455 kB (import completo) a **327 kB**.
+
+### 3.5. Fondo Ambiental Aether Flow en Modo Claro (`ChatParticleBackground.tsx`)
+
+- Integrado como capa de fondo en `ChatConversation.tsx` con posicionamiento absoluto `z-0` y `pointer-events: none`.
+- Renderiza sobre HTML5 Canvas transparente con partículas en la gama cromática dorada Midas (`#D4AF37` y `#B8860B`, alpha 0.30 a 0.42) y líneas de interconexión proporcionales a la distancia.
+- Física reactiva al cursor con fuerza elástica de repulsión suave.
+- Acelerado por GPU con control estricto de recursos: densidad adaptativa (18 a 45 partículas), pausa automática cuando la pestaña está oculta (`document.hidden`), y detección nativa de `prefers-reduced-motion` para personas con sensibilidad al movimiento.
 
 ---
 

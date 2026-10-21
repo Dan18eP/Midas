@@ -51,9 +51,18 @@
 - Coordinación entre el sidebar, el Welcome Hub y el Canvas de React Flow.
 - Integración bidireccional con el drawer del Copiloto Agéntico.
 
+### 2.5. Ajustes de UX/UI: Desduplicación de Historial y Menú «+» Conversacional
+- **Desduplicación del botón de historial:** Eliminación del botón redundante en el Header corporativo de `app/page.tsx`, conservando exclusivamente el control colapsable/expandible del `SessionHistorySidebar.tsx`.
+- **Menú «+» Conversacional (`SourceActionMenu.tsx`):** Agrupación declarativa de las 4 fuentes de datos (CSV, Base de Datos, API REST y Excel) en un menú flotante sobre el compositor del Copiloto (`PromptComposer.tsx`) con navegación por teclado accesible (flechas, Home, End, Escape) y apertura contextual de `QuickConnectionModal.tsx`.
+- **Unificación Estética del Modal:** Tokens Midas (#FFFFFF, #E8E4DC, #D4AF37, #B8860B, #4D7C0F, #A8422B) aplicados consistentemente en `QuickConnectionModal.tsx`.
+
 ---
 
 ## 3. Pruebas y Validación Técnica
 
-- **Pruebas Unitarias e Integrales:** `src/frontend/tests/SessionWorkspace.test.tsx` (13 tests pasando al 100%).
+- **Pruebas Unitarias e Integrales:**
+  - `src/frontend/tests/SessionWorkspace.test.tsx` (13 tests pasando al 100%).
+  - `src/frontend/tests/SourceActionMenu.test.tsx` (14 tests pasando al 100%).
+  - Total Suite Frontend: **105 tests pasando en 12 suites (100% de éxito)**.
 - **Chequeo de Tipos TypeScript:** `npm run lint` (`tsc --noEmit`) finalizado exitosamente con 0 errores.
+- **Compilación de Producción:** `next build` compilado exitosamente.

@@ -11,6 +11,22 @@ const config: Config = {
   darkMode: 'class',
   theme: {
     extend: {
+      fontFamily: {
+        chatgpt: [
+          'Söhne',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          '"Segoe UI"',
+          'Roboto',
+          'Ubuntu',
+          'Cantarell',
+          '"Noto Sans"',
+          'sans-serif',
+          '"Helvetica Neue"',
+          'Arial',
+        ],
+      },
       colors: {
         neutral: {
           background: '#FFFFFF',

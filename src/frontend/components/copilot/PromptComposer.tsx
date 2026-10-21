@@ -3,6 +3,11 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, Loader2, Send } from 'lucide-react';
 import type { CopilotAgentStatus } from './types';
+import { SourceActionMenu } from './SourceActionMenu';
+import {
+  QuickConnectionModal,
+  type QuickSourceType,
+} from '@/components/workspace/QuickConnectionModal';
 
 const STATUS_PLACEHOLDER: Partial<Record<CopilotAgentStatus, string>> = {
   thinking: 'El Copiloto está analizando tu solicitud...',
@@ -16,11 +21,21 @@ export interface PromptComposerProps {
   suggestions: string[];
   status: CopilotAgentStatus;
   inputRef?: React.RefObject<HTMLTextAreaElement>;
+  onSourceAdded?: (sourceName: string) => void;
 }
 
-export function PromptComposer({ onSubmit, suggestions, status, inputRef }: PromptComposerProps) {
+export function PromptComposer({
+  onSubmit,
+  suggestions,
+  status,
+  inputRef,
+  onSourceAdded,
+}: PromptComposerProps) {
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalType, setModalType] = useState<QuickSourceType>('csv');
+
   const localRef = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const textareaRef = inputRef ?? localRef;
@@ -42,6 +57,11 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
     if (!trimmed || busy) return;
     onSubmit(trimmed);
     setValue('');
+  };
+
+  const handleSelectSource = (type: QuickSourceType) => {
+    setModalType(type);
+    setModalOpen(true);
   };
 
   return (
@@ -72,7 +92,10 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
         </ul>
       )}
 
-      <div className="flex items-end gap-2 rounded-2xl border border-[#E8E4DC] bg-[#FAFAFA] p-2 focus-within:border-[#D4AF37] focus-within:bg-[#FFFFFF] transition-colors">
+      <div className="flex items-end gap-2 rounded-2xl border border-[#E8E4DC] bg-[#FAFAFA] p-2 focus-within:border-[#D4AF37] focus-within:bg-[#FFFFFF] transition-colors relative">
+        {/* Menú "+" de incorporación de fuentes (CSV, DB, REST, Excel) */}
+        <SourceActionMenu onSelect={handleSelectSource} disabled={busy} />
+
         <textarea
           ref={textareaRef}
           rows={1}
@@ -92,6 +115,7 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
           }}
           className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[12px] text-[#1C1E21] placeholder-[#4B4639]/50 focus:outline-none disabled:cursor-not-allowed"
         />
+
         <button
           type="button"
           onClick={() => submit(value)}
@@ -108,6 +132,14 @@ export function PromptComposer({ onSubmit, suggestions, status, inputRef }: Prom
         <CornerDownLeft className="h-2.5 w-2.5" />
         Enter para enviar · Shift+Enter para salto de línea
       </p>
+
+      {/* Modal unificado de conexión de fuentes */}
+      <QuickConnectionModal
+        isOpen={modalOpen}
+        initialType={modalType}
+        onClose={() => setModalOpen(false)}
+        onSuccess={onSourceAdded}
+      />
     </div>
   );
 }

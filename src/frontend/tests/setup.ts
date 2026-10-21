@@ -21,3 +21,23 @@ if (typeof window !== 'undefined') {
     m42 = 0;
   } as unknown as typeof DOMMatrixReadOnly;
 }
+
+// Mock Canvas 2D context in JSDOM
+if (typeof HTMLCanvasElement !== 'undefined') {
+  HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+    clearRect: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    scale: vi.fn(),
+    setTransform: vi.fn(),
+    resetTransform: vi.fn(),
+    fillRect: vi.fn(),
+    measureText: vi.fn().mockReturnValue({ width: 0 }),
+    getImageData: vi.fn().mockReturnValue({ data: [] }),
+    putImageData: vi.fn(),
+  }) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+}
