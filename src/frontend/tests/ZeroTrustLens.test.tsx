@@ -1,3 +1,4 @@
+import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '../components/canvas/topology/initialTopology';
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
@@ -78,28 +79,28 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
     render(<ZeroTrustLens role="admin" preview />);
     expect(screen.getByTestId('zero-trust-lens-preview')).toBeInTheDocument();
     expect(screen.getByTestId('profile-label')).toHaveTextContent('Director General');
-    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('100%');
-    expect(screen.getByTestId('masking-status')).toHaveTextContent('Desactivado');
-    expect(screen.getByTestId('pii-email')).toHaveTextContent('pepe@riwi.io');
-    expect(screen.getByTestId('pii-salary')).toHaveTextContent('$85.000');
+    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('masking-status')).toHaveTextContent('Not verified');
+    expect(screen.getByTestId('pii-email')).toHaveTextContent('No verified PII policy');
+    expect(screen.getByTestId('pii-salary')).toHaveTextContent('Unavailable');
   });
 
   it('5. Previsualización PII enmascarada para Gerente Regional Norte (RBAC: 64% visibilidad)', () => {
     render(<ZeroTrustLens role="rbac" preview />);
     expect(screen.getByTestId('profile-label')).toHaveTextContent('Gerente Regional Norte');
-    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('64%');
-    expect(screen.getByTestId('masking-status')).toHaveTextContent('Activo');
-    expect(screen.getByTestId('pii-email')).toHaveTextContent('u****@riwi.io');
-    expect(screen.getByTestId('pii-salary')).toHaveTextContent('****');
+    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('masking-status')).toHaveTextContent('Not verified');
+    expect(screen.getByTestId('pii-email')).toHaveTextContent('No verified PII policy');
+    expect(screen.getByTestId('pii-salary')).toHaveTextContent('Unavailable');
   });
 
   it('6. Previsualización PII enmascarada para Auditor de Cumplimiento (Compliance: 82% visibilidad)', () => {
     render(<ZeroTrustLens role="compliance" preview />);
     expect(screen.getByTestId('profile-label')).toHaveTextContent('Auditor de Cumplimiento');
-    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('82%');
-    expect(screen.getByTestId('masking-status')).toHaveTextContent('Activo');
-    expect(screen.getByTestId('pii-email')).toHaveTextContent('u****@riwi.io');
-    expect(screen.getByTestId('pii-salary')).toHaveTextContent('****');
+    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('masking-status')).toHaveTextContent('Not verified');
+    expect(screen.getByTestId('pii-email')).toHaveTextContent('No verified PII policy');
+    expect(screen.getByTestId('pii-salary')).toHaveTextContent('Unavailable');
   });
 
   it('7. SourceNode y StageNode muestran candado y aviso cuando securityMask está activo', () => {
@@ -179,22 +180,22 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
   });
 
   it('8. PipelineCanvas no muestra banner de simulación en rol admin', () => {
-    render(<PipelineCanvas securityRole="admin" autoConnectSSE={false} />);
+    render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} securityRole="admin" autoConnectSSE={false} />);
     expect(screen.queryByTestId('zero-trust-simulation-banner')).not.toBeInTheDocument();
   });
 
   it('9. PipelineCanvas muestra banner de simulación en rol rbac y compliance', () => {
-    const { rerender } = render(<PipelineCanvas securityRole="rbac" autoConnectSSE={false} />);
+    const { rerender } = render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} securityRole="rbac" autoConnectSSE={false} />);
     expect(screen.getByTestId('zero-trust-simulation-banner')).toBeInTheDocument();
     expect(screen.getByTestId('zero-trust-simulation-banner')).toHaveTextContent('Gerente Regional Norte');
 
-    rerender(<PipelineCanvas securityRole="compliance" autoConnectSSE={false} />);
+    rerender(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} securityRole="compliance" autoConnectSSE={false} />);
     expect(screen.getByTestId('zero-trust-simulation-banner')).toBeInTheDocument();
     expect(screen.getByTestId('zero-trust-simulation-banner')).toHaveTextContent('Auditor de Cumplimiento');
   });
 
   it('10. PipelineCanvas atenúa nodos restringidos según el perfil de seguridad', () => {
-    render(<PipelineCanvas securityRole="rbac" autoConnectSSE={false} />);
+    render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} securityRole="rbac" autoConnectSSE={false} />);
     const postgresNode = screen.getByTestId('canvas-node-source_postgres');
     expect(postgresNode).toHaveAttribute('data-masked', 'true');
     expect(postgresNode.style.opacity).toBe('0.3');

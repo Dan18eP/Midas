@@ -1,3 +1,4 @@
+import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '../components/canvas/topology/initialTopology';
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
@@ -43,7 +44,7 @@ vi.mock('@xyflow/react', async () => {
 
 describe('PipelineCanvas Core Component & Node Topologies', () => {
   it('1. Renderiza el contenedor principal y los controles de topología', () => {
-    render(<PipelineCanvas />);
+    render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} />);
     expect(screen.getByTestId('pipeline-canvas-container')).toBeInTheDocument();
     expect(screen.getByTestId('mock-react-flow')).toBeInTheDocument();
     expect(screen.getByTestId('mock-controls')).toBeInTheDocument();
@@ -51,7 +52,7 @@ describe('PipelineCanvas Core Component & Node Topologies', () => {
   });
 
   it('2. Renderiza todos los 7 nodos deterministas canónicos de la arquitectura', () => {
-    render(<PipelineCanvas />);
+    render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} />);
     expect(screen.getByTestId('canvas-node-source_postgres')).toBeInTheDocument();
     expect(screen.getByTestId('canvas-node-source_excel')).toBeInTheDocument();
     expect(screen.getByTestId('canvas-node-source_api')).toBeInTheDocument();
@@ -62,7 +63,7 @@ describe('PipelineCanvas Core Component & Node Topologies', () => {
   });
 
   it('3. Abre el NodeInspectionDrawer al hacer clic en un nodo y permite cerrarlo', () => {
-    render(<PipelineCanvas />);
+    render(<PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES} />);
     
     // Al inicio el drawer no está presente
     expect(screen.queryByLabelText('Panel de Inspección de Nodo')).not.toBeInTheDocument();
@@ -227,4 +228,10 @@ describe('Custom Node Components Unit Verification', () => {
     const ndElements = screen.getAllByText('N/D');
     expect(ndElements.length).toBeGreaterThanOrEqual(2);
   });
+});
+
+
+it('starts with no invented pipeline nodes', () => {
+  render(<PipelineCanvas autoConnectSSE={false} />);
+  expect(screen.queryByTestId('canvas-node-source_postgres')).not.toBeInTheDocument();
 });

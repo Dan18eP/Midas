@@ -314,8 +314,6 @@ export class HistoricalSnapshotStore {
   constructor(initialSnapshots?: PipelineSnapshot[]) {
     if (initialSnapshots && initialSnapshots.length > 0) {
       this.snapshots = [...initialSnapshots].sort((a, b) => a.timestampMs - b.timestampMs);
-    } else {
-      this.initialize();
     }
   }
 
@@ -417,7 +415,7 @@ export class HistoricalSnapshotStore {
 
     const baseNodesState = lastSnapshot
       ? { ...lastSnapshot.nodesState }
-      : createBaseNodesState();
+      : {};
 
     const currentNode = baseNodesState[event.node_id] || {
       status: event.status || 'HEALTHY',
@@ -490,7 +488,7 @@ export class HistoricalSnapshotStore {
    */
   public async hydrateFromBuffer(apiBaseUrl: string = 'http://localhost:8000'): Promise<number> {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/telemetry/buffer`);
+      const response = await fetch(`${apiBaseUrl}/api/v1/telemetry/history?window=24h`, { credentials: 'include' });
       if (!response.ok) {
         return 0;
       }

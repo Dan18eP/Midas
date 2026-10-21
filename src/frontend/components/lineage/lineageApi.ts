@@ -43,7 +43,7 @@ export async function fetchTableLineage(
   try {
     response = await fetch(
       `${LINEAGE_API_BASE}${LINEAGE_TABLE_PATH}/${encodeURIComponent(table)}`,
-      { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal },
+      { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' }, signal: controller.signal },
     );
   } catch (cause) {
     if (options.signal?.aborted) throw cause;

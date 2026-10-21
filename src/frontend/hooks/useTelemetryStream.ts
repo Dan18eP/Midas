@@ -9,7 +9,7 @@ import {
 } from '@/types/telemetry';
 
 const DEFAULT_SSE_URL =
-  process.env.NEXT_PUBLIC_SSE_URL || '/api/v1/telemetry/stream';
+  process.env.NEXT_PUBLIC_SSE_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/telemetry/stream`;
 const DEFAULT_INITIAL_BACKOFF = 1000;
 const DEFAULT_MAX_BACKOFF = 15000;
 const DEFAULT_BACKOFF_MULTIPLIER = 1.5;

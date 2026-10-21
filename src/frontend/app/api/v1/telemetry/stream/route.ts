@@ -80,6 +80,9 @@ const CANONICAL_FLOW: ScenarioEvent[] = [
 ];
 
 export async function GET(req: NextRequest) {
+  if (process.env.MIDAS_DEMO_MODE !== 'true') {
+    return new Response('Demo stream is disabled. Connect to the backend telemetry stream.', { status: 404 });
+  }
   const encoder = new TextEncoder();
   const searchParams = req.nextUrl.searchParams;
   const lastEventId = searchParams.get('last_event_id') || req.headers.get('last-event-id');

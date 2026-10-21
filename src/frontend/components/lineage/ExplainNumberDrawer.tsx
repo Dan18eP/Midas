@@ -208,7 +208,7 @@ export function ExplainNumberDrawer() {
                       Calidad
                     </span>
                     <span className="font-mono font-bold text-emerald-400" data-testid="explain-quality">
-                      {lineage.certification.qualityPercent}% · {lineage.certification.qualitySummary}
+                      {lineage.certification.qualityPercent === null ? 'Unverified' : `${lineage.certification.qualityPercent}%`} · {lineage.certification.qualitySummary}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-950/80 px-2.5 py-2">

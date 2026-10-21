@@ -84,8 +84,8 @@ function extractRate(event: TelemetryEventPayload): number {
 }
 
 export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
-  initialNodes = INITIAL_CANVAS_NODES,
-  initialEdges = INITIAL_CANVAS_EDGES,
+  initialNodes = [],
+  initialEdges = [],
   onNodeSelect,
   className = '',
   securityRole = 'admin',
@@ -153,6 +153,49 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
     for (const evt of batch) {
       latestEventsByNode.set(evt.node_id, evt);
     }
+
+    // Discover real connection and Gold nodes before applying their metrics.
+    setNodes((currentNodes) => {
+      const ids = new Set(currentNodes.map((node) => node.id));
+      const additions: Node<MidasNodeData>[] = [];
+      for (const event of latestEventsByNode.values()) {
+        if (ids.has(event.node_id)) continue;
+        const stage = event.node_id.startsWith('bronze_') ? 'bronze'
+          : event.node_id.startsWith('silver_') ? 'silver' : 'gold';
+        additions.push({
+          id: event.node_id, type: 'stage',
+          position: { x: stage === 'bronze' ? 80 : stage === 'silver' ? 420 : 760,
+                      y: (currentNodes.length + additions.length) * 150 },
+          data: { id: event.node_id, label: event.node_id, subType: stage, nodeType: 'stage',
+                  description: 'Reported by the pipeline telemetry service',
+                  status: event.status, recordsIn: event.records_in,
+                  recordsOut: event.records_out, latencyMs: event.latency_ms,
+                  lastUpdated: event.timestamp },
+        } as Node<MidasNodeData>);
+      }
+      return [...currentNodes, ...additions];
+    });
+    setEdges((currentEdges) => {
+      const additions: Edge[] = [];
+      for (const event of latestEventsByNode.values()) {
+        if (Array.isArray(event.details?.upstream_nodes)) {
+          for (const upstream of event.details.upstream_nodes) {
+            if (typeof upstream !== 'string') continue;
+            const id = `edge_${upstream}_${event.node_id}`;
+            if (!currentEdges.some((edge) => edge.id === id)) {
+              additions.push({ id, source: upstream, target: event.node_id, type: 'dataflow' });
+            }
+          }
+        }
+        if (!event.node_id.startsWith('silver_')) continue;
+        const source = `bronze_${event.node_id.slice(7)}`;
+        const id = `edge_${source}_${event.node_id}`;
+        if (!currentEdges.some((edge) => edge.id === id)) {
+          additions.push({ id, source, target: event.node_id, type: 'dataflow' });
+        }
+      }
+      return [...currentEdges, ...additions];
+    });
 
     // 1. Update Nodes immutably
     setNodes((currentNodes) =>
@@ -339,6 +382,21 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
   // Effect: Apply active historical snapshot to nodes and edges in REPLAY mode (AC-03)
   useEffect(() => {
+    const latest = timeTravel.availableSnapshots.slice(-1)[0];
+    if (!latest) return;
+    setNodes((current) => {
+      const additions = Object.entries(latest.nodesState).filter(([id]) => !current.some((node) => node.id === id))
+        .map(([id, state], index) => ({
+          id, type: 'stage', position: { x: 80, y: (current.length + index) * 150 },
+          data: { id, label: id, nodeType: 'stage', subType: id.startsWith('bronze_') ? 'bronze' : id.startsWith('silver_') ? 'silver' : 'gold',
+                  description: 'Persisted pipeline telemetry', status: state.status,
+                  recordsIn: state.recordsIn, recordsOut: state.recordsOut, latencyMs: state.latencyMs },
+        } as Node<MidasNodeData>));
+      return additions.length ? [...current, ...additions] : current;
+    });
+  }, [timeTravel.availableSnapshots, setNodes]);
+
+  useEffect(() => {
     if (timeTravel.mode !== 'REPLAY' || !timeTravel.activeSnapshot) {
       return;
     }
@@ -496,10 +554,10 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
   // Restablecer posiciones originales
   const handleResetLayout = useCallback(() => {
-    setNodes(INITIAL_CANVAS_NODES);
-    setEdges(INITIAL_CANVAS_EDGES);
+    setNodes(initialNodes);
+    setEdges(initialEdges);
     setSelectedNodeData(null);
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, initialNodes, initialEdges]);
 
   // Contadores de salud de la topología
   const totalNodes = nodes.length;

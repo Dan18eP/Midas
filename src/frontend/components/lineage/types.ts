@@ -18,7 +18,7 @@ export interface LineageFormula {
 }
 
 export interface LineageCertification {
-  qualityPercent: number;
+  qualityPercent: number | null;
   qualitySummary: string;
   lastSyncIso: string;
   freshnessLabel: string;
@@ -60,9 +60,9 @@ export interface LineageGatewayPayload {
   stages?: LineageGatewayStage[];
   transformation?: string;
   certification?: {
-    quality_percent?: number;
+    quality_percent?: number | null;
     quality_summary?: string;
-    last_sync?: string;
+    last_sync?: string | null;
     audit_hash?: string;
   };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { CopilotChatDrawer, CopilotChatProvider, CopilotChatWidget } from '@/components/copilot';
 import { ExplainNumberDrawer, ExplainNumberProvider } from '@/components/lineage';
@@ -23,6 +23,40 @@ const PipelineCanvas = dynamic(
 
 export default function MidasConsolePage() {
   const [selectedRole, setSelectedRole] = useState<ZeroTrustRole>('admin');
+
+  const [authenticated, setAuthenticated] = useState(false);
+  const [token, setToken] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  useEffect(() => {
+    void fetch(`${api}/api/v1/auth/me`, { credentials: 'include' })
+      .then((response) => setAuthenticated(response.ok)).catch(() => setAuthenticated(false));
+  }, [api]);
+
+  if (!authenticated) {
+    return <main className="flex h-screen items-center justify-center bg-[#FAFAFA] text-[#1C1E21]">
+      <form className="w-96 space-y-4 rounded-xl border bg-white p-8" onSubmit={async (event) => {
+        event.preventDefault();
+        try {
+          const response = await fetch(`${api}/api/v1/auth/login`, {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) throw new Error('Access denied');
+          setToken('');
+          setAuthenticated(true);
+        } catch { setLoginError('Could not sign in. Check the operator token and API connection.'); }
+      }}>
+        <h1 className="font-serif text-2xl">Midas</h1>
+        <label className="block">Operator access token
+          <input type="password" autoComplete="off" required value={token}
+            onChange={(event) => setToken(event.target.value)} className="mt-2 w-full rounded border p-2" />
+        </label>
+        <button className="rounded bg-[#1C1E21] px-4 py-2 text-white" type="submit">Sign in</button>
+        {loginError && <p role="alert">{loginError}</p>}
+      </form>
+    </main>;
+  }
 
   return (
     <ExplainNumberProvider>
@@ -48,12 +82,12 @@ export default function MidasConsolePage() {
               <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono font-medium">Time-Travel Replay:</span>
               <span className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#FFFFFF] text-[#1C1E21] font-medium border border-[#D4AF37]/40 shadow-xs">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#4D7C0F] animate-pulse" />
-                <span className="font-mono text-[10px] font-semibold text-[#8C6D1F]">24h Operational Buffer Active</span>
+                <span className="font-mono text-[10px] font-semibold text-[#8C6D1F]">Pipeline event history</span>
               </span>
             </div>
 
             {/* Frontera HU-FRONT-05: Selector Zero-Trust Roles */}
-            <ZeroTrustLens role={selectedRole} onRoleChange={setSelectedRole} />
+            <span className="text-xs">Director account · Ranger policies pending</span>
           </header>
 
           {/* 2. Cuerpo Principal: Canvas Topológico React Flow (Full-Width) */}

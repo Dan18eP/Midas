@@ -97,6 +97,13 @@ export function useTimeTravel(options: UseTimeTravelOptions = {}): UseTimeTravel
   const liveNowRef = useRef(liveNowMs);
   liveNowRef.current = liveNowMs;
 
+  useEffect(() => {
+    let active = true;
+    void store.hydrateFromBuffer(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+      .then(() => { if (active) setSnapshotsVersion((version) => version + 1); });
+    return () => { active = false; };
+  }, [store]);
+
   // Window boundaries
   const windowDurationMs = windowHours * 60 * 60 * 1000;
   const windowStartMs = liveNowMs - windowDurationMs;

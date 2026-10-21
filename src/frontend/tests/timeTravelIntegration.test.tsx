@@ -1,3 +1,4 @@
+import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '../components/canvas/topology/initialTopology';
 /**
  * End-to-End Integration Tests for Time-Travel Replay & Operational Historical Slider (HU-FRONT-03)
  */
@@ -61,7 +62,7 @@ describe('Time-Travel Replay Canvas Integration (HU-FRONT-03)', () => {
 
   it('1. Canvas starts in LIVE mode by default with live badge and synchronized nodes (AC-02)', () => {
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         autoConnectSSE={false}
         timeTravelStore={testStore}
       />
@@ -74,7 +75,7 @@ describe('Time-Travel Replay Canvas Integration (HU-FRONT-03)', () => {
 
   it('2. Clicking Scenario T1 enters REPLAY mode, updates badge to T-45m and sets Silver to DEGRADED with 14 quarantined records (AC-01, AC-03, AC-04)', () => {
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         autoConnectSSE={false}
         timeTravelStore={testStore}
       />
@@ -102,7 +103,7 @@ describe('Time-Travel Replay Canvas Integration (HU-FRONT-03)', () => {
 
   it('3. Inspecting a node in REPLAY mode reflects historical snapshot data in drawer (AC-03)', () => {
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         autoConnectSSE={false}
         timeTravelStore={testStore}
       />
@@ -123,7 +124,7 @@ describe('Time-Travel Replay Canvas Integration (HU-FRONT-03)', () => {
 
   it('4. Clicking Scenario T2 switches to Guardian Auto-Healing state (AC-03)', () => {
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         autoConnectSSE={false}
         timeTravelStore={testStore}
       />
@@ -139,7 +140,7 @@ describe('Time-Travel Replay Canvas Integration (HU-FRONT-03)', () => {
 
   it('5. Clicking Volver a LIVE restores live mode and latest telemetry state without SSE reconnection (AC-02, AC-04)', () => {
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         autoConnectSSE={false}
         timeTravelStore={testStore}
       />

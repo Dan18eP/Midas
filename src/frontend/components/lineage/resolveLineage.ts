@@ -42,8 +42,8 @@ const LAYER_FALLBACK: Record<LineageStageNode['layer'], LineageStageNode> = {
   },
 };
 
-export const CANONICAL_QUALITY_PERCENT = 100;
-export const CANONICAL_QUALITY_SUMMARY = '100% Contratos de Datos Certificados (OpenMetadata)';
+export const CANONICAL_QUALITY_PERCENT = null;
+export const CANONICAL_QUALITY_SUMMARY = 'Data quality has not been verified';
 
 /** FNV-1a 64-bit determinístico para trazas de auditoría locales (sin red). */
 export function deriveAuditHash(input: string): string {
@@ -92,13 +92,13 @@ function buildCertification(
   auditHash: string,
   auditHashSource: LineageCertification['auditHashSource'],
   now: Date,
-  overrides: { qualityPercent?: number; qualitySummary?: string } = {},
+  overrides: { qualityPercent?: number | null; qualitySummary?: string } = {},
 ): LineageCertification {
   return {
     qualityPercent: overrides.qualityPercent ?? CANONICAL_QUALITY_PERCENT,
     qualitySummary: overrides.qualitySummary ?? CANONICAL_QUALITY_SUMMARY,
     lastSyncIso,
-    freshnessLabel: formatRelativeFreshness(lastSyncIso, now),
+    freshnessLabel: lastSyncIso ? formatRelativeFreshness(lastSyncIso, now) : 'Data freshness has not been verified',
     auditHash,
     auditHashSource,
   };
@@ -123,7 +123,7 @@ export function buildFallbackLineage(
     transformation:
       metric?.transformation ??
       'Sin transformación certificada: la cifra no está registrada en el Diccionario Semántico Inmutable.',
-    certification: buildCertification(options.lastSyncIso, auditHash, 'derived-local', now),
+    certification: buildCertification('', auditHash, 'derived-local', now),
     provenance: 'canonical-fallback',
     requestedAtIso: now.toISOString(),
   };

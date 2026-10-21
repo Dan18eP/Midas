@@ -69,10 +69,10 @@ export const ZeroTrustLens = ({ role, onRoleChange, preview = false }: ZeroTrust
             <div className="flex items-center justify-between gap-2 text-[10px]">
               <span className="inline-flex items-center gap-1 rounded border border-[#4D7C0F]/30 bg-[#4D7C0F]/10 px-1.5 py-0.5 font-mono text-[9px] font-medium text-[#4D7C0F]">
                 <Shield className="h-2.5 w-2.5" />
-                {role === 'admin' ? 'Visibilidad completa' : role === 'rbac' ? 'RLS activo' : 'Auditoría habilitada'}
+                {'Local operator access'}
               </span>
               <span className="font-mono text-xs font-bold text-[#8C6D1F]" data-testid="profile-visibility">
-                {profile.visibility}
+                {'Unavailable'}
               </span>
             </div>
           </div>
@@ -82,20 +82,20 @@ export const ZeroTrustLens = ({ role, onRoleChange, preview = false }: ZeroTrust
             <div className="mb-2 flex items-center justify-between text-[#787164]">
               <span>Enmascaramiento PII</span>
               <span className="font-mono font-semibold text-[#1C1E21]" data-testid="masking-status">
-                {role === 'admin' ? 'Desactivado' : 'Activo'}
+                {'Not verified'}
               </span>
             </div>
             <div className="space-y-1.5 font-mono text-[10px]">
               <div className="flex items-center justify-between">
                 <span className="text-[#787164]">Emails</span>
                 <span className="font-semibold text-[#1C1E21]" data-testid="pii-email">
-                  {role === 'admin' ? 'pepe@riwi.io' : 'u****@riwi.io'}
+                  {'No verified PII policy'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[#787164]">Salarios</span>
                 <span className="font-semibold text-[#B8860B]" data-testid="pii-salary">
-                  {role === 'admin' ? '$85.000' : '****'}
+                  {'Unavailable'}
                 </span>
               </div>
             </div>

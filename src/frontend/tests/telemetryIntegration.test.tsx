@@ -1,3 +1,4 @@
+import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '../components/canvas/topology/initialTopology';
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -224,7 +225,7 @@ describe('PipelineCanvas Real-Time SSE Integration & 60 FPS rAF Batching', () =>
       new MockEventSourceIntegration(url) as unknown as EventSource;
 
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         sseUrl="http://localhost:8000/api/v1/telemetry/stream"
         autoConnectSSE={true}
         eventSourceFactory={factory}
@@ -284,7 +285,7 @@ describe('PipelineCanvas Real-Time SSE Integration & 60 FPS rAF Batching', () =>
       new MockEventSourceIntegration(url) as unknown as EventSource;
 
     render(
-      <PipelineCanvas
+      <PipelineCanvas initialNodes={INITIAL_CANVAS_NODES} initialEdges={INITIAL_CANVAS_EDGES}
         autoConnectSSE={true}
         eventSourceFactory={factory}
       />

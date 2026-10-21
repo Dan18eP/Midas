@@ -71,7 +71,7 @@ export async function sendChatMessage(input: SendChatMessageInput): Promise<Copi
   let response: Response;
   try {
     response = await fetch(`${COPILOT_API_BASE}${COPILOT_CHAT_PATH}`, {
-      method: 'POST',
+      method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: input.signal,
