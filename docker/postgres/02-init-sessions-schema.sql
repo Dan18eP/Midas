@@ -7,12 +7,13 @@
 
 \connect midas_operational;
 
--- 1. Tabla de Sesiones de Conversación (ChatGPT-Style Workspace)
+-- 1. Tabla de Sesiones de Conversación (ChatGPT-Style Workspace con Topología Canvas)
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id VARCHAR(50) PRIMARY KEY,
     user_id VARCHAR(50) NOT NULL,
     title VARCHAR(255) NOT NULL,
     metadata JSONB DEFAULT '{}'::jsonb,
+    topology_state JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
