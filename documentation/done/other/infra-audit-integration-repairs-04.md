@@ -33,8 +33,8 @@ The complete Spark pipeline and the required governance controls remain release 
 - `npm ci --ignore-scripts --no-audit --no-fund`: succeeded.
 - After integrating PR #57, `npm test -- --reporter=json --outputFile=.venv/frontend-tests.json`:
   **110 passed**, zero failures. Demo topology is passed explicitly in fixture tests.
-- `npm run build`: passed after the upstream merge, including type validation and
-  static page generation. The final small history-restoration correction is rebuilt before publication.
+- `npm run build`: **passed on the final merged tree**, including TypeScript
+  validation and static page generation.
 - `docker compose --profile full config --quiet`: **passed**.
 - Real Airflow in a disposable, network-disabled container using the cached local
   runtime image: built and serialized all three DAGs, verified the Bronze-to-Silver
