@@ -15,9 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python requirements
+# src/api importa src.lakehouse.models, que depende de pyarrow: sus
+# requirements tambien son necesarios en esta imagen.
 COPY src/api/requirements.txt /app/requirements-api.txt
 COPY src/agent/requirements.txt /app/requirements-agent.txt
-RUN pip install --no-cache-dir -r requirements-api.txt -r requirements-agent.txt
+COPY src/lakehouse/requirements.txt /app/requirements-lakehouse.txt
+RUN pip install --no-cache-dir -r requirements-api.txt -r requirements-agent.txt -r requirements-lakehouse.txt
 
 # Copy source code tree
 COPY src /app/src
