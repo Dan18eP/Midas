@@ -8,6 +8,7 @@ export { ChatStatusIndicator } from './ChatStatusIndicator';
 export { EChartsRenderer } from './EChartsRenderer';
 export { PromptComposer } from './PromptComposer';
 export { QuickPromptPills } from './QuickPromptPills';
+export { SourceActionMenu, SOURCE_OPTIONS } from './SourceActionMenu';
 export { TextToGoldApprovalCard } from './TextToGoldApprovalCard';
 export { useCopilotChat, DEFAULT_SUGGESTIONS } from './useCopilotChat';
 export { COPILOT_API_BASE, COPILOT_CHAT_PATH, CopilotApiError, sendChatMessage } from './copilotApi';
@@ -15,3 +16,4 @@ export { detectTextToGoldProposal, TEXT_TO_GOLD_BUTTON_LABEL, TEXT_TO_GOLD_CONFI
 export { formatChartValue, hasChartSeriesData, normalizeEChartsOption, optionToTable } from './chartOptions';
 export type { CopilotChatController } from './useCopilotChat';
 export type { CopilotApprovalState, CopilotAgentStatus, CopilotMessage, CopilotRole, EChartsOption } from './types';
+export type { SourceOptionItem, SourceActionMenuProps } from './SourceActionMenu';

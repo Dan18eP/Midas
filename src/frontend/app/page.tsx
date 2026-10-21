@@ -15,7 +15,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { PanelLeft } from 'lucide-react';
 import {
   CopilotChatDrawer,
   CopilotChatProvider,
@@ -124,18 +123,8 @@ function MidasConsoleWorkspace() {
     <div className="flex h-screen w-screen flex-col bg-[#FFFFFF] text-[#1C1E21] antialiased overflow-hidden">
       {/* 1. Header Ejecutivo Corporativo — Geometría Clásica & Precisión Técnica */}
       <header className="flex h-13 w-full shrink-0 items-center justify-between border-b border-[#E8E4DC] bg-[#FFFFFF] px-4 py-2.5 shadow-[0_1px_3px_rgba(40,30,10,0.03)] z-40 relative">
-        {/* Toggle Sidebar & Marca */}
+        {/* Marca */}
         <div className="flex items-center space-x-3.5">
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsed((prev) => !prev)}
-            aria-label="Alternar barra lateral de sesiones"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E8E4DC] text-[#787164] hover:bg-[#FBF8EF] hover:text-[#1C1E21] transition-colors"
-            title="Alternar barra de sesiones"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
-
           <div className="w-7 h-7 rounded-md bg-[#FBF8EF] border border-[#D4AF37] flex items-center justify-center text-[#B8860B] shadow-sm">
             <span className="font-serif font-bold text-xs tracking-wider">M</span>
           </div>

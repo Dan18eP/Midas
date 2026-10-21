@@ -117,13 +117,17 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
       ).toBeInTheDocument();
     });
 
-    it('muestra los cuatro lanzadores de conexión rápida (Excel, CSV, REST, Base de Datos)', () => {
+    it('muestra las cuatro opciones de conexión rápida (CSV, Base de Datos, REST, Excel) a través del menú «+»', () => {
       render(<WelcomeHero securityRole="admin" onSendPrompt={vi.fn()} />);
 
-      expect(screen.getByText('Excel (.xlsx)')).toBeInTheDocument();
-      expect(screen.getByText('CSV Delimitado')).toBeInTheDocument();
-      expect(screen.getByText('API REST / Webhook')).toBeInTheDocument();
-      expect(screen.getByText('Base de Datos')).toBeInTheDocument();
+      const plusBtn = screen.getByTestId('source-action-menu-trigger');
+      expect(plusBtn).toBeInTheDocument();
+      fireEvent.click(plusBtn);
+
+      expect(screen.getByText('Añadir archivo CSV')).toBeInTheDocument();
+      expect(screen.getByText('Conectar base de datos')).toBeInTheDocument();
+      expect(screen.getByText('Conectar API REST')).toBeInTheDocument();
+      expect(screen.getByText('Añadir archivo Excel')).toBeInTheDocument();
     });
 
     it('envía el prompt cuando el usuario escribe en la barra central', () => {
@@ -149,15 +153,18 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
       expect(handleSend).toHaveBeenCalledWith('Explorar tablas de CRM');
     });
 
-    it('abre el modal de conexión rápida al pulsar una tarjeta de lanzador', () => {
+    it('abre el modal de conexión rápida al pulsar una opción del menú «+»', () => {
       render(
         <SessionProvider>
           <WelcomeHero securityRole="admin" onSendPrompt={vi.fn()} />
         </SessionProvider>
       );
 
-      const excelLauncher = screen.getByText('Excel (.xlsx)');
-      fireEvent.click(excelLauncher);
+      const plusBtn = screen.getByTestId('source-action-menu-trigger');
+      fireEvent.click(plusBtn);
+
+      const excelOption = screen.getByTestId('source-option-excel');
+      fireEvent.click(excelOption);
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
       expect(screen.getByText(/Cargar Hoja de Cálculo Excel/i)).toBeInTheDocument();
