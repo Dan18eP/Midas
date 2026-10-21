@@ -42,6 +42,34 @@ Se decide **orquestar de extremo a extremo todas las transiciones del Lakehouse 
 4. **Registro Central de Conexiones (`SourceConnectionRegistry`):**  
    Cada conexión se registra en la base de datos operacional (`midas_operational.source_connections`) mediante FastAPI. El registro dispara la creación del contrato declarativo correspondiente en `midas-governance/source-contracts/<connection_id>.yaml`, activando automáticamente sus DAGs en Airflow.
 
+5. **Governed YAML contracts:**
+   - Each connection contract is stored at `source-contracts/<conn_id>.yaml` in the `midas-governance` bucket. It contains `kind: connection`, `conn_id`, `cron_schedule`, `source`, `bronze`, and `silver`.
+   - `source.type` supports `postgres`, `csv`, and `rest_api`. PostgreSQL uses `source.table` and optional `source.schema`; its URL comes from the environment variable named by `source.url_env` (default: `POSTGRES_OPERATIONAL_URL`). CSV uses `source.path`. REST uses `source.url`, optional `source.data_key` for the response list, and optional `source.headers_env` for JSON headers loaded from an environment variable.
+   - `bronze.path` is optional. By default, Parquet with the audit envelope is written to `s3a://midas-bronze/sources/<conn_id>/<dataset>/year=YYYY/month=MM/day=DD/<batch_id>.parquet`.
+   - `silver.table` is required and must use the `silver` namespace. Optional `primary_key_fields`, `amount_fields`, and `date_fields` configure the quality gate. `quarantine_path` is optional; the default is `s3a://midas-quarantine/incidents/<conn_id>/`.
+   - Each Gold contract remains at `airflow-specs/dag_gold_<pipeline_id>.yaml` and declares `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table`, and `quality_policies`. Only one `SELECT` statement is accepted. The result is audited in a temporary WAP table before replacing the Gold destination.
+   - Credentials are kept out of YAML. Jobs read secrets from environment variables and publish start and result events to `POST /api/v1/telemetry/publish`.
+
+Minimal connection contract example:
+
+```yaml
+kind: connection
+conn_id: crm
+cron_schedule: "0 */6 * * *"
+source:
+  type: postgres
+  schema: public
+  table: orders
+  url_env: POSTGRES_OPERATIONAL_URL
+bronze:
+  path: s3a://midas-bronze/sources/crm/
+silver:
+  table: silver.orders
+  primary_key_fields: [transaccion_id]
+  amount_fields: [monto]
+  date_fields: [fecha_transaccion]
+```
+
 ---
 
 ## 3. Consecuencias
