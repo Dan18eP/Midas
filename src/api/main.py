@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.middleware import CorrelationIdMiddleware
 from src.api.routes.agent import router as agent_router
 from src.api.routes.auth import router as auth_router
+from src.api.routes.connections import router as connections_router
 from src.api.routes.health import router as health_router
 from src.api.routes.query import router as query_router
 from src.api.routes.telemetry import router as telemetry_router
@@ -44,6 +45,7 @@ app = FastAPI(
         "- **Server-Sent Events (SSE) Hub**: Real-time event broadcasting to React Flow Canvas.\n"
         "- **Distributed Tracing**: Automated X-Correlation-ID propagation.\n"
         "- **Pipeline Observability**: Telemetry ingestion for Bronze, Silver, Gold, and Guardian nodes.\n"
+        "- **Dynamic Source Connections**: Multi-source registration and MinIO isolation.\n"
         "- **Zero-Trust Lens**: Security role switching and Ranger policy simulation."
     ),
     version="1.0.0",
@@ -72,6 +74,7 @@ app.include_router(telemetry_router)
 app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(query_router)
+app.include_router(connections_router)
 
 
 @app.get("/", include_in_schema=False)
