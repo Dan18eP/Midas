@@ -2,24 +2,24 @@
 
 - **ID:** HU-AI-05
 - **Rama:** `feature/agent-qwen-local-zero-trust`
-- **Responsable:** Elian Rivera (`aZian10`)
+- **Responsables:** Elian Rivera (`aZian10`) & Daniel Echeverría (`Dan18eP`)
 - **Referencias:** `documentation/06_nuevo_backlog_mvp_dorado.md`, `documentation/adr/ADR-008-adopcion-modelo-local-qwen-2-5-3b-zero-trust.md` y `documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md`
 - **Fecha:** 20 de octubre de 2026
 
 ## Resultado
 
-El agente usa Ollama con `qwen2.5:3b` en uno de los dos endpoints locales aprobados; `http://midas-ollama:11434` es el predeterminado y `http://host.docker.internal:11434` puede configurarse explícitamente. La llamada tiene un timeout de 8 segundos. Si Ollama no responde, excede el timeout o devuelve SQL que no pasa la validación, el router genera un SELECT determinístico con SQLGlot. No existe una ruta de proveedor cloud.
+El agente usa Ollama con `qwen2.5:3b` en uno de los endpoints locales aprobados (`http://midas-ollama:11434`, `http://host.docker.internal:11434`, `http://localhost:11434`, `http://127.0.0.1:11434`). Admite parametrización por variable de entorno `OLLAMA_BASE_URL` o `OLLAMA_HOST`, con `http://midas-ollama:11434` como predeterminado. La llamada tiene un timeout de 8 segundos. Si Ollama no responde, excede el timeout o devuelve SQL que no pasa la validación, el router genera un SELECT determinístico con SQLGlot. No existe una ruta de proveedor cloud (Zero-Trust estricto).
 
 ## Tareas realizadas
 
 - [x] Crear `ModelRouter` y conectarlo al `TextToSqlGenerator` usado por defecto en `build_graph`.
-- [x] Restringir el transporte al endpoint Ollama local y fijar el modelo `qwen2.5:3b`.
+- [x] Restringir el transporte al endpoint Ollama local, admitir `OLLAMA_BASE_URL` / `localhost` y fijar el modelo `qwen2.5:3b`.
 - [x] Crear prompts compactos que limitan Qwen a una consulta Trino SELECT, sin prosa y con el catálogo permitido.
 - [x] Implementar fallback para `COUNT(*)`, `SUM` y `AVG` sobre columnas numéricas precertificadas presentes en el catálogo.
 - [x] Implementar un filtro categórico por consulta: región `NORTE/SUR/CENTRO`, canal `ONLINE/TIENDA/PARTNER` o estado `CERRADO/ABIERTO`.
 - [x] Rechazar intenciones ambiguas, consultas agrupadas, por año, cruces y filtros no soportados.
 - [x] Restringir el catálogo del guardrail a `silver` y `gold`; conservar validación de tablas/columnas e inserción de `LIMIT 1000`.
-- [x] Agregar pruebas para proveedor local simulado, fallback offline, SQL inválido, filtros, capas permitidas y latencia.
+- [x] Agregar pruebas para proveedor local simulado, fallback offline, SQL inválido, filtros, capas permitidas, variables de entorno, seguridad de endpoints y latencia.
 - [x] Actualizar arquitectura canónica, bitácora y este registro de entrega.
 
 ## Revisión anti-deriva
@@ -31,16 +31,16 @@ El agente usa Ollama con `qwen2.5:3b` en uno de los dos endpoints locales aproba
 
 ## Cambios
 
-- `src/agent/models/model_router.py`: Ollama local y fallback SQLGlot sin ruta cloud.
+- `src/agent/models/model_router.py`: Ollama local (`midas-ollama`, `host.docker.internal`, `localhost`, `127.0.0.1`), lectura de `OLLAMA_BASE_URL` y fallback SQLGlot sin ruta cloud.
 - `src/agent/prompts/qwen_prompts.py`: instrucciones compactas para Text-to-Gold con Qwen.
 - `src/agent/tools/text_to_sql.py` y `src/agent/graph/builder.py`: conexión del router al generador y al grafo.
 - `src/agent/guardrails/query_guardrail.py`: restricción del catálogo a `silver` y `gold`.
-- `tests/agent/test_qwen_inference.py`: cobertura de proveedor local, fallback, filtros, guardrail y latencia.
+- `tests/agent/test_qwen_inference.py`: cobertura de proveedor local, fallback, filtros, guardrail, variables de entorno, rechazo de endpoints cloud y latencia.
 
 ## Verificación
 
 - **Comando:** `python -m pytest tests/agent -q`
-- **Resultado:** 77 pruebas aprobadas en 3,56 s después de sincronizar con `develop`.
+- **Resultado:** 79 pruebas aprobadas al 100% después de sincronizar con `develop`.
 - Las pruebas no requieren Ollama, internet ni API keys externas; la llamada local se simula.
 - El fallback cumple el umbral de latencia `<10 ms` en la prueba automatizada.
 - **No ejecutado:** llamada real al servicio Ollama ni consulta a Trino.

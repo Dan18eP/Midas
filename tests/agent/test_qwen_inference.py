@@ -100,3 +100,20 @@ def test_guardrail_rejects_tables_outside_silver_and_gold():
 
     with pytest.raises(QueryValidationError):
         validate_query("SELECT monto FROM bronze.crm_transacciones", catalog)
+
+
+def test_router_accepts_localhost_and_env_variable(monkeypatch):
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    router = ModelRouter()
+    assert router._base_url == "http://localhost:11434"
+
+    router_127 = ModelRouter(base_url="http://127.0.0.1:11434")
+    assert router_127._base_url == "http://127.0.0.1:11434"
+
+
+def test_router_rejects_external_cloud_endpoints():
+    with pytest.raises(ValueError, match="endpoints locales aprobados"):
+        ModelRouter(base_url="https://api.openai.com/v1")
+
+    with pytest.raises(ValueError, match="endpoints locales aprobados"):
+        ModelRouter(base_url="https://generativelanguage.googleapis.com")

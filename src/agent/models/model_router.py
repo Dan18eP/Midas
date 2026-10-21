@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Mapping, Sequence
 from http.client import HTTPException
@@ -16,6 +17,8 @@ from src.agent.guardrails.query_guardrail import validate_query
 _ALLOWED_ENDPOINTS = {
     "http://midas-ollama:11434",
     "http://host.docker.internal:11434",
+    "http://localhost:11434",
+    "http://127.0.0.1:11434",
 }
 _DEFAULT_ENDPOINT = "http://midas-ollama:11434"
 _MODEL = "qwen2.5:3b"
@@ -39,7 +42,8 @@ class ModelRouter:
         base_url: str | None = None,
         timeout: float = 8.0,
     ) -> None:
-        endpoint = (base_url or _DEFAULT_ENDPOINT).rstrip("/")
+        env_endpoint = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_HOST")
+        endpoint = (base_url or env_endpoint or _DEFAULT_ENDPOINT).rstrip("/")
         if endpoint not in _ALLOWED_ENDPOINTS:
             raise ValueError("Ollama debe usar uno de los endpoints locales aprobados.")
         self._base_url = endpoint
