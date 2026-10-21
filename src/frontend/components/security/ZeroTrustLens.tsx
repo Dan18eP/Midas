@@ -244,7 +244,7 @@ export const ZeroTrustLens = ({
         >
           <Shield className="h-3.5 w-3.5 text-[#B8860B]" />
           <span className="text-[10px] font-mono font-semibold text-[#8C6D1F]">
-            {profile.visibility}
+            {profile.short}
           </span>
         </button>
 
