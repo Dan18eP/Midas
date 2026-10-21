@@ -67,7 +67,7 @@ export function WelcomeHero({
       <div className="relative z-10 w-full max-w-3xl flex flex-col items-center text-center space-y-6">
         {/* Dynamic Executive Greeting (ADR-010) */}
         <div className="space-y-2">
-          <h1 className="font-serif text-3xl md:text-4xl font-semibold tracking-tight text-[#1C1E21]">
+          <h1 className="font-chatgpt text-2xl md:text-3xl lg:text-[32px] font-semibold tracking-tight text-[#1C1E21] leading-tight">
             Hola, {userName}. ¿Qué tienes en mente hoy?
           </h1>
         </div>
