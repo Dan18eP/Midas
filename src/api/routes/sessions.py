@@ -1,8 +1,9 @@
-"""Midas - Controlador REST para Gestión de Sesiones Conversacionales.
+"""Midas - Controlador REST para Gestión de Sesiones Conversacionales y Topología.
 
-Historia de Usuario: HU-BACK-03
+Historia de Usuario: HU-BACK-03 & ADR-010
 Autor: Daniel Echeverría (Backend Lead)
-Provee los endpoints requeridos por el Workspace multi-sesión estilo ChatGPT (ADR-010).
+Provee los endpoints requeridos por el Workspace multi-sesión estilo ChatGPT y
+la persistencia dinámica de nodos y aristas del Canvas de React Flow.
 """
 
 from typing import List, Optional
@@ -14,6 +15,7 @@ from src.core.session.models import (
     SessionDetailResponse,
     SessionMessage,
     SessionSummaryResponse,
+    UpdateTopologyRequest,
 )
 from src.core.session.store import get_session_store
 
@@ -25,7 +27,7 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["Conversational Sessions & H
     response_model=SessionSummaryResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear Nueva Sesión Conversacional",
-    description="Inicializa una nueva sesión de diálogo para el Copiloto.",
+    description="Inicializa una nueva sesión de diálogo para el Copiloto con topología opcional.",
 )
 async def create_session(payload: Optional[CreateSessionRequest] = None) -> SessionSummaryResponse:
     """Crea una nueva sesión en el almacén persistente."""
@@ -35,6 +37,7 @@ async def create_session(payload: Optional[CreateSessionRequest] = None) -> Sess
         user_id=req.user_id or "user_director",
         title=req.title,
         metadata=req.metadata,
+        topology_state=req.topology_state,
     )
     return SessionSummaryResponse(
         session_id=session.session_id,
@@ -81,12 +84,12 @@ async def list_sessions(
     response_model=SessionDetailResponse,
     status_code=status.HTTP_200_OK,
     summary="Obtener Detalle e Historial de una Sesión",
-    description="Recupera la metadata de la sesión y todos sus mensajes cronológicos.",
+    description="Recupera la metadata de la sesión, su topología React Flow y todos sus mensajes cronológicos.",
 )
 async def get_session_detail(
     session_id: str = Path(..., description="ID de la sesión conversacional"),
 ) -> SessionDetailResponse:
-    """Obtiene el detalle completo de la sesión con sus mensajes."""
+    """Obtiene el detalle completo de la sesión con sus mensajes y topología."""
     store = get_session_store()
     session = store.get_session(session_id)
     if not session:
@@ -103,6 +106,40 @@ async def get_session_detail(
         created_at=session.created_at,
         updated_at=session.updated_at,
         metadata=session.metadata,
+        topology_state=session.topology_state,
+        messages=messages,
+    )
+
+
+@router.put(
+    "/{session_id}/topology",
+    response_model=SessionDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Actualizar Topología de la Sesión",
+    description="Persiste el estado actual de nodos y aristas de React Flow para esta sesión.",
+)
+async def update_session_topology(
+    session_id: str = Path(..., description="ID de la sesión a actualizar"),
+    payload: UpdateTopologyRequest = ...,
+) -> SessionDetailResponse:
+    """Actualiza la topología del Canvas asociada a la sesión."""
+    store = get_session_store()
+    session = store.update_topology(session_id, payload.topology_state)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Sesión '{session_id}' no encontrada.",
+        )
+
+    messages = store.get_messages(session_id)
+    return SessionDetailResponse(
+        session_id=session.session_id,
+        user_id=session.user_id,
+        title=session.title,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        metadata=session.metadata,
+        topology_state=session.topology_state,
         messages=messages,
     )
 

@@ -23,14 +23,14 @@ def test_spark_services_in_docker_compose():
     assert "midas-spark-worker" in services, "midas-spark-worker debe estar en compose"
 
     master = services["midas-spark-master"]
-    assert master["image"] == "bitnami/spark:3.5.1"
+    assert master["image"] in ("bitnami/spark:3.5.1", "bitnamilegacy/spark:3.5.1")
     assert "lakehouse" in master["profiles"]
     assert "spark" in master["profiles"]
     assert "orchestration" in master["profiles"]
     assert "full" in master["profiles"]
 
     worker = services["midas-spark-worker"]
-    assert worker["image"] == "bitnami/spark:3.5.1"
+    assert worker["image"] in ("bitnami/spark:3.5.1", "bitnamilegacy/spark:3.5.1")
     assert "lakehouse" in worker["profiles"]
     assert "spark" in worker["profiles"]
     assert "orchestration" in worker["profiles"]

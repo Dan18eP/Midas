@@ -1,6 +1,6 @@
-"""Midas - Pruebas Automatizadas de Gateway de Linaje, Telemetría Histórica y Sesiones.
+"""Midas - Pruebas Automatizadas de Gateway de Linaje, Telemetría Histórica, Sesiones y Topología.
 
-Historia de Usuario: HU-BACK-03
+Historia de Usuario: HU-BACK-03 & ADR-010
 Autor: Daniel Echeverría (Backend Lead)
 """
 
@@ -9,7 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.session.store import get_session_store
+from src.core.session.store import get_session_store, SessionStore
+from src.core.session.title_generator import generate_session_title
 from src.core.telemetry.hub import get_telemetry_hub
 from src.core.telemetry.events import NodeStatus, TelemetryEvent
 
@@ -48,35 +49,30 @@ def test_lineage_gold_fact_ventas_payload_contract(client: TestClient):
     assert "stages" in data
     assert len(data["stages"]) == 4
 
-    # Validar las 4 capas Medallion
     layers = [stage["layer"] for stage in data["stages"]]
     assert layers == ["source", "bronze", "silver", "gold"]
 
-    # Validar fórmula canónica KaTeX de Venta Neta
     assert "formula" in data
     formula = data["formula"]
     assert formula["key"] == "venta_neta"
     assert r"\sum(\text{monto\_bruto}" in formula["latex"]
     assert "Diccionario Semántico" in formula["description"]
 
-    # Validar certificación y hash SHA-256 criptográfico
     assert "certification" in data
     cert = data["certification"]
     assert cert["quality_percent"] == 100.0
     assert "OpenMetadata" in cert["quality_summary"]
-    assert len(cert["audit_hash"]) == 64  # SHA-256 hexdigest
+    assert len(cert["audit_hash"]) == 64
 
 
 def test_lineage_venta_bruta_and_clientes_resolutions(client: TestClient):
     """Verifica la resolución contextual de fórmulas para venta bruta y clientes."""
-    # Caso 1: Venta Bruta
     res_bruta = client.get("/api/v1/lineage/table/gold.fact_ventas_bruta")
     assert res_bruta.status_code == 200
     data_bruta = res_bruta.json()
     assert data_bruta["formula"]["key"] == "venta_bruta"
     assert "cantidad" in data_bruta["formula"]["latex"]
 
-    # Caso 2: Dimensión Clientes
     res_cli = client.get("/api/v1/lineage/table/gold.dim_clientes")
     assert res_cli.status_code == 200
     data_cli = res_cli.json()
@@ -111,7 +107,6 @@ def test_telemetry_history_default_window_and_hydration(client: TestClient):
     assert isinstance(data["nodes_summary"], dict)
     assert "retrieved_at" in data
 
-    # Validar presencia de nodos esenciales en el resumen
     nodes = data["nodes_summary"]
     assert "source_postgres" in nodes or "bronze_raw" in nodes
 
@@ -119,7 +114,6 @@ def test_telemetry_history_default_window_and_hydration(client: TestClient):
 def test_telemetry_history_filtering_and_alerts(client: TestClient):
     """Verifica el filtrado por nodo y el conteo de alertas activas ante anomalías."""
     hub = get_telemetry_hub()
-    # Inyectar un evento degradado
     hub.publish_sync(
         TelemetryEvent(
             event_id="evt_test_degraded",
@@ -142,7 +136,7 @@ def test_telemetry_history_filtering_and_alerts(client: TestClient):
 
 
 # ==============================================================================
-# 3. Pruebas de Sesiones Conversacionales (CRUD & Persistencia)
+# 3. Pruebas de Sesiones Conversacionales (CRUD, Persistencia y Topología)
 # ==============================================================================
 
 
@@ -187,7 +181,7 @@ def test_sessions_lifecycle_crud(client: TestClient):
     )
     assert msg_ast_res.status_code == 201
 
-    # 5. Consultar detalle de sesión con mensajes
+    # 5. Consultar detalle de sesión con mensajes y topología inicial
     detail_res = client.get(f"/api/v1/sessions/{session_id}")
     assert detail_res.status_code == 200
     detail = detail_res.json()
@@ -195,6 +189,7 @@ def test_sessions_lifecycle_crud(client: TestClient):
     assert detail["messages"][0]["sender"] == "user"
     assert detail["messages"][1]["sender"] == "assistant"
     assert detail["messages"][1]["metadata"]["intent"] == "sql_query"
+    assert "topology_state" in detail
 
     # 6. Eliminar sesión
     del_res = client.delete(f"/api/v1/sessions/{session_id}")
@@ -204,6 +199,77 @@ def test_sessions_lifecycle_crud(client: TestClient):
     # 7. Verificar 404 en sesión eliminada
     not_found_res = client.get(f"/api/v1/sessions/{session_id}")
     assert not_found_res.status_code == 404
+
+
+def test_session_topology_update_and_retrieval(client: TestClient):
+    """Verifica que PUT /api/v1/sessions/{id}/topology actualice y preserve el grafo del Canvas."""
+    create_res = client.post("/api/v1/sessions", json={"title": "Sesión Canvas Dinámico"})
+    assert create_res.status_code == 201
+    session_id = create_res.json()["session_id"]
+
+    mock_topology = {
+        "nodes": [
+            {"id": "source_excel_custom", "type": "source", "position": {"x": 100, "y": 150}},
+            {"id": "bronze_raw", "type": "stage", "position": {"x": 400, "y": 150}},
+        ],
+        "edges": [
+            {"id": "e_excel_bronze", "source": "source_excel_custom", "target": "bronze_raw"},
+        ],
+    }
+
+    # Actualizar topología
+    update_res = client.put(
+        f"/api/v1/sessions/{session_id}/topology",
+        json={"topology_state": mock_topology},
+    )
+    assert update_res.status_code == 200
+    updated_data = update_res.json()
+    assert updated_data["topology_state"] == mock_topology
+
+    # Recuperar detalle de sesión y validar persistencia de la topología
+    detail_res = client.get(f"/api/v1/sessions/{session_id}")
+    assert detail_res.status_code == 200
+    assert detail_res.json()["topology_state"] == mock_topology
+
+    # 404 para sesión inexistente
+    bad_res = client.put(
+        "/api/v1/sessions/sess_no_existe/topology",
+        json={"topology_state": mock_topology},
+    )
+    assert bad_res.status_code == 404
+
+
+def test_session_intelligent_title_generation(client: TestClient):
+    """Verifica la generación de títulos ejecutivos de 3 a 5 palabras en el primer turno."""
+    create_res = client.post("/api/v1/sessions", json={})
+    assert create_res.status_code == 201
+    session_id = create_res.json()["session_id"]
+    assert create_res.json()["title"] == "Nueva Conversación"
+
+    # Enviar primer mensaje con muletillas de usuario
+    client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"sender": "user", "content": "Hola por favor muéstrame las ventas de la región Andina para el cierre"},
+    )
+
+    detail_res = client.get(f"/api/v1/sessions/{session_id}")
+    assert detail_res.status_code == 200
+    title = detail_res.json()["title"]
+    assert title != "Nueva Conversación"
+    # Debe tener entre 2 y 6 palabras ejecutivas
+    words = title.split()
+    assert 2 <= len(words) <= 6
+
+
+def test_session_store_postgres_resilience():
+    """Valida que SessionStore degrade a memoria si PostgreSQL no está disponible."""
+    fake_store = SessionStore(db_url="postgresql://usuario:invalido@127.0.0.1:59999/midas_fake")
+    s = fake_store.create_session(title="Sesión Resiliente Test")
+    assert s.session_id.startswith("sess_")
+    fake_store.add_message(s.session_id, sender="user", content="Test message")
+    fake_store.update_topology(s.session_id, {"nodes": [{"id": "n1"}]})
+    assert fake_store.get_session(s.session_id).topology_state == {"nodes": [{"id": "n1"}]}
+    assert fake_store.delete_session(s.session_id) is True
 
 
 def test_sessions_error_handling_not_found(client: TestClient):
@@ -228,12 +294,10 @@ def test_sessions_error_handling_not_found(client: TestClient):
 
 def test_agent_chat_auto_persists_in_active_session(client: TestClient):
     """Verifica que interactuar con /api/v1/agent/chat guarde ambos turnos en la sesión activa."""
-    # 1. Crear sesión
     create_res = client.post("/api/v1/sessions", json={"title": "Sesión Copiloto Test"})
     assert create_res.status_code == 201
     session_id = create_res.json()["session_id"]
 
-    # 2. Enviar mensaje al Copiloto usando thread_id = session_id
     chat_res = client.post(
         "/api/v1/agent/chat",
         json={"thread_id": session_id, "message": "Hola, qué métricas puedes mostrarme?"},
@@ -242,7 +306,6 @@ def test_agent_chat_auto_persists_in_active_session(client: TestClient):
     chat_data = chat_res.json()
     assert chat_data["thread_id"] == session_id
 
-    # 3. Validar que la sesión contiene ambos turnos (user y assistant)
     detail_res = client.get(f"/api/v1/sessions/{session_id}")
     assert detail_res.status_code == 200
     detail = detail_res.json()

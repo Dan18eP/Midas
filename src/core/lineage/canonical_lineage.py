@@ -132,12 +132,12 @@ def get_table_lineage(table_name: str) -> Dict[str, Any]:
 
     # Mapeo según la tabla objetivo
     if "cliente" in normalized_name:
-        stages = list(DEFAULT_CLIENTES_STAGES)
+        stages = [dict(s) for s in DEFAULT_CLIENTES_STAGES]
         formula_meta = None
         transformation = "Deduplicación y normalización dimensional con enmascaramiento PII."
         gold_table_hint = "gold.dim_clientes"
     else:
-        stages = list(DEFAULT_PEDIDOS_STAGES)
+        stages = [dict(s) for s in DEFAULT_PEDIDOS_STAGES]
         transformation = (
             "Extracción JDBC -> Iceberg Bronze Parquet -> PySpark Silver Cleansing con Quality Gate "
             "-> Gold Marts dimensionales con promoción Write-Audit-Publish (WAP)."

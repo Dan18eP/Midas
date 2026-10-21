@@ -52,7 +52,7 @@ describe('Time-Travel Replay Canvas Integration (HU-FRONT-03)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(fixedNow);
     testStore = new HistoricalSnapshotStore();
-    testStore.initialize(fixedNow);
+    testStore.seedCanonicalScenarios(fixedNow);
   });
 
   afterEach(() => {
