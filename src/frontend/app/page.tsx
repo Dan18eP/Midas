@@ -26,6 +26,7 @@ import {
 import type { CopilotMessage, EChartsOption } from '@/components/copilot/types';
 import { ExplainNumberDrawer, ExplainNumberProvider } from '@/components/lineage';
 import {
+  ZeroTrustLens,
   ZERO_TRUST_ROLE_IDS,
   buildSecurityNodePolicy,
   type ZeroTrustRole,

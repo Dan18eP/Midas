@@ -62,6 +62,7 @@ export async function listSessions(
   params.set('limit', String(limit));
   params.set('offset', String(offset));
 
+  // Keep the signed-in operator session on protected API calls.
   const response = await fetch(`${API_BASE}/api/v1/sessions?${params.toString()}`, {
     method: 'GET',
     credentials: 'include',

@@ -129,6 +129,7 @@ export function useTelemetryStream(
     }
 
     try {
+      // Include the operator cookie for the protected event stream.
       const es = eventSourceFactory
         ? eventSourceFactory(streamUrl)
         : new EventSource(streamUrl, { withCredentials: true });
