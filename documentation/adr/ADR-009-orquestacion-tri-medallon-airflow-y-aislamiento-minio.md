@@ -42,15 +42,15 @@ Se decide **orquestar de extremo a extremo todas las transiciones del Lakehouse 
 4. **Registro Central de Conexiones (`SourceConnectionRegistry`):**  
    Cada conexión se registra en la base de datos operacional (`midas_operational.source_connections`) mediante FastAPI. El registro dispara la creación del contrato declarativo correspondiente en `midas-governance/source-contracts/<connection_id>.yaml`, activando automáticamente sus DAGs en Airflow.
 
-5. **Governed YAML contracts:**
-   - Each connection contract is stored at `source-contracts/<conn_id>.yaml` in the `midas-governance` bucket. It contains `kind: connection`, `conn_id`, `cron_schedule`, `source`, `bronze`, and `silver`.
-   - `source.type` supports `postgres`, `csv`, and `rest_api`. PostgreSQL uses `source.table` and optional `source.schema`; its URL comes from the environment variable named by `source.url_env` (default: `POSTGRES_OPERATIONAL_URL`). CSV uses `source.path`. REST uses `source.url`, optional `source.data_key` for the response list, and optional `source.headers_env` for JSON headers loaded from an environment variable.
-   - `bronze.path` is optional. By default, Parquet with the audit envelope is written to `s3a://midas-bronze/sources/<conn_id>/<dataset>/year=YYYY/month=MM/day=DD/<batch_id>.parquet`.
-   - `silver.table` is required and must use the `silver` namespace. Optional `primary_key_fields`, `amount_fields`, and `date_fields` configure the quality gate. `quarantine_path` is optional; the default is `s3a://midas-quarantine/incidents/<conn_id>/`.
-   - Each Gold contract remains at `airflow-specs/dag_gold_<pipeline_id>.yaml` and declares `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table`, and `quality_policies`. Only one `SELECT` statement is accepted. The result is audited in a temporary WAP table before replacing the Gold destination.
-   - Credentials are kept out of YAML. Jobs read secrets from environment variables and publish start and result events to `POST /api/v1/telemetry/publish`.
+5. **Contratos YAML gobernados:**
+   - Cada contrato de conexión se guarda en `source-contracts/<conn_id>.yaml` dentro del bucket `midas-governance`. Contiene `kind: connection`, `conn_id`, `cron_schedule`, `source`, `bronze` y `silver`.
+   - `source.type` admite `postgres`, `csv` y `rest_api`. PostgreSQL usa `source.table` y `source.schema` de forma opcional; la URL se obtiene de la variable de entorno indicada por `source.url_env` (por defecto: `POSTGRES_OPERATIONAL_URL`). CSV usa `source.path`. REST usa `source.url`, opcionalmente `source.data_key` para la lista de respuesta y `source.headers_env` para cargar encabezados JSON desde una variable de entorno.
+   - `bronze.path` es opcional. De forma predeterminada, los archivos Parquet con el sobre de auditoría se escriben en `s3a://midas-bronze/sources/<conn_id>/<dataset>/year=YYYY/month=MM/day=DD/<batch_id>.parquet`.
+   - `silver.table` es obligatorio y debe usar el espacio de nombres `silver`. Los campos opcionales `primary_key_fields`, `amount_fields` y `date_fields` configuran la puerta de calidad. `quarantine_path` es opcional; su valor predeterminado es `s3a://midas-quarantine/incidents/<conn_id>/`.
+   - Cada contrato Gold se guarda en `airflow-specs/dag_gold_<pipeline_id>.yaml` y declara `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table` y `quality_policies`. Solo se admite una instrucción `SELECT`. El resultado se audita en una tabla WAP temporal antes de reemplazar el destino Gold.
+   - Las credenciales no se incluyen en YAML. Los jobs leen secretos desde variables de entorno y publican eventos de inicio y resultado en `POST /api/v1/telemetry/publish`.
 
-Minimal connection contract example:
+Ejemplo mínimo de contrato de conexión:
 
 ```yaml
 kind: connection

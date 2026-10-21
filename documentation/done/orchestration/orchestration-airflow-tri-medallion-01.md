@@ -1,49 +1,49 @@
-# HU-ORCH-01: Airflow Tri-Medallion Orchestration
+# HU-ORCH-01: Orquestación tri-medallón en Airflow
 
-This delivery adds connection-based Bronze and Silver DAGs, governed Gold DAGs, and Spark jobs for each medallion transition.
+Esta entrega agrega DAGs Bronze y Silver organizados por conexión, DAGs Gold gobernados y jobs de Spark para cada transición entre medallones.
 
-## Delivery details
+## Detalles de la entrega
 
-| Item | Value |
+| Elemento | Valor |
 |---|---|
-| Story | HU-ORCH-01 |
-| Branch | `feature/orchestration-airflow-dag-factory` |
-| Owner | Elian Rivera (`aZian10`) |
-| Reference | [ADR-009](../../adr/ADR-009-orquestacion-tri-medallon-airflow-y-aislamiento-minio.md) |
-| Backlog issue | [#42](https://github.com/Dan18eP/Midas/issues/42) |
+| Historia | HU-ORCH-01 |
+| Rama | `feature/orchestration-airflow-dag-factory` |
+| Responsable | Elian Rivera (`aZian10`) |
+| Referencia | [ADR-009](../../adr/ADR-009-orquestacion-tri-medallon-airflow-y-aislamiento-minio.md) |
+| Incidente del backlog | [#42](https://github.com/Dan18eP/Midas/issues/42) |
 
-## Implementation
+## Implementación
 
-- `src/orchestration/dag_factory.py` loads connection contracts from `source-contracts/` and Gold contracts from `airflow-specs/` in the `midas-governance` bucket. It creates `dag_ingest_<conn_id>`, `dag_clean_<conn_id>`, and `dag_gold_<pipeline_id>` with validated cron schedules.
-- `jobs/ingest_bronze.py` extracts governed PostgreSQL, CSV, or REST sources and writes audited Parquet to Bronze.
-- `jobs/transform_silver.py` normalizes dates and `DECIMAL(18,2)` amounts, applies key and quality checks, and sends invalid rows to quarantine before writing Silver Iceberg.
-- `jobs/materialize_gold.py` writes to a temporary Iceberg table, checks the result, then publishes it to Gold.
-- Each job publishes start and completion or failure events to `POST /api/v1/telemetry/publish`.
-- ADR-009 now documents the connection and Gold YAML contract fields.
+- `src/orchestration/dag_factory.py` carga contratos de conexión desde `source-contracts/` y contratos Gold desde `airflow-specs/` en el bucket `midas-governance`. Crea `dag_ingest_<conn_id>`, `dag_clean_<conn_id>` y `dag_gold_<pipeline_id>` con cronogramas cron validados.
+- `jobs/ingest_bronze.py` extrae datos gobernados de PostgreSQL, CSV o REST y escribe Parquet con auditoría en Bronze.
+- `jobs/transform_silver.py` normaliza fechas e importes `DECIMAL(18,2)`, aplica validaciones de claves y calidad, y envía las filas inválidas a cuarentena antes de escribir Iceberg Silver.
+- `jobs/materialize_gold.py` escribe en una tabla Iceberg temporal, valida el resultado y luego lo publica en Gold.
+- Cada job publica eventos de inicio y de finalización o error en `POST /api/v1/telemetry/publish`.
+- ADR-009 ahora documenta los campos de los contratos YAML de conexión y Gold.
 
-## Acceptance and verification
+## Aceptación y verificación
 
-- [x] Airflow factory creates all three DAG types with scheduled cron expressions.
-- [x] Tests confirm the generated DAG IDs, schedules, fixed UTC start date, and disabled catchup.
-- [x] Gold contract validation remains covered by the existing agent DAG generator tests.
-- [x] Existing canonical business formulas were not changed.
-- [x] Telemetry uses the existing `TelemetryEvent` API contract; source credentials are read from environment variables.
+- [x] La fábrica de Airflow crea los tres tipos de DAG con expresiones cron programadas.
+- [x] Las pruebas confirman los IDs y cronogramas de los DAGs generados, la fecha de inicio UTC fija y la recuperación desactivada.
+- [x] Las pruebas existentes del generador de DAGs del agente siguen cubriendo la validación de contratos Gold.
+- [x] No se modificaron las fórmulas de negocio canónicas existentes.
+- [x] La telemetría usa el contrato API existente `TelemetryEvent`; las credenciales de origen se leen desde variables de entorno.
 
-Commands and results:
+Comandos y resultados:
 
 ```text
 python -m compileall -q jobs src/orchestration tests/orchestration
-Passed
+Correcto
 
 python -m pytest tests/orchestration/test_tri_medallion_factory.py tests/agent/test_dag_generator.py -q
-7 passed
+7 pruebas correctas
 
 git diff --check
-Passed
+Correcto
 ```
 
-Airflow parsing and Spark, MinIO, Iceberg, and telemetry integration were not run against live services. Those runtime checks still require the configured Docker services and governed source credentials.
+El análisis de DAGs de Airflow y la integración de Spark, MinIO, Iceberg y telemetría no se ejecutaron contra servicios activos. Esas verificaciones requieren los servicios Docker configurados y las credenciales gobernadas de las fuentes.
 
-## Rollback boundary
+## Alcance de reversión
 
-Revert the HU-ORCH-01 commit to remove the three DAG registrations, their Spark jobs, the new factory tests, and the corresponding ADR and delivery notes. No database migration or canonical business formula change is included.
+Revertir el commit de HU-ORCH-01 elimina los tres registros de DAG, sus jobs de Spark, las nuevas pruebas de la fábrica y el ADR y las notas de entrega correspondientes. No se incluyen migraciones de base de datos ni cambios en fórmulas de negocio canónicas.
