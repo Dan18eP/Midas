@@ -17,9 +17,11 @@ El objetivo operacional inmediato es **completar el 100% del Backend hoy mismo**
 
 > [!NOTE]
 > **Matriz de Responsabilidad Única:**
-> - **Edgar Corzo (Data Eng / Infra):** `HU-INFRA-02` (Spark Clúster) + `HU-LAKE-05` (Conexiones MinIO aisladas).
-> - **Daniel Echeverría (Backend Lead):** `HU-BACK-03` (Gateway Linaje, Telemetría Histórica y Sesiones).
+> - **Daniel Echeverría (Backend Lead & Infra):** `HU-INFRA-02` (Spark Clúster) + `HU-BACK-03` (Gateway Linaje, Telemetría Histórica y Sesiones).
+> - **Edgar Corzo (Data Eng Lead):** `HU-LAKE-05` (Conexiones MinIO aisladas).
 > - **Elian Rivera (AI & Orchestration):** `HU-AI-05` (Driver Qwen 2.5:3b) + `HU-ORCH-01` (Fábrica Airflow Tri-Medallón).
+> - **Dilan Chávez (Frontend Lead):** `HU-FRONT-07` (Workspace ChatGPT-Style y Sesiones).
+> - **Joshua Gonzales (Frontend Lead):** `HU-FRONT-08` (Desmockitización Canvas, Linaje y Replay con aislamiento estricto).
 
 ---
 
@@ -29,7 +31,7 @@ El objetivo operacional inmediato es **completar el 100% del Backend hoy mismo**
 flowchart TD
     subgraph BACKEND_HOY["SPRINT BACKEND (Objetivo: Culminar Hoy)"]
         direction TB
-        INFRA["[HU-INFRA-02] Spark 3.5 Clúster en Compose\n(Edgar Corzo - 3 SP)"]
+        INFRA["[HU-INFRA-02] Spark 3.5 Clúster en Compose\n(Daniel Echeverría - 3 SP)"]
         LAKE["[HU-LAKE-05] Registro Conexiones & MinIO Aislado\n(Edgar Corzo - 5 SP)"]
         AI["[HU-AI-05] Driver Qwen 2.5:3b Local & Fallback AST\n(Elian Rivera - 3 SP)"]
         ORCH["[HU-ORCH-01] Airflow Tri-Medallón (PySpark Jobs)\n(Elian Rivera - 5 SP)"]
@@ -43,8 +45,8 @@ flowchart TD
 
     subgraph FRONTEND_MANANA["SPRINT FRONTEND (Objetivo: Desmockitizar Mañana)"]
         direction TB
-        FRONT_HERO["[HU-FRONT-07] Workspace ChatGPT-Style & Historial\n(Joshua Gonzales - 5 SP)"]
-        FRONT_UNMOCK["[HU-FRONT-08] Desmockitización Canvas, Linaje & Replay\n(Dilan Chávez - 4 SP)"]
+        FRONT_HERO["[HU-FRONT-07] Workspace ChatGPT-Style & Historial\n(Dilan Chávez - 5 SP)"]
+        FRONT_UNMOCK["[HU-FRONT-08] Desmockitización Canvas, Linaje & Replay\n(Joshua Gonzales - 4 SP)"]
         
         BACK --> FRONT_HERO
         BACK --> FRONT_UNMOCK
@@ -57,7 +59,7 @@ flowchart TD
 
 ### 1. [HU-INFRA-02] Clúster Apache Spark 3.5 en Monodocker y Cliente Airflow
 - **Issue Oficial en GitHub:** [#39](https://github.com/Dan18eP/Midas/issues/39)
-- **Responsable Único:** Edgar Corzo (`EdgarCorzo777`)
+- **Responsable Único:** Daniel Echeverría (`Dan18eP`)
 - **Story Points:** 3 SP | **Prioridad:** P0 (Bloqueante)
 - **Alcance Técnico:**
   - Agregar `midas-spark-master` (`bitnami/spark:3.5.1`) con puertos 7077 (RPC) y 8080 (UI).
@@ -152,7 +154,7 @@ flowchart TD
 
 ### 6. [HU-FRONT-07] Workspace ChatGPT-Style, Conexiones Rápidas y Navegación de Sesiones
 - **Issue Oficial en GitHub:** [#44](https://github.com/Dan18eP/Midas/issues/44)
-- **Responsable Único:** Joshua Gonzales (`Jgonzalez-2005`)
+- **Responsable Único:** Dilan Chávez (`dilandcv`)
 - **Story Points:** 5 SP | **Prioridad:** P1 (Mañana)
 - **Alcance:**
   - Implementar componente `WelcomeHero.tsx` con saludo `"Hola, {usuario}. ¿Qué tienes en mente hoy?"`.
@@ -164,13 +166,18 @@ flowchart TD
 
 ### 7. [HU-FRONT-08] Desmockitización Total del Canvas, Linaje y Time-Travel Replay
 - **Issue Oficial en GitHub:** [#45](https://github.com/Dan18eP/Midas/issues/45)
-- **Responsable Único:** Dilan Chávez (`dilandcv`)
+- **Responsable Único:** Joshua Gonzales (`Jgonzalez-2005`)
 - **Story Points:** 4 SP | **Prioridad:** P1 (Mañana)
 - **Alcance:**
   - `PipelineCanvas.tsx`: Permitir la adición dinámica de nuevos nodos recibidos vía SSE (`NEW_GOLD_NODE_AVAILABLE` o nuevas conexiones) en lugar de limitarse a los 7 nodos fijos.
   - `historicalTelemetryService.ts`: Reemplazar `createCanonicalSnapshots()` por llamadas a `GET /api/v1/telemetry/history`.
   - `resolveLineage.ts`: Erradicar `LAYER_FALLBACK` y conectar con `GET /api/v1/lineage/table/{table}`.
   - `ZeroTrustLens.tsx`: Eliminar strings estáticos (`pepe@riwi.io`) y reflejar el enmascaramiento real de Trino vía roles.
+- **Criterios de Aceptación:**
+  - [ ] Nuevos nodos creados en caliente se renderizan en el Canvas sin recargar.
+  - [ ] Scrubber de Time-Travel consume eventos reales de FastAPI.
+  - [ ] Drawer "Explícame esta cifra" muestra el linaje certificado retornado por el backend.
+  - [ ] **Aislamiento Estricto y No-Interferencia:** Demostrar que los cambios se circunscriben quirúrgicamente al alcance de la tarea, con la suite completa de frontend (78 tests vitest) pasando al 100% sin romper ni alterar componentes ajenos.
 
 ---
 
@@ -178,7 +185,7 @@ flowchart TD
 
 | Orden | Historia | Responsable | Archivos Clave a Crear / Modificar |
 | :---: | :--- | :--- | :--- |
-| **1** | **`HU-INFRA-02`** | Edgar Corzo (`EdgarCorzo777`) | `docker-compose.yml`, `docker/airflow/Dockerfile`, `docker/airflow/init.sh`, `tests/infra/test_spark_cluster.py` |
+| **1** | **`HU-INFRA-02`** | Daniel Echeverría (`Dan18eP`) | `docker-compose.yml`, `docker/airflow/Dockerfile`, `docker/airflow/init.sh`, `tests/infra/test_spark_cluster.py` |
 | **2** | **`HU-LAKE-05`** | Edgar Corzo (`EdgarCorzo777`) | `src/lakehouse/ingestion/universal_engine.py`, `src/api/routes/connections.py`, `tests/lakehouse/test_source_connections.py` |
 | **3** | **`HU-AI-05`** | Elian Rivera (`aZian10`) | `src/agent/models/model_router.py`, `src/agent/prompts/qwen_prompts.py`, `tests/agent/test_qwen_inference.py` |
 | **4** | **`HU-ORCH-01`** | Elian Rivera (`aZian10`) | `src/orchestration/dag_factory.py`, `jobs/ingest_bronze.py`, `jobs/transform_silver.py`, `tests/orchestration/test_tri_medallion.py` |
