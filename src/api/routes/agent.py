@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 import uuid
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("midas.api.agent")
@@ -71,9 +71,19 @@ def get_agent_graph() -> Any:
             from langgraph.checkpoint.memory import InMemorySaver
             from src.agent.graph.builder import build_graph
 
+            from src.core.query_engine.trino_client import TrinoClient
+            trino_client = TrinoClient()
+
+            def default_trino_executor(sql: str, user_role: Optional[str] = None) -> List[Dict[str, Any]]:
+                res = trino_client.execute_query_sync(sql=sql, user_role=user_role)
+                return res.data
+
             checkpointer = InMemorySaver()
-            _compiled_graph = build_graph(checkpointer=checkpointer)
-            logger.info("LangGraph conversational state machine compiled successfully.")
+            _compiled_graph = build_graph(
+                checkpointer=checkpointer,
+                execute_query=default_trino_executor,
+            )
+            logger.info("LangGraph conversational state machine compiled successfully with Trino executor.")
         except Exception as exc:
             logger.error("Failed to compile LangGraph state machine: %s", exc, exc_info=True)
             raise RuntimeError(f"No se pudo inicializar el grafo del Copiloto: {exc}") from exc
@@ -98,10 +108,11 @@ def reset_agent_graph() -> None:
         "and structured ECharts visualization extraction."
     ),
 )
-async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
+async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatResponse:
     """Execute a conversational turn with the Copilot Agent."""
     thread_id = payload.thread_id.strip() if payload.thread_id else f"session_{uuid.uuid4().hex[:8]}"
     user_message = payload.message.strip()
+    user_role = getattr(request.state, "user_role", None) or request.headers.get("X-User-Role", "director_general")
 
     if not user_message:
         raise HTTPException(
@@ -152,7 +163,7 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
                 response=confirmation_msg,
             )
 
-        result_state = invoke_turn(graph=graph, thread_id=thread_id, user_message=user_message)
+        result_state = invoke_turn(graph=graph, thread_id=thread_id, user_message=user_message, user_role=user_role)
     except HTTPException:
         raise
     except Exception as exc:

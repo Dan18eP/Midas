@@ -64,13 +64,22 @@ def build_graph(
     return graph.compile(checkpointer=checkpointer)
 
 
-def invoke_turn(graph: Any, thread_id: str, user_message: str) -> AgentState:
-    """Envía un turno y lo guarda en la sesión indicada."""
+def invoke_turn(
+    graph: Any,
+    thread_id: str,
+    user_message: str,
+    user_role: str = "director_general",
+) -> AgentState:
+    """Envía un turno y lo guarda en la sesión indicada con su rol Zero-Trust."""
     if not thread_id.strip():
         raise ValueError("thread_id no puede estar vacío.")
     if not user_message.strip():
         raise ValueError("El mensaje no puede estar vacío.")
     return graph.invoke(
-        {"messages": [HumanMessage(content=user_message)], "user_message": user_message},
+        {
+            "messages": [HumanMessage(content=user_message)],
+            "user_message": user_message,
+            "user_role": user_role,
+        },
         {"configurable": {"thread_id": thread_id}},
     )

@@ -3,8 +3,14 @@ import { CopilotChatController, useCopilotChat } from './useCopilotChat';
 
 const CopilotChatContext = createContext<CopilotChatController | null>(null);
 
-export function CopilotChatProvider({ children }: { children: ReactNode }) {
-  const controller = useCopilotChat();
+export function CopilotChatProvider({
+  children,
+  activeRole,
+}: {
+  children: ReactNode;
+  activeRole?: string;
+}) {
+  const controller = useCopilotChat({ activeRole });
   return <CopilotChatContext.Provider value={controller}>{children}</CopilotChatContext.Provider>;
 }
 

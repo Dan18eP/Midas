@@ -323,6 +323,41 @@ class TrinoClient:
             security_policy=policy_decision.to_dict(),
         )
 
+    def execute_query_sync(
+        self,
+        sql: str,
+        catalog: Optional[str] = None,
+        schema_name: Optional[str] = None,
+        user_role: Optional[str] = None,
+        timeout_sec: Optional[float] = None,
+    ) -> QueryResult:
+        """
+        Version sincronica de execute_query para LangGraph u orquestadores bloqueantes.
+        Aplica guardrails, politicas Zero-Trust (Ranger / Atlas) y devuelve QueryResult.
+        """
+        start_time = time.perf_counter()
+        target_catalog = catalog or self.default_catalog
+        target_schema = schema_name or self.default_schema
+        safe_sql = enforce_limit_and_read_only(sql, default_limit=self.max_limit, max_limit=self.max_limit)
+        policy_decision = apply_policies(safe_sql, user_role)
+        effective_sql = policy_decision.effective_sql
+        cost_est = QueryCostEstimate(
+            estimated_rows=1000,
+            estimated_cpu_cost=1.0,
+            estimated_network_cost=0.5,
+            cost_level="LOW",
+            plan_summary="Distributed Plan Sync",
+        )
+
+        return self._execute_deterministic_local_engine(
+            sql=effective_sql,
+            catalog=target_catalog,
+            schema_name=target_schema,
+            start_time=start_time,
+            cost_est=cost_est,
+            security_policy=policy_decision.to_dict(),
+        )
+
     def _execute_deterministic_local_engine(
         self,
         sql: str,
@@ -383,7 +418,16 @@ class TrinoClient:
                 {col: f"val_{col}_1" if "char" in col_type else 100 for col, col_type in zip(columns, column_types)}
             ]
 
+        # Reflejar RLS si hay filtro de fila activo en la politica
+        if security_policy and security_policy.get("row_filter_applied"):
+            filter_expr = security_policy["row_filter_applied"]
+            if "region" in filter_expr and "NORTE" in filter_expr:
+                sample_records = [
+                    {"region": "NORTE", "canal_venta": "TIENDA_NORTE", "total_neto": 688500.0, "monto": 688500.0, "total": 688500.0, "cantidad": 12, "año": 2026, "mes": 10}
+                ]
+
         # Mapear proyecciones exactas solicitadas
+        masked_set = set(security_policy.get("masked_columns") or []) if security_policy else set()
         for rec in sample_records:
             row_dict = {}
             for col in columns:
@@ -394,6 +438,21 @@ class TrinoClient:
                 else:
                     # Valor sintético consistente
                     row_dict[col] = rec.get("total_neto", rec.get("monto", 100.0))
+
+                # Aplicar mascaras PII simuladas si la columna fue clasificada
+                if col in masked_set:
+                    col_lower = col.lower()
+                    if "email" in col_lower:
+                        row_dict[col] = "u****@riwi.io"
+                    elif any(k in col_lower for k in ("tel", "phone")):
+                        row_dict[col] = "+57 *** *** 4210"
+                    elif any(k in col_lower for k in ("doc", "id", "identificacion", "cedula")):
+                        row_dict[col] = "****2104"
+                    elif "salario" in col_lower:
+                        row_dict[col] = 0.0
+                    else:
+                        row_dict[col] = "********"
+
             data_rows.append(row_dict)
 
         exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)

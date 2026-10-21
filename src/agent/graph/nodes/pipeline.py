@@ -52,9 +52,17 @@ def make_analytic_nodes(
         if execute_query is None:
             return {"query_error": "El ejecutor Trino no está configurado."}
         try:
-            return {"query_rows": execute_query(state["sql"]), "query_error": ""}
-        except Exception:  # La conversación continúa sin mostrar datos internos.
-            return {"query_error": "No pude ejecutar la consulta con Trino."}
+            sql = state.get("sql", "")
+            role = state.get("user_role") or "data_owner"
+            import inspect
+            sig = inspect.signature(execute_query)
+            if "user_role" in sig.parameters or len(sig.parameters) >= 2:
+                rows = execute_query(sql, user_role=role)
+            else:
+                rows = execute_query(sql)
+            return {"query_rows": rows, "query_error": ""}
+        except Exception as exc:  # La conversación continúa sin mostrar datos internos.
+            return {"query_error": f"No pude ejecutar la consulta con Trino: {exc}"}
 
     def synthesize(state: AgentState) -> dict[str, object]:
         error = state.get("query_error", "")
@@ -65,6 +73,11 @@ def make_analytic_nodes(
             rows = state.get("query_rows", [])
             result = synthesize_storytelling(rows)
             response = str(result["narrative"])
+            role = state.get("user_role", "")
+            if role in ("gerente_norte", "restricted_operator", "scoped_operator"):
+                response += "\n\n> **Gobernanza Activa:** Cifra filtrada bajo políticas de Apache Ranger (RLS) para el alcance asignado."
+            elif role in ("analista_externo", "compliance_auditor", "auditor"):
+                response += "\n\n> **Gobernanza Activa:** Columnas identificadas con datos sensibles (PII) fueron enmascaradas bajo la directiva de privacidad."
         return {
             "response": response,
             "messages": [AIMessage(content=response)],

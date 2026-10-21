@@ -101,6 +101,12 @@ function MidasConsoleWorkspace() {
   } = useSession();
 
   const copilotChat = useCopilotChatContext();
+
+  // Sincronizar rol activo con el contexto del Copiloto para inyección en X-User-Role (ADR-011)
+  useEffect(() => {
+    const backendRoleId = activeRoleDefinition?.role_id ?? ZERO_TRUST_ROLE_IDS[selectedRole] ?? 'director_general';
+    copilotChat?.setActiveRole?.(backendRoleId);
+  }, [activeRoleDefinition, selectedRole, copilotChat]);
   const lastLoadedSessionIdRef = useRef<string | null>(null);
 
   // Restauración Integral de Contexto al seleccionar una sesión histórica (CA-04)
