@@ -2,7 +2,7 @@
 -- Midas - Semilla de Base de Datos Operacional (PostgreSQL)
 -- Base de datos: midas_operational
 -- Especificación: documentation/canonical/03_especificacion_base_de_datos_y_lakehouse.md
--- Autor: Daniel Echeverría (Backend Lead)
+-- Autor: Daniel Echeverría (Backend Lead) & Edgar Corzo (Data Eng Lead)
 -- ==============================================================================
 
 \connect midas_operational;
@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS ordenes_detalle (
     subtotal NUMERIC(14, 2) NOT NULL
 );
 
+-- 4. Tabla de Registro Dinámico de Conexiones Multi-Fuente (HU-LAKE-05 & ADR-009)
+CREATE TABLE IF NOT EXISTS source_connections (
+    connection_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL UNIQUE,
+    source_type VARCHAR(30) NOT NULL, -- 'POSTGRES', 'EXCEL', 'CSV', 'REST'
+    config_payload JSONB NOT NULL,
+    status VARCHAR(30) DEFAULT 'ACTIVE',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Inserción de Datos Iniciales de Prueba
 INSERT INTO clientes (id_cliente, nombre, email_contacto, telefono, ciudad, region, categoria_segmento) VALUES
 ('CLI-001', 'Carlos Mendoza', 'carlos.mendoza@empresa.com', '+57 300 123 4567', 'Bogotá', 'ANDINA', 'CORPORATIVO'),
@@ -70,3 +80,10 @@ INSERT INTO ordenes_detalle (id_detalle, id_pedido, id_producto, nombre_producto
 ('DET-004', 'ORD-1004', 'PROD-A', 'Licencia Midas Enterprise Core', 3, 1400000.00, 420000.00, 3780000.00),
 ('DET-005', 'ORD-1005', 'PROD-C', 'Módulo Copiloto Agéntico', 1, 1100000.00, 50000.00, 1050000.00)
 ON CONFLICT (id_detalle) DO NOTHING;
+
+-- Conexiones Canónicas Semilla
+INSERT INTO source_connections (connection_id, name, source_type, config_payload, status) VALUES
+('conn_pg_crm_default', 'CRM Operacional PostgreSQL', 'POSTGRES', '{"host": "midas-postgres", "port": 5432, "database": "midas_operational", "schema": "public"}', 'ACTIVE'),
+('conn_excel_budget_default', 'Presupuesto Corporativo Excel', 'EXCEL', '{"file_path": "data/Presupuesto_Corporativo_2026.xlsx", "sheets": ["Presupuesto_Metas", "Costos_Operativos"]}', 'ACTIVE'),
+('conn_rest_crm_default', 'Helpdesk Tickets Live REST API', 'REST', '{"endpoint_url": "https://api.internal.midas/v2/tickets", "auth_type": "BEARER"}', 'ACTIVE')
+ON CONFLICT (connection_id) DO NOTHING;

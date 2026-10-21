@@ -1,6 +1,6 @@
 """
 Midas Lakehouse Ingestion Package
-Historia de Usuario: HU-LAKE-02 (Universal Ingestion Multi-Fuente)
+Historia de Usuario: HU-LAKE-02 & HU-LAKE-05
 Responsables: Edgar Corzo (Data Eng Lead) & Daniel Echeverría (Backend Lead)
 """
 
@@ -17,6 +17,11 @@ from src.lakehouse.ingestion.universal_engine import (
     UniversalIngestionEngine,
     IngestionResult,
 )
+from src.lakehouse.ingestion.connection_registry import (
+    SourceConnectionRegistry,
+    get_connection_registry,
+    reset_connection_registry,
+)
 
 __all__ = [
     "compute_schema_fingerprint",
@@ -28,4 +33,7 @@ __all__ = [
     "RestApiSourceConnector",
     "UniversalIngestionEngine",
     "IngestionResult",
+    "SourceConnectionRegistry",
+    "get_connection_registry",
+    "reset_connection_registry",
 ]
