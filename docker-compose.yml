@@ -335,6 +335,10 @@ services:
       OPENMETADATA_TIMEOUT_SECONDS: ${OPENMETADATA_TIMEOUT_SECONDS:-3.0}
       OPENMETADATA_SERVICE_ICEBERG: ${OPENMETADATA_SERVICE_ICEBERG:-midas_lakehouse_iceberg}
       OPENMETADATA_SERVICE_POSTGRES: ${OPENMETADATA_SERVICE_POSTGRES:-midas_operational_postgres}
+      # HU-GOV-03: politicas Zero-Trust aplicadas antes de enviar a Trino.
+      RANGER_URL: ${RANGER_URL:-http://midas-ranger:6080}
+      RANGER_LOCAL_ENFORCEMENT: ${RANGER_LOCAL_ENFORCEMENT:-true}
+      RANGER_TRINO_PLUGIN_ENABLED: ${RANGER_TRINO_PLUGIN_ENABLED:-false}
     ports:
       - "${API_PORT:-8000}:8000"
     networks:

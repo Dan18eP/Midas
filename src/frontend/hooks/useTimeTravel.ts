@@ -11,6 +11,7 @@ import {
 import {
   HistoricalSnapshotStore,
   historicalSnapshotStore as defaultStore,
+  type TelemetryHistoryStatus,
 } from '@/services/historicalTelemetryService';
 import { TelemetryEventPayload } from '@/types/telemetry';
 
@@ -44,6 +45,9 @@ export interface UseTimeTravelReturn {
   relativeOffsetLabel: string;
   availableSnapshots: PipelineSnapshot[];
   timelinePoints: HistoricalTimelinePoint[];
+  /** Estado observable de la hidratación del historial real (HU-FRONT-08). */
+  historyStatus: TelemetryHistoryStatus;
+  historyError: string | null;
   // Controls
   play: () => void;
   pause: () => void;
@@ -81,6 +85,12 @@ export function useTimeTravel(options: UseTimeTravelOptions = {}): UseTimeTravel
 
   // Store snapshots version tracker to trigger re-renders when live events are recorded
   const [snapshotsVersion, setSnapshotsVersion] = useState<number>(0);
+
+  // HU-FRONT-08: el store notifica sus cambios (hidratación del historial real,
+  // errores, hitos del backend) para que la línea de tiempo se repinte.
+  useEffect(() => {
+    return store.subscribe(() => setSnapshotsVersion((v) => v + 1));
+  }, [store]);
 
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -269,6 +279,16 @@ export function useTimeTravel(options: UseTimeTravelOptions = {}): UseTimeTravel
     return store.getTimelinePoints();
   }, [store, snapshotsVersion]);
 
+  const historyStatus = useMemo(() => {
+    void snapshotsVersion;
+    return store.getHistoryStatus();
+  }, [store, snapshotsVersion]);
+
+  const historyError = useMemo(() => {
+    void snapshotsVersion;
+    return store.getHistoryError();
+  }, [store, snapshotsVersion]);
+
   return {
     mode,
     isPlaying,
@@ -282,6 +302,8 @@ export function useTimeTravel(options: UseTimeTravelOptions = {}): UseTimeTravel
     relativeOffsetLabel,
     availableSnapshots,
     timelinePoints,
+    historyStatus,
+    historyError,
     play,
     pause,
     togglePlay,

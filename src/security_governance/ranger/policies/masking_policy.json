@@ -1,0 +1,189 @@
+{
+  "_comentario": [
+    "Midas - Politicas de Enmascaramiento Dinamico de Columnas (HU-GOV-03, ST-GOV-03.1).",
+    "Responsable: Sebastian Castiblanco (Governance Lead).",
+    "Formato de importacion de Apache Ranger (lista de policies, policyType 1 =",
+    "Masking). Se importa tal cual en Ranger Admin y el motor local interpreta",
+    "los mismos campos (dataMaskType / valueExpr) mientras Ranger no este",
+    "desplegado.",
+    "",
+    "Hay una politica por etiqueta porque la expresion de enmascaramiento",
+    "depende del tipo de dato: la sustitucion parcial de un correo conserva el",
+    "dominio, y esa misma expresion aplicada a un telefono no casa y lo dejaria",
+    "EN CLARO. Las etiquetas por categoria provienen de la taxonomia de",
+    "HU-GOV-02; PII_CONFIDENCIAL queda como respaldo general."
+  ],
+  "serviceType": "trino",
+  "service": "midas_trino",
+  "policies": [
+    {
+      "name": "midas-mask-pii-email",
+      "description": "Enmascaramiento de direcciones de correo electronico.",
+      "policyType": 1,
+      "isEnabled": true,
+      "isAuditEnabled": true,
+      "resources": { "tag": { "values": ["PII_EMAIL"], "isExcludes": false, "isRecursive": false } },
+      "dataMaskPolicyItems": [
+        {
+          "roles": ["analista_externo"],
+          "users": ["user_analyst"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": {
+            "dataMaskType": "CUSTOM",
+            "valueExpr": "regexp_replace({col}, '(^.)[^@]*(@.*$)', '$1****$2')",
+            "_descripcion": "u****@riwi.io: conserva primer caracter y dominio."
+          }
+        },
+        {
+          "roles": ["gerente_norte"],
+          "users": ["user_manager"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "MASK_HASH" }
+        },
+        {
+          "roles": ["director_general"],
+          "users": ["user_admin"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "NONE" }
+        }
+      ]
+    },
+    {
+      "name": "midas-mask-pii-telefono",
+      "description": "Enmascaramiento de numeros telefonicos.",
+      "policyType": 1,
+      "isEnabled": true,
+      "isAuditEnabled": true,
+      "resources": { "tag": { "values": ["PII_TELEFONO"], "isExcludes": false, "isRecursive": false } },
+      "dataMaskPolicyItems": [
+        {
+          "roles": ["analista_externo"],
+          "users": ["user_analyst"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": {
+            "dataMaskType": "CUSTOM",
+            "valueExpr": "concat(regexp_replace(substr({col}, 1, length({col}) - 4), '.', '*'), substr({col}, -4))",
+            "_descripcion": "+57 *** *** 4210: conserva los ultimos cuatro digitos."
+          }
+        },
+        {
+          "roles": ["gerente_norte"],
+          "users": ["user_manager"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "MASK_HASH" }
+        },
+        {
+          "roles": ["director_general"],
+          "users": ["user_admin"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "NONE" }
+        }
+      ]
+    },
+    {
+      "name": "midas-mask-pii-identificacion",
+      "description": "Enmascaramiento de documentos de identidad.",
+      "policyType": 1,
+      "isEnabled": true,
+      "isAuditEnabled": true,
+      "resources": { "tag": { "values": ["PII_IDENTIFICACION"], "isExcludes": false, "isRecursive": false } },
+      "dataMaskPolicyItems": [
+        {
+          "roles": ["analista_externo"],
+          "users": ["user_analyst"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": {
+            "dataMaskType": "CUSTOM",
+            "valueExpr": "concat(regexp_replace(substr({col}, 1, length({col}) - 4), '.', '*'), substr({col}, -4))",
+            "_descripcion": "****2104: conserva los ultimos cuatro digitos."
+          }
+        },
+        {
+          "roles": ["gerente_norte"],
+          "users": ["user_manager"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "MASK_HASH" }
+        },
+        {
+          "roles": ["director_general"],
+          "users": ["user_admin"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "NONE" }
+        }
+      ]
+    },
+    {
+      "name": "midas-mask-pii-tarjeta",
+      "description": "Enmascaramiento de numeros de tarjeta de credito.",
+      "policyType": 1,
+      "isEnabled": true,
+      "isAuditEnabled": true,
+      "resources": { "tag": { "values": ["PII_TARJETA_CREDITO"], "isExcludes": false, "isRecursive": false } },
+      "dataMaskPolicyItems": [
+        {
+          "roles": ["analista_externo", "gerente_norte"],
+          "users": ["user_analyst", "user_manager"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": {
+            "dataMaskType": "CUSTOM",
+            "valueExpr": "concat(regexp_replace(substr({col}, 1, length({col}) - 4), '.', '*'), substr({col}, -4))",
+            "_descripcion": "**** **** **** 4210: solo los ultimos cuatro digitos, conforme a PCI DSS."
+          }
+        },
+        {
+          "roles": ["director_general"],
+          "users": ["user_admin"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "NONE" }
+        }
+      ]
+    },
+    {
+      "name": "midas-mask-pii-salario",
+      "description": "Enmascaramiento de montos de remuneracion personal.",
+      "policyType": 1,
+      "isEnabled": true,
+      "isAuditEnabled": true,
+      "resources": { "tag": { "values": ["PII_SALARIO"], "isExcludes": false, "isRecursive": false } },
+      "dataMaskPolicyItems": [
+        {
+          "roles": ["analista_externo", "gerente_norte"],
+          "users": ["user_analyst", "user_manager"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": {
+            "dataMaskType": "MASK_NULL",
+            "_descripcion": "El monto no admite enmascaramiento parcial util: se anula."
+          }
+        },
+        {
+          "roles": ["director_general"],
+          "users": ["user_admin"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "NONE" }
+        }
+      ]
+    },
+    {
+      "name": "midas-mask-pii-confidencial-general",
+      "description": "Respaldo para columnas etiquetadas sin categoria especifica.",
+      "policyType": 1,
+      "isEnabled": true,
+      "isAuditEnabled": true,
+      "resources": { "tag": { "values": ["PII_CONFIDENCIAL"], "isExcludes": false, "isRecursive": false } },
+      "dataMaskPolicyItems": [
+        {
+          "roles": ["analista_externo", "gerente_norte"],
+          "users": ["user_analyst", "user_manager"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "MASK_HASH" }
+        },
+        {
+          "roles": ["director_general"],
+          "users": ["user_admin"],
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "dataMaskInfo": { "dataMaskType": "NONE" }
+        }
+      ]
+    }
+  ]
+}

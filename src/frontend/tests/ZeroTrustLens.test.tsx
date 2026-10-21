@@ -74,32 +74,93 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
     expect(onRoleChange).toHaveBeenCalledWith('compliance');
   });
 
-  it('4. Previsualización PII sin máscara para Director General (Admin: 100% visibilidad)', () => {
+  it('4. Previsualización sin evidencia del backend: declara ausencia de datos y de masking', () => {
     render(<ZeroTrustLens role="admin" preview />);
     expect(screen.getByTestId('zero-trust-lens-preview')).toBeInTheDocument();
     expect(screen.getByTestId('profile-label')).toHaveTextContent('Director General');
-    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('100%');
-    expect(screen.getByTestId('masking-status')).toHaveTextContent('Desactivado');
-    expect(screen.getByTestId('pii-email')).toHaveTextContent('pepe@riwi.io');
-    expect(screen.getByTestId('pii-salary')).toHaveTextContent('$85.000');
+    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('Sin datos');
+    expect(screen.getByTestId('masking-status')).toHaveTextContent('No declarada');
+    expect(screen.getByTestId('mask-column-policy')).toHaveTextContent('Sin política declarada');
+    expect(screen.getByTestId('mask-row-filter')).toHaveTextContent('Sin filtro declarado');
+    expect(screen.getByTestId('mask-evidence')).toHaveTextContent('Sin evidencia verificable');
+    expect(screen.getByTestId('mask-evidence-missing')).toBeInTheDocument();
   });
 
-  it('5. Previsualización PII enmascarada para Gerente Regional Norte (RBAC: 64% visibilidad)', () => {
-    render(<ZeroTrustLens role="rbac" preview />);
+  it('5. Previsualización refleja la identidad y la política reales del backend', () => {
+    render(
+      <ZeroTrustLens
+        role="rbac"
+        preview
+        roleDefinition={{
+          role_id: 'gerente_norte',
+          title: 'Gerente Regional Norte',
+          description: 'Acceso condicionado a la región NORTE.',
+          canvas_effect: 'Nodos de otras regiones en ámbar.',
+          ranger_row_filter: "region = 'NORTE'",
+          ranger_column_mask: null,
+          allowed_nodes: ['source_postgres', 'bronze_raw', 'silver_cleansing', 'gold_marts'],
+          locked_nodes: ['source_csv', 'silver_quarantine'],
+        }}
+      />,
+    );
     expect(screen.getByTestId('profile-label')).toHaveTextContent('Gerente Regional Norte');
-    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('64%');
-    expect(screen.getByTestId('masking-status')).toHaveTextContent('Activo');
-    expect(screen.getByTestId('pii-email')).toHaveTextContent('u****@riwi.io');
-    expect(screen.getByTestId('pii-salary')).toHaveTextContent('****');
+    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('4/6 nodos');
+    expect(screen.getByTestId('masking-status')).toHaveTextContent('No declarada');
+    expect(screen.getByTestId('mask-row-filter')).toHaveTextContent("region = 'NORTE'");
+    expect(screen.getByTestId('mask-evidence')).toHaveTextContent('Sin evidencia verificable');
+    expect(screen.queryByTestId('mask-evidence-missing')).not.toBeInTheDocument();
   });
 
-  it('6. Previsualización PII enmascarada para Auditor de Cumplimiento (Compliance: 82% visibilidad)', () => {
-    render(<ZeroTrustLens role="compliance" preview />);
-    expect(screen.getByTestId('profile-label')).toHaveTextContent('Auditor de Cumplimiento');
-    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('82%');
-    expect(screen.getByTestId('masking-status')).toHaveTextContent('Activo');
-    expect(screen.getByTestId('pii-email')).toHaveTextContent('u****@riwi.io');
-    expect(screen.getByTestId('pii-salary')).toHaveTextContent('****');
+  it('6. Previsualización muestra la máscara de columna declarada por el catálogo de identidades', () => {
+    render(
+      <ZeroTrustLens
+        role="compliance"
+        preview
+        roleDefinition={{
+          role_id: 'analista_externo',
+          title: 'Analista Externo (Auditor)',
+          description: 'Perfil de menor privilegio con enmascaramiento estricto de PII.',
+          canvas_effect: 'Nodos financieros bloqueados con candado.',
+          ranger_row_filter: null,
+          ranger_column_mask: 'PII_HASH (email, telefono, rfc)',
+          allowed_nodes: ['source_api', 'bronze_raw', 'silver_cleansing'],
+          locked_nodes: ['gold_marts', 'silver_quarantine'],
+        }}
+      />,
+    );
+    expect(screen.getByTestId('profile-label')).toHaveTextContent('Analista Externo (Auditor)');
+    expect(screen.getByTestId('profile-visibility')).toHaveTextContent('3/5 nodos');
+    expect(screen.getByTestId('masking-status')).toHaveTextContent('Declarada');
+    expect(screen.getByTestId('mask-column-policy')).toHaveTextContent('PII_HASH');
+    expect(screen.getByTestId('mask-row-filter')).toHaveTextContent('Sin filtro declarado');
+    // La política declarada no se presenta como aplicación verificada.
+    expect(screen.getByTestId('mask-evidence')).toHaveTextContent('Sin evidencia verificable');
+  });
+
+  it('6b. El flujo productivo no expone identidades ni resultados ficticios', () => {
+    const { container } = render(
+      <ZeroTrustLens
+        role="admin"
+        preview
+        roleDefinition={{
+          role_id: 'director_general',
+          title: 'Director General',
+          description: 'Acceso irrestricto.',
+          canvas_effect: 'Todos los nodos en verde.',
+          ranger_row_filter: null,
+          ranger_column_mask: null,
+          allowed_nodes: ['source_postgres', 'bronze_raw', 'silver_cleansing', 'gold_marts'],
+          locked_nodes: [],
+        }}
+      />,
+    );
+
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('pepe@riwi.io');
+    expect(text).not.toContain('u****@riwi.io');
+    expect(text).not.toContain('$85.000');
+    expect(text).not.toContain('64%');
+    expect(text).not.toContain('82%');
   });
 
   it('6b. Abre el modal de Zero-Trust desde el Header al hacer clic en el botón de visibilidad', () => {
@@ -234,5 +295,48 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
     const excelNode = screen.getByTestId('canvas-node-source_excel');
     expect(excelNode).toHaveAttribute('data-masked', 'false');
     expect(excelNode.style.opacity).toBe('1');
+  });
+
+  it('11. PipelineCanvas aplica la política real del catálogo de identidades del backend', () => {
+    render(
+      <PipelineCanvas
+        securityRole="compliance"
+        autoConnectSSE={false}
+        securityPolicy={{
+          roleId: 'analista_externo',
+          title: 'Analista Externo (Auditor)',
+          // El backend bloquea `source_csv`, que es el alias de `source_excel`.
+          allowedNodes: ['source_api', 'bronze_raw', 'silver_cleansing'],
+          lockedNodes: ['source_csv', 'gold_marts', 'silver_quarantine'],
+        }}
+      />,
+    );
+
+    // Nodo bloqueado explícitamente por la política del backend.
+    expect(screen.getByTestId('canvas-node-gold_marts')).toHaveAttribute('data-masked', 'true');
+    // Nodo permitido por la política del backend (el frontend local lo bloqueaba).
+    expect(screen.getByTestId('canvas-node-source_api')).toHaveAttribute('data-masked', 'false');
+    // `source_csv` es el alias canónico de `source_excel`.
+    expect(screen.getByTestId('canvas-node-source_excel')).toHaveAttribute('data-masked', 'true');
+  });
+
+  it('12. El banner del Canvas no afirma aplicación de Ranger sin evidencia', () => {
+    render(
+      <PipelineCanvas
+        securityRole="rbac"
+        autoConnectSSE={false}
+        securityPolicy={{
+          roleId: 'gerente_norte',
+          title: 'Gerente Regional Norte',
+          allowedNodes: ['source_postgres', 'bronze_raw', 'silver_cleansing', 'gold_marts'],
+          lockedNodes: ['source_csv', 'silver_quarantine'],
+        }}
+      />,
+    );
+
+    const banner = screen.getByTestId('zero-trust-simulation-banner');
+    expect(banner).toHaveTextContent('Gerente Regional Norte');
+    expect(banner).toHaveTextContent('Política declarada por el catálogo de identidades');
+    expect(banner).not.toHaveTextContent('Políticas Ranger activas');
   });
 });
