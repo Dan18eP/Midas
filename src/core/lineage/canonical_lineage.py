@@ -168,9 +168,9 @@ def get_table_lineage(table_name: str) -> Dict[str, Any]:
         "stages": stages,
         "transformation": transformation,
         "certification": {
-            "quality_percent": 100,
-            "quality_summary": "100% Contratos de Datos Certificados (OpenMetadata)",
-            "last_sync": now_iso,
+            "quality_percent": None,
+            "quality_summary": "Declared lineage only; data quality has not been verified",
+            "last_sync": None,
             "audit_hash": audit_hash,
         },
     }

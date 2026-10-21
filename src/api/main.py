@@ -6,6 +6,7 @@ distributed request tracing via X-Correlation-ID, and real-time Server-Sent Even
 
 from contextlib import asynccontextmanager
 import logging
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -35,6 +36,8 @@ async def lifespan(app: FastAPI):
     # Initialize global hub singleton
     get_telemetry_hub()
     yield
+    from src.api.routes.agent import reset_agent_graph
+    reset_agent_graph()
     logger.info("Shutting down Midas API Gateway...")
 
 
@@ -65,7 +68,7 @@ app.add_middleware(CorrelationIdMiddleware)
 # 2. CORS Middleware for Frontend & Tools Integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

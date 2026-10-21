@@ -9,6 +9,16 @@
 
 ## 1. Visión del Copiloto Agéntico: Asistente Dialógico Proactivo
 
+### Audit repair execution contract
+
+Normal execution always reads real Trino results. The local result simulator is
+available only when a test explicitly requests it. Every Trino response page,
+including the initial response, must be checked for errors and consumed. One
+timeout covers the complete query; interrupted queries are cancelled rather
+than reported as successful partial results. SQL cost estimates are heuristics,
+not an executed Trino EXPLAIN plan.
+
+
 El Copiloto Agéntico de Midas trasciende el paradigma de "pregunta y respuesta pasiva". Opera como un **Consultor de Datos Autónomo** que:
 1. **Inicia el Diálogo e Introspecciona Fuentes:** Al entrar a la plataforma o ante un saludo, inspecciona el catálogo de **OpenMetadata** y le pregunta proactivamente al usuario qué fuente, base de datos o tabla desea explorar.
 2. **Navegación Guiada de Tablas:** Permite al usuario descubrir qué tablas existen en Silver, cuántos registros tienen, qué columnas son confidenciales y cuál es su estado de calidad.

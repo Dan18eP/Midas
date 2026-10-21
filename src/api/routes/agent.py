@@ -10,6 +10,9 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 import uuid
+import asyncio
+import os
+from contextlib import ExitStack
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -60,6 +63,7 @@ class MaterializeResponse(BaseModel):
 
 # Lazily-compiled LangGraph singleton
 _compiled_graph: Any = None
+_graph_resources = ExitStack()
 
 
 def get_agent_graph() -> Any:
@@ -71,8 +75,13 @@ def get_agent_graph() -> Any:
             from langgraph.checkpoint.memory import InMemorySaver
             from src.agent.graph.builder import build_graph
 
-            checkpointer = InMemorySaver()
-            _compiled_graph = build_graph(checkpointer=checkpointer)
+            from src.agent.graph.builder import postgres_checkpointer
+            from src.agent.services import execute_query, load_sources
+
+            db_url = os.getenv("DATABASE_URL")
+            checkpointer = _graph_resources.enter_context(postgres_checkpointer(db_url)) if db_url else InMemorySaver()
+            _compiled_graph = build_graph(checkpointer=checkpointer, execute_query=execute_query,
+                                          source_provider=load_sources)
             logger.info("LangGraph conversational state machine compiled successfully.")
         except Exception as exc:
             logger.error("Failed to compile LangGraph state machine: %s", exc, exc_info=True)
@@ -85,6 +94,7 @@ def reset_agent_graph() -> None:
     """Reset the compiled graph singleton (useful for test isolation)."""
     global _compiled_graph
     _compiled_graph = None
+    _graph_resources.close()
 
 
 @router.post(
@@ -118,7 +128,7 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
             previous_state = snapshot.values if snapshot else {}
             sql = previous_state.get("sql")
             schemas = previous_state.get("schemas", [])
-            if not sql or not schemas:
+            if not sql or not schemas or previous_state.get("query_error"):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Run a validated report in this chat before confirming Gold materialization.",
@@ -145,6 +155,7 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
                 )
             except Exception as store_err:
                 logger.warning("Could not persist materialization confirmation to session store: %s", store_err)
+                raise HTTPException(status_code=503, detail="The contract was published, but chat history could not be saved") from None
 
             return ChatResponse(
                 thread_id=thread_id,
@@ -152,9 +163,11 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
                 response=confirmation_msg,
             )
 
-        result_state = invoke_turn(graph=graph, thread_id=thread_id, user_message=user_message)
+        result_state = await asyncio.to_thread(invoke_turn, graph=graph, thread_id=thread_id, user_message=user_message)
     except HTTPException:
         raise
+    except (ConnectionError, TimeoutError):
+        raise HTTPException(status_code=503, detail="The live analytical catalog is unavailable") from None
     except Exception as exc:
         logger.error("Error executing agent turn for thread '%s': %s", thread_id, exc, exc_info=True)
         raise HTTPException(
@@ -216,6 +229,7 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
         )
     except Exception as store_err:
         logger.warning("Could not persist chat turn to session store: %s", store_err)
+        raise HTTPException(status_code=503, detail="Chat history could not be saved") from None
 
     return ChatResponse(
         thread_id=thread_id,

@@ -175,7 +175,8 @@ def test_payload_respeta_el_contrato_del_drawer():
     )
 
     assert set(payload) >= {"table", "stages", "transformation", "certification"}
-    assert payload["certification"]["last_sync"] == "2026-10-20T12:00:00+00:00"
+    assert payload["certification"]["last_sync"] is None
+    assert payload["certification"]["quality_percent"] is None
     assert len(payload["certification"]["audit_hash"]) == 64
 
     capas = [stage["layer"] for stage in payload["stages"]]

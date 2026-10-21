@@ -103,8 +103,17 @@ def test_credential_masking_in_logs_and_errors():
 # 3. Tests de Endpoints REST en FastAPI Gateway
 # ==============================================================================
 
-def test_query_execute_endpoint_success():
+def test_query_execute_endpoint_success(monkeypatch):
     """Valida la ejecución exitosa de una consulta analítica a través de /api/v1/query/execute."""
+    import httpx
+    from src.api.routes import query
+
+    engine = TrinoClient()
+    engine._async_client = httpx.AsyncClient(base_url=engine.base_url, transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"id": "fixture-query", "columns": [
+            {"name": "region", "type": "varchar"}, {"name": "total_neto", "type": "decimal"}],
+            "data": [["NORTE", 42.0]]})))
+    monkeypatch.setattr(query, "_trino_client", engine)
     payload = {
         "sql": "SELECT region, total_neto FROM silver.crm_transacciones",
         "catalog": "iceberg",
@@ -150,7 +159,7 @@ def test_query_explain_endpoint():
     assert "LIMIT 1000" in body["transformed_sql"]
     assert body["cost_estimate"]["estimated_rows"] <= 1000
     assert body["cost_estimate"]["cost_level"] in ["LOW", "MEDIUM", "HIGH"]
-    assert "Distributed Execution Plan" in body["cost_estimate"]["plan_summary"]
+    assert "Heuristic SQL Cost Estimate" in body["cost_estimate"]["plan_summary"]
 
 
 def test_query_catalogs_endpoint():

@@ -39,5 +39,5 @@ def test_user_role_propagates_custom_identity():
     """Verify custom X-User-Role identity is propagated in response headers."""
     response = client.get("/health", headers={"X-User-Role": "gerente_norte"})
     assert response.status_code == 200
-    assert response.headers.get("X-User-Role") == "gerente_norte"
+    assert response.headers.get("X-User-Role") == "director_general"
 

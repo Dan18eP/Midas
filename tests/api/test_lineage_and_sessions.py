@@ -16,8 +16,10 @@ from src.core.telemetry.events import NodeStatus, TelemetryEvent
 
 
 @pytest.fixture(autouse=True)
-def clean_environment():
+def clean_environment(monkeypatch):
     """Limpia el almacén de sesiones y el hub de telemetría antes de cada prueba."""
+    from src.agent.graph.nodes.dialogic import DEMO_SOURCES
+    monkeypatch.setattr("src.agent.services.load_sources", lambda: DEMO_SOURCES)
     session_store = get_session_store()
     session_store.clear()
     telemetry_hub = get_telemetry_hub()
@@ -60,8 +62,9 @@ def test_lineage_gold_fact_ventas_payload_contract(client: TestClient):
 
     assert "certification" in data
     cert = data["certification"]
-    assert cert["quality_percent"] == 100.0
-    assert "OpenMetadata" in cert["quality_summary"]
+    assert cert["quality_percent"] is None
+    assert cert["last_sync"] is None
+    assert "not been verified" in cert["quality_summary"]
     assert len(cert["audit_hash"]) == 64
 
 
@@ -102,13 +105,13 @@ def test_telemetry_history_default_window_and_hydration(client: TestClient):
     data = response.json()
 
     assert data["window"] == "24h"
-    assert data["total_events"] > 0
+    assert data["total_events"] == 0
     assert isinstance(data["events"], list)
     assert isinstance(data["nodes_summary"], dict)
     assert "retrieved_at" in data
 
     nodes = data["nodes_summary"]
-    assert "source_postgres" in nodes or "bronze_raw" in nodes
+    assert nodes == {}
 
 
 def test_telemetry_history_filtering_and_alerts(client: TestClient):
@@ -262,14 +265,9 @@ def test_session_intelligent_title_generation(client: TestClient):
 
 
 def test_session_store_postgres_resilience():
-    """Valida que SessionStore degrade a memoria si PostgreSQL no está disponible."""
-    fake_store = SessionStore(db_url="postgresql://usuario:invalido@127.0.0.1:59999/midas_fake")
-    s = fake_store.create_session(title="Sesión Resiliente Test")
-    assert s.session_id.startswith("sess_")
-    fake_store.add_message(s.session_id, sender="user", content="Test message")
-    fake_store.update_topology(s.session_id, {"nodes": [{"id": "n1"}]})
-    assert fake_store.get_session(s.session_id).topology_state == {"nodes": [{"id": "n1"}]}
-    assert fake_store.delete_session(s.session_id) is True
+    """A configured database outage must not silently become volatile storage."""
+    with pytest.raises(RuntimeError, match="database is unavailable"):
+        SessionStore(db_url="postgresql://usuario:invalido@127.0.0.1:59999/midas_fake")
 
 
 def test_sessions_error_handling_not_found(client: TestClient):

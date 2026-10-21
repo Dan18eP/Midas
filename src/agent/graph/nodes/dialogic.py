@@ -26,9 +26,7 @@ def make_introspector(
 ) -> Callable[[AgentState], dict[str, object]]:
     """Crea el paso que consulta las fuentes conectadas."""
     def introspect_schema(state: AgentState) -> dict[str, object]:
-        sources = state.get("sources")
-        if sources is None:
-            sources = source_provider() if source_provider else DEMO_SOURCES
+        sources = source_provider() if source_provider else state.get("sources", DEMO_SOURCES)
         schemas = []
         for source in sources:
             schemas.extend(source.get("schemas", []))

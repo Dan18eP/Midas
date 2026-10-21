@@ -73,7 +73,7 @@ class TrinoClient:
         schema: str = "silver",
         timeout_sec: float = 10.0,
         max_limit: int = 1000,
-        fallback_for_testing: bool = True,
+        fallback_for_testing: bool = False,
     ):
         self.host = host or os.getenv("TRINO_HOST", "localhost")
         self.port = port or int(os.getenv("TRINO_PORT", "8082"))
@@ -156,7 +156,7 @@ class TrinoClient:
                 cost_level = "LOW"
 
             plan = (
-                f"Distributed Execution Plan:\n"
+                f"Heuristic SQL Cost Estimate:\n"
                 f"- Output Stage: Limit {row_limit} rows -> SingleStream\n"
                 f"- Exchange: HashPartitionedOn({', '.join(tables) or 'input'})\n"
                 f"- ScanFilterProject: Tables={tables or ['dual']}, Joins={join_count}, Aggregates={agg_count}\n"
@@ -224,84 +224,53 @@ class TrinoClient:
             headers["X-Trino-Role"] = f"system=ROLE{{{user_role}}}"
 
         client = self._get_async_client()
+        next_uri = None
+        columns, column_types, data_rows = [], [], []
+        query_id = None
         try:
-            resp = await asyncio.wait_for(
-                client.post("/v1/statement", content=safe_sql.encode("utf-8"), headers=headers),
-                timeout=effective_timeout,
-            )
-
-            if resp.status_code == 200:
-                statement_resp = resp.json()
-                query_id = statement_resp.get("id")
-                next_uri = statement_resp.get("nextUri")
-
-                columns = []
-                column_types = []
-                data_rows: List[Dict[str, Any]] = []
-
-                # Polling asíncrono con control de timeout global
-                while next_uri:
-                    elapsed = time.perf_counter() - start_time
-                    remaining = effective_timeout - elapsed
-                    if remaining <= 0:
-                        raise TimeoutError(f"Consulta Trino excedió el timeout de {effective_timeout:.1f} segundos.")
-
-                    poll_resp = await asyncio.wait_for(client.get(next_uri), timeout=remaining)
-                    if poll_resp.status_code != 200:
+            # The deadline covers submission and every response page.
+            async with asyncio.timeout(effective_timeout):
+                response = await client.post("/v1/statement", content=safe_sql.encode("utf-8"), headers=headers)
+                while True:
+                    response.raise_for_status()
+                    page = response.json()
+                    query_id = page.get("id", query_id)
+                    next_uri = page.get("nextUri")
+                    error = page.get("error")
+                    if error or page.get("stats", {}).get("state") == "FAILED":
+                        message = (error or {}).get("message", "Trino query failed")
+                        raise RuntimeError(mask_sensitive_credentials(str(message)))
+                    if "columns" in page:
+                        columns = [column["name"] for column in page["columns"]]
+                        column_types = [column.get("type", "unknown") for column in page["columns"]]
+                    for row in page.get("data", []):
+                        if len(row) != len(columns):
+                            raise RuntimeError("Trino returned a row with no matching column metadata")
+                        data_rows.append(dict(zip(columns, row)))
+                    if not next_uri:
                         break
-
-                    poll_data = poll_resp.json()
-                    next_uri = poll_data.get("nextUri")
-
-                    if "columns" in poll_data and not columns:
-                        columns = [c["name"] for c in poll_data["columns"]]
-                        column_types = [c.get("type", "unknown") for c in poll_data["columns"]]
-
-                    if "data" in poll_data:
-                        for row in poll_data["data"]:
-                            row_dict = {columns[idx]: val for idx, val in enumerate(row)}
-                            data_rows.append(row_dict)
-
-                    # Verificar estado de error reportado por Trino
-                    stats = poll_data.get("stats", {})
-                    state = stats.get("state")
-                    if state == "FAILED":
-                        error_info = poll_data.get("error", {})
-                        error_msg = error_info.get("message", "Error desconocido de Trino")
-                        safe_error = mask_sensitive_credentials(error_msg)
-                        raise RuntimeError(f"Trino Query Error ({query_id}): {safe_error}")
-
-                exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
-                return QueryResult(
-                    columns=columns,
-                    column_types=column_types,
-                    data=data_rows,
-                    row_count=len(data_rows),
-                    execution_time_ms=exec_time_ms,
-                    catalog=target_catalog,
-                    schema_name=target_schema,
-                    truncated=(len(data_rows) >= self.max_limit),
-                    cost_estimate=cost_est,
-                    query_id=query_id,
+                    response = await client.get(next_uri, headers=headers)
+        except (TimeoutError, httpx.TimeoutException, asyncio.CancelledError) as exc:
+            if next_uri:
+                try:
+                    await client.delete(next_uri, headers=headers, timeout=1.0)
+                except httpx.HTTPError:
+                    logger.warning("Could not cancel interrupted Trino query %s", query_id)
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise TimeoutError("Trino query exceeded its deadline") from None
+        except (httpx.ConnectError, httpx.HTTPStatusError) as exc:
+            if self.fallback_for_testing and isinstance(exc, httpx.ConnectError):
+                return self._execute_deterministic_local_engine(
+                    safe_sql, target_catalog, target_schema, start_time, cost_est,
                 )
+            raise ConnectionError("Trino coordinator is unavailable") from None
 
-        except (httpx.ConnectError, httpx.TimeoutException, TimeoutError) as net_err:
-            if isinstance(net_err, (TimeoutError, httpx.TimeoutException)):
-                elapsed = time.perf_counter() - start_time
-                if elapsed >= effective_timeout:
-                    raise TimeoutError(f"Consulta Trino cancelada por exceder el timeout de {effective_timeout:.1f}s.")
-
-            if not self.fallback_for_testing:
-                safe_net_err = mask_sensitive_credentials(str(net_err))
-                raise ConnectionError(f"No fue posible conectar con el coordinador Trino en {self.base_url}: {safe_net_err}")
-
-        # 3. Motor Local Determinístico de Simulación (para Testing e Integración Local)
-        return self._execute_deterministic_local_engine(
-            sql=safe_sql,
-            catalog=target_catalog,
-            schema_name=target_schema,
-            start_time=start_time,
-            cost_est=cost_est,
+        return QueryResult(
+            columns=columns, column_types=column_types, data=data_rows,
+            row_count=len(data_rows), execution_time_ms=round((time.perf_counter() - start_time) * 1000, 2),
+            catalog=target_catalog, schema_name=target_schema,
+            truncated=len(data_rows) >= self.max_limit, cost_estimate=cost_est, query_id=query_id,
         )
 
     def _execute_deterministic_local_engine(

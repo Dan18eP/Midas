@@ -1,6 +1,8 @@
 """ASGI Middleware for traceability (X-Correlation-ID) and Zero-Trust role propagation (X-User-Role)."""
 
 import uuid
+from starlette.responses import JSONResponse
+from src.api.security import identity
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
@@ -34,18 +36,21 @@ class CorrelationIdMiddleware:
         else:
             correlation_id = str(uuid.uuid4())
 
-        # 2. Extract Zero-Trust role or default to director_general
-        user_role_bytes = headers.get(USER_ROLE_BYTES)
-        if user_role_bytes:
-            user_role = user_role_bytes.decode("latin-1")
-        else:
-            user_role = DEFAULT_USER_ROLE
+        path = scope.get("path", "")
+        public_paths = {"/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/roles"}
+        authenticated = identity(headers, path)
+        if path.startswith("/api/v1/") and path not in public_paths and scope.get("method") != "OPTIONS" and not authenticated:
+            await JSONResponse({"detail": "Authentication required"}, status_code=401)(scope, receive, send)
+            return
+        # Role headers never establish an identity.
+        user_id, user_role = authenticated or ("anonymous", "anonymous")
 
         # Store in scope state for downstream handlers
         if "state" not in scope:
             scope["state"] = {}
         scope["state"]["correlation_id"] = correlation_id
         scope["state"]["user_role"] = user_role
+        scope["state"]["user_id"] = user_id
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start":

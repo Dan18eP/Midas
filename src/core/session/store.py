@@ -44,8 +44,7 @@ class SessionStore:
                 self._hydrate_from_postgres()
                 self._postgres_available = True
             except Exception as exc:
-                logger.warning("No se pudo conectar a PostgreSQL (usando modo memoria pura): %s", exc)
-                self._postgres_available = False
+                raise RuntimeError("The session database is unavailable") from None
 
     def create_session(
         self,
@@ -77,7 +76,7 @@ class SessionStore:
             try:
                 self._persist_session_to_postgres(session)
             except Exception as exc:
-                logger.warning("Error persistiendo sesión en PostgreSQL: %s", exc)
+                raise RuntimeError("The session could not be persisted") from None
 
         logger.info("Sesión creada: %s para usuario '%s'", session.session_id, user_id)
         return session
@@ -117,7 +116,7 @@ class SessionStore:
             try:
                 self._persist_session_to_postgres(session)
             except Exception as exc:
-                logger.warning("Error actualizando topología en PostgreSQL: %s", exc)
+                raise RuntimeError("The session could not be persisted") from None
 
         logger.info("Topología actualizada para sesión '%s'", session_id)
         return session
@@ -164,10 +163,10 @@ class SessionStore:
 
         if self.db_url and "postgresql" in self.db_url:
             try:
-                self._persist_message_to_postgres(message)
                 self._persist_session_to_postgres(session)
+                self._persist_message_to_postgres(message)
             except Exception as exc:
-                logger.warning("Error persistiendo mensaje en PostgreSQL: %s", exc)
+                raise RuntimeError("The session could not be persisted") from None
 
         return message
 
@@ -190,7 +189,7 @@ class SessionStore:
             try:
                 self._delete_session_from_postgres(session_id)
             except Exception as exc:
-                logger.warning("Error eliminando sesión en PostgreSQL: %s", exc)
+                raise RuntimeError("The session could not be persisted") from None
 
         if deleted:
             logger.info("Sesión eliminada: %s", session_id)
@@ -213,7 +212,7 @@ class SessionStore:
 
     def _persist_session_to_postgres(self, session: ChatSession) -> None:
         """Escribe o actualiza los metadatos de la sesión en PostgreSQL."""
-        if not self._postgres_available or not self._engine:
+        if not self._engine:
             return
         from sqlalchemy import text
 
@@ -240,12 +239,12 @@ class SessionStore:
                     },
                 )
         except Exception as exc:
-            logger.warning("Error persistiendo sesión en PostgreSQL: %s", exc)
             self._postgres_available = False
+            raise RuntimeError("The session could not be persisted") from None
 
     def _persist_message_to_postgres(self, message: SessionMessage) -> None:
         """Inserta un mensaje en la tabla session_messages."""
-        if not self._postgres_available or not self._engine:
+        if not self._engine:
             return
         from sqlalchemy import text
 
@@ -267,12 +266,12 @@ class SessionStore:
                     },
                 )
         except Exception as exc:
-            logger.warning("Error persistiendo mensaje en PostgreSQL: %s", exc)
             self._postgres_available = False
+            raise RuntimeError("The session could not be persisted") from None
 
     def _delete_session_from_postgres(self, session_id: str) -> None:
         """Elimina la sesión y sus mensajes en cascada en PostgreSQL."""
-        if not self._postgres_available or not self._engine:
+        if not self._engine:
             return
         from sqlalchemy import text
 
@@ -283,8 +282,8 @@ class SessionStore:
                     {"sid": session_id},
                 )
         except Exception as exc:
-            logger.warning("Error eliminando sesión en PostgreSQL: %s", exc)
             self._postgres_available = False
+            raise RuntimeError("The session could not be persisted") from None
 
     def _hydrate_from_postgres(self) -> None:
         """Carga las sesiones y mensajes existentes desde la base de datos."""

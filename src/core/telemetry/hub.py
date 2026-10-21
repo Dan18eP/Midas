@@ -3,6 +3,7 @@
 import asyncio
 from collections import deque
 import logging
+import os
 from typing import AsyncGenerator, Deque, List, Optional, Set
 
 from src.core.telemetry.events import TelemetryEvent
@@ -20,11 +21,12 @@ class TelemetryHub:
     - Automatic heartbeat (ping) comments to maintain connection alive through proxies.
     """
 
-    def __init__(self, max_buffer_size: int = 100):
+    def __init__(self, max_buffer_size: int = 100, store=None):
         self._max_buffer_size = max_buffer_size
         self._buffer: Deque[TelemetryEvent] = deque(maxlen=max_buffer_size)
         self._subscribers: Set[asyncio.Queue] = set()
         self._lock = asyncio.Lock()
+        self._store = store
 
     @property
     def buffer_size(self) -> int:
@@ -38,6 +40,8 @@ class TelemetryHub:
 
     async def publish(self, event: TelemetryEvent) -> None:
         """Publish a telemetry event into the buffer and broadcast to all subscribers."""
+        if self._store:
+            await asyncio.to_thread(self._store.append, event)
         async with self._lock:
             self._buffer.append(event)
             dead_subscribers = []
@@ -64,6 +68,8 @@ class TelemetryHub:
             loop.create_task(self.publish(event))
         except RuntimeError:
             # Fallback if called outside of an active asyncio event loop
+            if self._store:
+                self._store.append(event)
             self._buffer.append(event)
 
     def get_buffered_events(self) -> List[TelemetryEvent]:
@@ -72,6 +78,8 @@ class TelemetryHub:
 
     def get_events_after(self, last_event_id: str) -> List[TelemetryEvent]:
         """Return all buffered events recorded chronologically after the given event_id."""
+        if self._store:
+            return self._store.history(after=last_event_id)
         events = list(self._buffer)
         if not last_event_id:
             return events
@@ -88,6 +96,15 @@ class TelemetryHub:
 
         # If last_event_id was purged or not found, return the full recent buffer
         return events
+
+    def history(self, hours=None, limit=1000, node_id=None):
+        if self._store:
+            return self._store.history(hours=hours, limit=limit, node_id=node_id)
+        from datetime import datetime, timedelta, timezone
+
+        since = datetime.now(timezone.utc) - timedelta(hours=hours) if hours is not None else None
+        return [event for event in self._buffer if (not since or event.timestamp >= since)
+                and (not node_id or event.node_id == node_id)][-limit:]
 
     def clear(self) -> None:
         """Clear the event buffer and discard active references."""
@@ -147,7 +164,13 @@ def get_telemetry_hub() -> TelemetryHub:
     """Return the global TelemetryHub singleton."""
     global _hub_instance
     if _hub_instance is None:
-        _hub_instance = TelemetryHub(max_buffer_size=100)
+        db_url = os.getenv("DATABASE_URL")
+        store = None
+        if db_url:
+            from src.core.telemetry.store import TelemetryEventStore
+
+            store = TelemetryEventStore(db_url)
+        _hub_instance = TelemetryHub(max_buffer_size=100, store=store)
     return _hub_instance
 
 

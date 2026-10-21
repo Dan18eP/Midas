@@ -8,6 +8,7 @@ Soporta registro declarativo JSON y carga multipart/form-data de binarios Excel 
 import csv
 import io
 import logging
+from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -85,20 +86,25 @@ async def upload_source_file(
     file: UploadFile = File(..., description="Archivo de datos binario (.xlsx, .xls o .csv)"),
     name: Optional[str] = Form(None, description="Nombre descriptivo opcional para la conexión"),
     source_type: Optional[SourceType] = Form(None, description="Tipo de fuente forzado (opcional)"),
+    primary_key_fields: str = Form(""),
+    amount_fields: str = Form(""),
+    date_fields: str = Form(""),
     registry: SourceConnectionRegistry = Depends(get_connection_registry),
 ) -> FileUploadResponse:
     """Inspecciona el esquema del archivo, lo persiste en Bronze S3 y registra la conexión."""
     filename = file.filename or "uploaded_data.csv"
-    clean_filename = filename.strip()
+    clean_filename = PurePosixPath(filename.replace("\\", "/")).name.strip()
     ext = clean_filename.lower().split(".")[-1] if "." in clean_filename else ""
 
-    if ext not in ("xlsx", "xls", "csv"):
+    if ext not in ("xlsx", "csv"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Formato '.{ext}' no soportado. Únicamente se admiten archivos .xlsx, .xls o .csv.",
         )
 
     effective_source_type = source_type or (SourceType.EXCEL if ext in ("xlsx", "xls") else SourceType.CSV)
+    if effective_source_type != (SourceType.EXCEL if ext == "xlsx" else SourceType.CSV):
+        raise HTTPException(status_code=400, detail="File type does not match its extension")
     conn_name = name.strip() if name and name.strip() else clean_filename
 
     try:
@@ -190,38 +196,35 @@ async def upload_source_file(
             "detected_columns": detected_columns,
             "delimiter": detected_delimiter,
             "file_size_bytes": len(raw_bytes),
+            "silver": {"primary_key_fields": [field.strip() for field in primary_key_fields.split(",") if field.strip()] or ["_raw_payload_hash"],
+                       "amount_fields": [field.strip() for field in amount_fields.split(",") if field.strip()],
+                       "date_fields": [field.strip() for field in date_fields.split(",") if field.strip()]},
         },
     )
 
-    try:
-        registered = registry.register_connection(create_dto)
-    except ValueError as val_err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(val_err),
-        )
-
-    cid = registered.connection_id
+    cid = registry._generate_connection_id(effective_source_type, conn_name)
     storage_path = f"s3://midas-bronze/sources/{cid}/raw/{clean_filename}"
 
     # Persistir archivo crudo en MinIO S3 si está disponible
     try:
         from src.lakehouse.storage.minio_client import MidasMinioClient
         minio_client = MidasMinioClient()
-        if minio_client.check_health():
-            minio_client.client.put_object(
-                bucket_name="midas-bronze",
-                object_name=f"sources/{cid}/raw/{clean_filename}",
-                data=io.BytesIO(raw_bytes),
-                length=len(raw_bytes),
-                content_type="application/octet-stream",
-            )
-            logger.info("Archivo binario guardado en MinIO S3: %s", storage_path)
+        minio_client.put_object("midas-bronze", f"sources/{cid}/raw/{clean_filename}", raw_bytes)
     except Exception as minio_err:
-        logger.debug("MinIO S3 no disponible para almacenamiento directo del binario: %s", minio_err)
+        logger.warning("File storage failed: %s", type(minio_err).__name__)
+        raise HTTPException(status_code=503, detail="The file could not be stored") from None
+
+    # Register only after the shared file is actually available.
+    create_dto.config_payload["storage_uri"] = storage_path
+    try:
+        registered = registry.register_connection(create_dto, connection_id=cid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(status_code=503, detail="The source could not be activated") from None
 
     return FileUploadResponse(
-        connection_id=cid,
+        connection_id=registered.connection_id,
         name=registered.name,
         source_type=registered.source_type,
         filename=clean_filename,

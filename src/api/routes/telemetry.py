@@ -131,12 +131,13 @@ async def get_telemetry_history(
 ) -> TelemetryHistoryResponse:
     """Query telemetry history for Time-Travel slider."""
     from datetime import datetime, timezone
-    from src.core.telemetry.scenarios import get_scenario_events
-
     hub = get_telemetry_hub()
-    buffered = hub.get_buffered_events()
-    if not buffered:
-        buffered = get_scenario_events("T0")
+    windows = {"1h": 1, "6h": 6, "12h": 12, "24h": 24, "all": None}
+    if window not in windows:
+        raise HTTPException(status_code=422, detail="Unsupported history window")
+    import asyncio
+
+    buffered = await asyncio.to_thread(hub.history, windows[window], limit, node_id)
 
     events = [e.to_dict() for e in buffered]
     if node_id:

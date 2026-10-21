@@ -1,10 +1,31 @@
 """Zero-Trust Lens identities and roles per documentation/canonical/05_...md Section 3.2."""
 
 from typing import Dict, List, Optional
-from fastapi import APIRouter
+import os
+from fastapi import APIRouter, HTTPException, Response
+from src.api.security import operator_token_valid
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Zero-Trust Lens & Governance"])
+
+
+class LoginRequest(BaseModel):
+    token: str
+
+
+@router.post("/login")
+async def login(payload: LoginRequest, response: Response):
+    if not operator_token_valid(payload.token):
+        raise HTTPException(status_code=401, detail="Invalid operator token")
+    # Browser requests and EventSource share this HttpOnly cookie.
+    response.set_cookie("midas_session", payload.token, httponly=True, samesite="strict",
+                        secure=os.getenv("ENVIRONMENT") == "production", max_age=3600)
+    return {"user_id": "user_director", "role": "director_general"}
+
+
+@router.get("/me")
+async def current_identity():
+    return {"user_id": "user_director", "role": "director_general"}
 
 
 class ZeroTrustRole(BaseModel):

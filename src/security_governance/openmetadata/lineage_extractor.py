@@ -364,13 +364,13 @@ def build_lineage_payload(
         "stages": stages,
         "transformation": transformation,
         "certification": {
-            "quality_percent": 100.0,
+            "quality_percent": None,
             "quality_summary": (
                 "Linaje verificado en caliente contra el catálogo OpenMetadata"
                 if catalog_verified
                 else "Linaje derivado de la topología declarada (catálogo no verificado)"
             ),
-            "last_sync": timestamp,
+            "last_sync": None,
             "audit_hash": compute_audit_hash(table, stages, formula_key),
         },
     }

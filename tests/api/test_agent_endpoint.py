@@ -10,9 +10,11 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def reset_graph():
+def reset_graph(monkeypatch):
     """Reset agent graph before each test."""
     reset_agent_graph()
+    from src.agent.graph.nodes.dialogic import DEMO_SOURCES
+    monkeypatch.setattr("src.agent.services.load_sources", lambda: DEMO_SOURCES)
     yield
     reset_agent_graph()
 
@@ -51,3 +53,13 @@ def test_agent_empty_message_validation():
     """Verify empty message returns 422 Unprocessable Entity."""
     response = client.post("/api/v1/agent/chat", json={"message": "   "})
     assert response.status_code == 422
+
+
+def test_chat_does_not_claim_success_when_history_cannot_be_saved(monkeypatch):
+    def unavailable():
+        raise RuntimeError("Database unavailable")
+
+    monkeypatch.setattr("src.core.session.store.get_session_store", unavailable)
+    response = client.post("/api/v1/agent/chat", json={"message": "Hola Midas"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Chat history could not be saved"
