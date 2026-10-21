@@ -13,6 +13,8 @@ from src.agent.graph.nodes.dialogic import make_introspector, proactive_suggest
 from src.agent.graph.nodes.pipeline import QueryExecutor, SqlGenerator, make_analytic_nodes
 from src.agent.graph.nodes.router import route_intent
 from src.agent.state import AgentState
+from src.agent.tools.text_to_sql import TextToSqlGenerator
+from src.agent.models.model_router import ModelRouter
 
 
 @contextmanager
@@ -31,6 +33,8 @@ def build_graph(
     source_provider=None,
 ):
     """Compila el diálogo y guarda cada turno bajo su thread_id."""
+    if generate_sql is None:
+        generate_sql = TextToSqlGenerator(ModelRouter())
     generate, validate, execute, synthesize = make_analytic_nodes(generate_sql, execute_query)
     graph = StateGraph(AgentState)
     graph.add_node("route_intent", route_intent)

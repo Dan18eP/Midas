@@ -40,7 +40,7 @@ def validate_query(
         if not isinstance(table_name, str) or not isinstance(columns, (list, tuple, set)):
             continue
         normalized = _normalize_name(table_name)
-        if normalized and columns:
+        if normalized and normalized.split(".", 1)[0] in {"silver", "gold"} and columns:
             tables[normalized] = {str(column).casefold() for column in columns}
     if not tables:
         raise QueryValidationError("El catálogo no contiene tablas con columnas.")
