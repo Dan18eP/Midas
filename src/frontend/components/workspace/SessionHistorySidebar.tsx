@@ -119,20 +119,43 @@ export function SessionHistorySidebar({
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(null);
+
+  // Cierre accesible del modal de confirmación con Escape
+  React.useEffect(() => {
+    if (!sessionToDelete) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !deletingId) {
+        setSessionToDelete(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sessionToDelete, deletingId]);
 
   const isCollapsed = externalCollapsed !== undefined ? externalCollapsed : internalCollapsed;
   const toggleCollapse =
     externalToggle !== undefined ? externalToggle : () => setInternalCollapsed((prev) => !prev);
 
-  const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
+  const handleOpenDeleteModal = (e: React.MouseEvent, session: ChatSessionSummary) => {
     e.stopPropagation();
-    if (confirm('¿Deseas eliminar esta sesión y todo su historial?')) {
-      setDeletingId(sessionId);
-      try {
-        await deleteSession(sessionId);
-      } finally {
-        setDeletingId(null);
-      }
+    setSessionToDelete({
+      id: session.session_id,
+      title: session.title || 'Sesión sin título',
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToDelete) return;
+    const sessionId = sessionToDelete.id;
+    setDeletingId(sessionId);
+    try {
+      await deleteSession(sessionId);
+      setSessionToDelete(null);
+    } catch (err) {
+      console.error('Error al eliminar sesión:', err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -282,7 +305,7 @@ export function SessionHistorySidebar({
 
                           <button
                             type="button"
-                            onClick={(e) => handleDelete(e, session.session_id)}
+                            onClick={(e) => handleOpenDeleteModal(e, session)}
                             disabled={deletingId === session.session_id}
                             aria-label={`Eliminar sesión ${session.title}`}
                             className="opacity-0 group-hover:opacity-100 p-1 text-[#787164] hover:text-red-600 transition-opacity rounded"
@@ -327,6 +350,66 @@ export function SessionHistorySidebar({
           ADR-010
         </span>
       </div>
+
+      {/* Modal de Confirmación para Eliminar Sesión */}
+      {sessionToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-session-modal-title"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => !deletingId && setSessionToDelete(null)}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-2xl border border-[#E8E4DC] bg-[#FFFFFF] p-5 shadow-[0_8px_32px_rgba(40,30,10,0.12)] text-[#1C1E21]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 border border-red-200">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div className="flex-1 space-y-1">
+                <h3 id="delete-session-modal-title" className="text-sm font-semibold text-[#1C1E21]">
+                  ¿Eliminar sesión?
+                </h3>
+                <p className="text-xs text-[#787164] leading-relaxed">
+                  Esta acción no se puede deshacer. Se eliminarán permanentemente los mensajes y la topología de:
+                </p>
+                <p className="rounded-md bg-[#F7F7F5] border border-[#E8E4DC] px-2.5 py-1 text-xs font-medium text-[#1C1E21] truncate font-mono">
+                  {sessionToDelete.title}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSessionToDelete(null)}
+                disabled={Boolean(deletingId)}
+                className="rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3.5 py-1.5 text-xs font-medium text-[#4B4639] hover:bg-[#F7F7F5] transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={Boolean(deletingId)}
+                aria-label="Confirmar eliminación de sesión"
+                className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-red-700 active:scale-95 transition-all shadow-xs disabled:opacity-50"
+              >
+                {deletingId ? (
+                  <span>Eliminando...</span>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Eliminar</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

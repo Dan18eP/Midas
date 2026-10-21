@@ -312,5 +312,50 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
 
       expect(screen.getByRole('complementary', { name: /Barra de Sesiones Colapsada/i })).toBeInTheDocument();
     });
+
+    it('abre el modal de confirmación al presionar eliminar sesión y se cancela correctamente', async () => {
+      render(
+        <SessionProvider>
+          <SessionHistorySidebar />
+        </SessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Análisis de cumplimiento presupuestal 2026')).toBeInTheDocument();
+      });
+
+      const deleteBtn = screen.getByLabelText(/Eliminar sesión Análisis de cumplimiento presupuestal 2026/i);
+      fireEvent.click(deleteBtn);
+
+      expect(screen.getByRole('dialog', { name: /¿Eliminar sesión\?/i })).toBeInTheDocument();
+      expect(screen.getByText(/Esta acción no se puede deshacer/i)).toBeInTheDocument();
+
+      const cancelBtn = screen.getByRole('button', { name: /Cancelar/i });
+      fireEvent.click(cancelBtn);
+
+      expect(screen.queryByRole('dialog', { name: /¿Eliminar sesión\?/i })).not.toBeInTheDocument();
+    });
+
+    it('elimina la sesión cuando se confirma desde el modal de eliminación', async () => {
+      render(
+        <SessionProvider>
+          <SessionHistorySidebar />
+        </SessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Análisis de cumplimiento presupuestal 2026')).toBeInTheDocument();
+      });
+
+      const deleteBtn = screen.getByLabelText(/Eliminar sesión Análisis de cumplimiento presupuestal 2026/i);
+      fireEvent.click(deleteBtn);
+
+      const confirmBtn = screen.getByRole('button', { name: /Confirmar eliminación de sesión/i });
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /¿Eliminar sesión\?/i })).not.toBeInTheDocument();
+      });
+    });
   });
 });

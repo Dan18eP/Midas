@@ -119,6 +119,8 @@ function MidasConsoleWorkspace() {
     copilotChat.openDrawer();
   };
 
+  const isNewChatView = workspaceMode === 'welcome' && !activeSessionId;
+
   return (
     <div className="flex h-screen w-screen flex-col bg-[#FFFFFF] text-[#1C1E21] antialiased overflow-hidden">
       {/* 1. Header Ejecutivo Corporativo — Geometría Clásica & Precisión Técnica */}
@@ -188,7 +190,7 @@ function MidasConsoleWorkspace() {
       </div>
 
       {/* Frontera HU-FRONT-04: Widget flotante + Drawer expandible del Copiloto */}
-      <CopilotChatWidget />
+      {!isNewChatView && <CopilotChatWidget />}
       <CopilotChatDrawer />
 
       {/* Frontera HU-FRONT-06: Drawer de linaje "Explícame esta cifra" */}
