@@ -6,11 +6,15 @@ Satisface el contrato de consulta para ExplainNumberDrawer y la arquitectura
 de certificación en OpenMetadata/Atlas.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from src.core.lineage.canonical_lineage import get_table_lineage
+from src.security_governance.openmetadata.lineage_extractor import resolve_lineage_payload
+
+logger = logging.getLogger("midas.api.lineage")
 
 router = APIRouter(prefix="/api/v1/lineage", tags=["Data Lineage & Certification Gateway"])
 
@@ -65,7 +69,20 @@ async def get_table_lineage_endpoint(
         )
 
     try:
-        payload = get_table_lineage(clean_table)
+        # HU-GOV-01: el catálogo OpenMetadata resuelve el linaje en caliente.
+        # Si no responde o la tabla no está catalogada, se degrada al linaje
+        # canónico sin alterar el contrato que consume el drawer del frontend.
+        payload = None
+        try:
+            payload = resolve_lineage_payload(clean_table)
+        except Exception as governance_exc:  # noqa: BLE001 - la gobernanza nunca tumba el gateway
+            logger.warning(
+                "Catálogo OpenMetadata no utilizable para '%s': %s", clean_table, governance_exc
+            )
+
+        if payload is None:
+            payload = get_table_lineage(clean_table)
+
         return LineagePayloadResponse(**payload)
     except Exception as exc:
         raise HTTPException(

@@ -15,6 +15,8 @@ volumes:
     name: midas_postgres_data
   minio_data:
     name: midas_minio_data
+  opensearch_data:
+    name: midas_opensearch_data
 
 services:
   # ----------------------------------------------------------------------------
@@ -207,6 +209,105 @@ services:
       - midas-network
 
   # ----------------------------------------------------------------------------
+  # 3.1. Gobernanza: Catálogo Central y Linaje (Squad 4 - Sebastian Castiblanco)
+  # HU-GOV-01: OpenMetadata + OpenSearch como índice de búsqueda y linaje
+  # ----------------------------------------------------------------------------
+  midas-opensearch:
+    image: opensearchproject/opensearch:2.11.1
+    container_name: midas-opensearch
+    restart: unless-stopped
+    profiles: ["governance", "full"]
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - plugins.security.disabled=true
+      - OPENSEARCH_JAVA_OPTS=-Xms${OPENSEARCH_HEAP:-512m} -Xmx${OPENSEARCH_HEAP:-512m}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${OPENSEARCH_PORT:-9200}:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - midas-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # Ejecuta las migraciones del esquema de OpenMetadata sobre openmetadata_db
+  # antes de que arranque el servidor. Termina y no se reinicia.
+  midas-openmetadata-migrate:
+    image: docker.getcollate.io/openmetadata/server:1.5.11
+    container_name: midas-openmetadata-migrate
+    restart: "no"
+    profiles: ["governance", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+      midas-opensearch:
+        condition: service_healthy
+    # La imagen declara ENTRYPOINT ["/bin/bash"], asi que el command solo
+    # aporta los argumentos del shell.
+    command: ["-c", "./bootstrap/openmetadata-ops.sh migrate"]
+    environment: &openmetadata-environment
+      # Metastore relacional (base openmetadata_db creada por init-multi-db.sh)
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      DB_USE_SSL: "false"
+      DB_HOST: midas-postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-midas_admin}
+      DB_USER_PASSWORD: ${POSTGRES_PASSWORD:-midas_secret_password_2026}
+      OM_DATABASE: openmetadata_db
+      # Indice de busqueda y linaje
+      SEARCH_TYPE: opensearch
+      ELASTICSEARCH_HOST: midas-opensearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_SCHEME: http
+      ELASTICSEARCH_CLUSTER_ALIAS: midas
+      # Autenticacion basica local (sin proveedor externo en el MVP)
+      AUTHORIZER_CLASS_NAME: org.openmetadata.service.security.DefaultAuthorizer
+      AUTHORIZER_REQUEST_FILTER: org.openmetadata.service.security.JwtFilter
+      AUTHORIZER_ADMIN_PRINCIPALS: "[${OPENMETADATA_ADMIN_PRINCIPAL:-admin}]"
+      AUTHORIZER_PRINCIPAL_DOMAIN: ${OPENMETADATA_PRINCIPAL_DOMAIN:-midas.local}
+      AUTHENTICATION_PROVIDER: basic
+      ENABLE_SECURE_SOCKET: "false"
+      SERVER_PORT: "8585"
+      SERVER_ADMIN_PORT: "8586"
+    networks:
+      - midas-network
+
+  midas-openmetadata:
+    image: docker.getcollate.io/openmetadata/server:1.5.11
+    container_name: midas-openmetadata
+    restart: unless-stopped
+    profiles: ["governance", "full"]
+    depends_on:
+      midas-openmetadata-migrate:
+        condition: service_completed_successfully
+    environment: *openmetadata-environment
+    ports:
+      - "${OPENMETADATA_PORT:-8585}:8585"
+      - "${OPENMETADATA_ADMIN_PORT:-8586}:8586"
+    networks:
+      - midas-network
+    healthcheck:
+      # La imagen no incluye curl; busybox wget cumple la misma funcion.
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8586/healthcheck > /dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+
+  # ----------------------------------------------------------------------------
   # 4. Core Backend FastAPI & Hub Telemetría SSE (Squad 1 - Daniel Echeverría)
   # ----------------------------------------------------------------------------
   midas-api:
@@ -227,6 +328,13 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-midas_minio_admin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      # HU-GOV-01: gateway de linaje contra el catalogo central. Sin token el
+      # cliente degrada al linaje canonico sin romper el drawer del frontend.
+      OPENMETADATA_URL: ${OPENMETADATA_URL:-http://midas-openmetadata:8585}
+      OPENMETADATA_JWT_TOKEN: ${OPENMETADATA_JWT_TOKEN:-}
+      OPENMETADATA_TIMEOUT_SECONDS: ${OPENMETADATA_TIMEOUT_SECONDS:-3.0}
+      OPENMETADATA_SERVICE_ICEBERG: ${OPENMETADATA_SERVICE_ICEBERG:-midas_lakehouse_iceberg}
+      OPENMETADATA_SERVICE_POSTGRES: ${OPENMETADATA_SERVICE_POSTGRES:-midas_operational_postgres}
     ports:
       - "${API_PORT:-8000}:8000"
     networks:
