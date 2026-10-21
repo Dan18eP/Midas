@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Midas - Script de Verificación de Salud de la Infraestructura Monodocker
-Historia de Usuario: HU-INFRA-01
-Autor: Daniel Echeverría (Backend Lead)
+Historias de Usuario: HU-INFRA-01, HU-INFRA-02
+Autor: Daniel Echeverría (Backend Lead & Infra)
 """
 
 import os
@@ -67,7 +67,12 @@ def validate_docker_compose_syntax() -> bool:
     # Intentar validación básica de YAML si PyYAML está instalado, o verificar encabezados
     try:
         content = compose_file.read_text(encoding="utf-8")
-        if "name: midas" in content and "midas-postgres:" in content:
+        if (
+            "name: midas" in content
+            and "midas-postgres:" in content
+            and "midas-spark-master:" in content
+            and "midas-spark-worker:" in content
+        ):
             print(f"  [{GREEN}OK{RESET}] Estructura de servicios de docker-compose.yml verificada.")
             return True
         else:
@@ -108,6 +113,8 @@ def main():
     all_passed &= check_file_exists(".env.example", "Plantilla de Variables de Entorno")
     all_passed &= check_file_exists("docker/postgres/init-multi-db.sh", "Script Multi-DB PostgreSQL")
     all_passed &= check_file_exists("docker/postgres/01-init-operational-seed.sql", "Semilla Operacional SQL")
+    all_passed &= check_file_exists("docker/spark/conf/spark-defaults.conf", "Configuración Spark Defaults")
+    all_passed &= check_file_exists("docker/airflow/Dockerfile", "Dockerfile Airflow con OpenJDK")
 
     print(f"\n{BOLD}3. Validación Estructural de docker-compose.yml:{RESET}")
     all_passed &= validate_docker_compose_syntax()
@@ -122,11 +129,14 @@ def main():
     check_port_availability(8000, "FastAPI Gateway")
     check_port_availability(3000, "Frontend Web")
     check_port_availability(8082, "Trino")
+    check_port_availability(7077, "Spark Master RPC")
+    check_port_availability(8086, "Spark Master Web UI")
+    check_port_availability(8081, "Spark Worker Web UI")
 
     print(f"\n{BOLD}-------------------------------------------------------------------{RESET}")
     if all_passed:
         print(f"{BOLD}{GREEN}[EXITO] Infraestructura Monodocker Base Verificada Correctamente.{RESET}")
-        print(f"  Para iniciar los servicios: {BOLD}docker compose up -d midas-postgres midas-minio{RESET}")
+        print(f"  Para iniciar los servicios: {BOLD}docker compose --profile full up -d{RESET}")
         print(f"{BOLD}{BLUE}==================================================================={RESET}\n")
         return 0
     else:

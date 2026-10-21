@@ -12,3 +12,12 @@ if ! airflow users list --output json | python -c "import json,sys; users=json.l
     --role Admin \
     --email "${AIRFLOW_ADMIN_EMAIL}"
 fi
+
+# Registrar conexión spark_default hacia midas-spark-master si no existe
+if ! airflow connections get spark_default > /dev/null 2>&1; then
+  airflow connections add spark_default \
+    --conn-type spark \
+    --conn-host spark://midas-spark-master \
+    --conn-port 7077 \
+    --conn-extra '{"queue": "root.default"}' || true
+fi

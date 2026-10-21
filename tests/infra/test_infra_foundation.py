@@ -52,7 +52,8 @@ def test_env_example_contains_required_keys():
         "MINIO_PORT",
         "TRINO_PORT",
         "API_PORT",
-        "FRONTEND_PORT"
+        "FRONTEND_PORT",
+        "SPARK_MASTER_PORT"
     ]
     for var in expected_vars:
         assert var in content, f"La variable {var} debe figurar en .env.example"
