@@ -1,107 +1,100 @@
-# Audit repairs: real service boundaries and honest runtime state
+# Reparaciones de auditoría: integraciones reales y estado verificable
 
-The repair branch fixes confirmed integration defects and removes simulated
-success from normal API/UI execution. It is **not yet an end-to-end release**.
-The complete Spark pipeline and the required governance controls remain release gates.
+Esta rama corrige defectos confirmados de integración y elimina los éxitos simulados
+del flujo normal de la API y la interfaz. **Aún no es una entrega validada de extremo
+a extremo.** La ejecución completa del pipeline Spark y los controles de gobernanza
+siguen siendo requisitos pendientes.
 
-## Delivery context
+## Contexto de entrega
 
-| Item | Value |
+| Elemento | Valor |
 |---|---|
-| Date | 2026-10-21 |
-| Base | `origin/develop`, `c6edcc4`, including PR #56 session/uploads and PR #57 frontend history/lineage |
-| Branch | `feature/orchestration-airflow-dag-factory-audit-repairs` |
-| Backlog | HU-ORCH-01 (#42), integration follow-ups to HU-LAKE-02/03/04/05, HU-BACK-01/02/03, HU-AI-01/04, HU-FRONT-01/02/03 |
-| Responsible | aZian10; review pending from the module owners and Daniel Echeverría |
-| References | Canonical documents 02–06 and ADR-009/010 |
-| Delivery | One combined PR; the user explicitly approved the size exception |
+| Fecha | 21-10-2026 |
+| Base | `origin/develop`, `c6edcc4`, incluye las sesiones/cargas del PR #56 y el historial/linaje frontend del PR #57 |
+| Rama | `feature/orchestration-airflow-dag-factory-audit-repairs` |
+| Backlog | HU-ORCH-01 (#42), reparaciones de integración de HU-LAKE-02/03/04/05, HU-BACK-01/02/03, HU-AI-01/04, HU-FRONT-01/02/03 |
+| Responsable | aZian10; revisión pendiente de los responsables de módulo y Daniel Echeverría |
+| Referencias | Documentos canónicos 02–06 y ADR-009/010 |
+| Entrega | Un PR combinado; el usuario aprobó expresamente la excepción de tamaño |
 
-## Review order and repair status
+## Orden de revisión y estado de las reparaciones
 
-| Review unit | Changes | Verification boundary |
+| Unidad | Cambios | Límite de verificación |
 |---|---|---|
-| Docker and orchestration | Project-scoped resources, localhost ports, correct Trino DNS, Spark connection JSON/config, runtime packages, session/event initialization | Compose parsing and real Airflow DAG construction; full image build/start still unverified |
-| Source to Silver/Gold | Registration publishes source contracts; failed uploads return errors; stable committed Bronze batches; chained Silver runs; deterministic business-key deduplication; namespace locations and Iceberg v2; isolated managed outputs | Unit/contract checks; distributed execution still required |
-| Query/API/agent | Real Trino response pagination/errors/timeouts, no implicit fabricated results; live catalog/execution injected into agent; PostgreSQL checkpointer/session failures surfaced | HTTP protocol tests and real PostgreSQL persistence, no live Trino query |
-| Authentication | Separate operator/publisher tokens; role headers cannot grant access; HttpOnly login cookie | Backend auth tests; local director account only |
-| Observability/UI | Persisted event history and retry deduplication; real SSE/history; empty canvas before data; unknown lineage quality/freshness stay unknown; demo SSE requires explicit opt-in | Python/frontend tests and production build; live browser pipeline not exercised |
+| Docker y orquestación | Recursos aislados por proyecto, puertos locales, DNS interno de Trino, conexión/configuración de Spark, paquetes de ejecución e inicialización de sesiones/eventos | Configuración de Compose y construcción real de DAGs Airflow verificadas; la compilación/inicialización de todas las imágenes sigue sin verificarse |
+| Fuentes a Silver/Gold | Publicación de contratos de fuentes; los errores de carga se informan; lotes Bronze confirmados con ruta estable; activación de Silver; deduplicación por clave de negocio; ubicaciones de namespaces e Iceberg v2; destinos administrados aislados | Pruebas unitarias/de contratos; aún se requiere ejecución distribuida |
+| Consultas/API/agente | Paginación, errores y tiempos límite reales de Trino; sin resultados fabricados implícitos; catálogo y ejecución reales en el agente; errores del checkpointer/sesión PostgreSQL visibles | Pruebas del protocolo HTTP y persistencia PostgreSQL real; no se ejecutó una consulta real en Trino |
+| Autenticación | Tokens distintos para operador y publicador; un encabezado de rol no concede identidad; cookie HttpOnly de sesión | Pruebas de autenticación backend; solo existe la cuenta local de dirección |
+| Observabilidad/interfaz | Historial de eventos persistente y deduplicación de reintentos; historial/SSE reales; Canvas vacío hasta recibir datos; calidad/frescura de linaje desconocidas si no hay evidencia; SSE de demostración solo con activación explícita | Pruebas Python/frontend y compilación de producción; no se probó el pipeline en un navegador real |
 
-## Executed checks
+## Verificaciones ejecutadas
 
 - Python 3.11: `python -B -m pytest -p no:cacheprovider -q tests --maxfail=3`:
-  **238 passed**, two FastAPI deprecation warnings.
-- `npm ci --ignore-scripts --no-audit --no-fund`: succeeded.
-- After integrating PR #57, `npm test -- --reporter=json --outputFile=.venv/frontend-tests.json`:
-  **110 passed**, zero failures. Demo topology is passed explicitly in fixture tests.
-- `npm run build`: **passed on the final merged tree**, including TypeScript
-  validation and static page generation.
-- `docker compose --profile full config --quiet`: **passed**.
-- Real Airflow in a disposable, network-disabled container using the cached local
-  runtime image: built and serialized all three DAGs, verified the Bronze-to-Silver
-  task dependency and resolved `spark_default` as `spark://midas-spark-master:7077`.
-  This cached image check is not proof that the declared Dockerfile rebuilt successfully.
-- Isolated project `midas-audit-20261021`, PostgreSQL 16, fresh project-specific
-  volume and localhost port 15432: initialization completed and database became healthy.
-  `python -B -m scripts.verify_audit_database` checks real session/message/topology
-  persistence after store reload, event durability/retry deduplication/history,
-  and source registration/reload. Contract publication is explicitly mocked here.
-- The full isolated image build was stopped during dependency downloads because
-  the host was short of memory with existing team/unrelated stacks running.
-  Those existing containers and volumes were preserved.
+  **238 aprobadas**, dos avisos de obsolescencia de FastAPI.
+- `npm ci --ignore-scripts --no-audit --no-fund`: terminó correctamente.
+- Después de integrar el PR #57, `npm test -- --reporter=json --outputFile=.venv/frontend-tests.json`:
+  **110 aprobadas**, cero fallos. Las pruebas pasan explícitamente la topología de demostración como fixture.
+- `npm run build`: **aprobado en el árbol final integrado**, con validación de tipos TypeScript y generación de páginas estáticas.
+- `docker compose --profile full config --quiet`: **aprobado**.
+- Airflow real en un contenedor desechable sin red, usando la imagen local almacenada en caché: se construyeron y serializaron tres DAGs, se verificó la dependencia Bronze→Silver y se resolvió `spark_default` como `spark://midas-spark-master:7077`. Esta prueba con una imagen en caché no demuestra que la imagen declarada en el Dockerfile se pueda reconstruir correctamente.
+- Proyecto aislado `midas-audit-20261021`, PostgreSQL 16, volumen nuevo propio del proyecto y puerto local 15432: inicialización terminada y base de datos saludable. `python -B -m scripts.verify_audit_database` verifica persistencia y recarga de sesión/mensajes/topología, durabilidad de eventos/deduplicación de reintentos/historial y registro/recarga de fuentes. La publicación del contrato de almacenamiento se reemplazó explícitamente por un mock.
+- La compilación completa de imágenes aisladas se detuvo durante la descarga de dependencias porque la memoria disponible del host no alcanzaba mientras seguían activos otros servicios del equipo. Se conservaron esos contenedores y volúmenes.
 
-The temporary database contains synthetic audit records only and was stopped after verification. Its volume is retained;
-no volumes were deleted and no production systems were contacted.
+La base temporal solo contiene registros sintéticos de auditoría y se detuvo tras
+las pruebas. Se conserva su volumen; no se borraron volúmenes ni se contactaron
+sistemas de producción.
 
-## Remaining requirements and next steps
+## Revisión de la auditoría anterior
 
-### Reassessment of the previous audit
+La evaluación de `documentation/reviews/auditoria_integral_arquitectura_y_mvp_dorado.md`
+es evidencia histórica, no una especificación actual ni un reporte de ejecución vigente.
 
-The assessment in `documentation/reviews/auditoria_integral_arquitectura_y_mvp_dorado.md`
-is historical evidence, not a current specification or a verified runtime report.
-
-| Previous claim | Current assessment |
+| Afirmación anterior | Estado actual |
 |---|---|
-| Spark services and Java absent | Resolved upstream before these repairs; declared services and Java are present. Runtime interoperability remains unverified. |
-| Missing `airflow connections add` proves no connection | Unsupported: Airflow accepts environment connections. These repairs correct the actual JSON connection parsing issue, verified with the real hook. |
-| Factory only generates Gold DAGs | Resolved in upstream code; these repairs connect source publication, Bronze completion, Silver triggers and dataset scheduling. Live execution remains unverified. |
-| No source registry / isolation | Partially resolved: registry existed; activation/publication and managed paths are repaired here. Distributed consistency and CDC remain incomplete. |
-| No lineage/history endpoints | Resolved upstream. These repairs persist history and preserve unknown quality; automated lineage coverage remains partial. |
-| Fake operational canvas / replay | Partially resolved by PR #57 and this branch: no default demo topology, real history/authentication, explicit demo fixtures. Live browser pipeline still unverified. |
-| Previous versions, line numbers and test counts | Superseded by inspected files and the commands recorded above; suggested package versions were not copied blindly. |
+| Faltaban servicios Spark y Java | Resuelta en cambios anteriores: los servicios declarados y Java ya existen. La interoperabilidad en ejecución sigue sin verificarse. |
+| La falta de `airflow connections add` demuestra que no hay conexión | No sustentada: Airflow admite conexiones por variables de entorno. Estas reparaciones corrigen el problema real de análisis del JSON, verificado con el hook real. |
+| La fábrica solo genera DAGs Gold | Resuelta en cambios anteriores; esta rama conecta la publicación de fuentes, el commit Bronze, el disparo de Silver y la programación basada en datasets. Aún no se ha ejecutado todo el flujo. |
+| No había registro/aislamiento de fuentes | Parcialmente resuelta: el registro ya existía; aquí se reparan la activación/publicación y las rutas administradas. La consistencia distribuida y CDC siguen pendientes. |
+| No existían endpoints de linaje/historial | Resuelta en cambios anteriores. Esta rama persiste el historial y conserva calidad desconocida si no existe dato observado; la cobertura automatizada de linaje sigue parcial. |
+| Canvas/replay operativo era simulado | Parcialmente resuelto por el PR #57 y esta rama: sin topología demo por defecto, con historial/autenticación reales y fixtures demo explícitos. Falta validar el pipeline real desde el navegador. |
+| Versiones, líneas y conteos de pruebas anteriores | Reemplazados por la inspección del código y los comandos actuales; no se copiaron a ciegas las versiones sugeridas. |
 
-| Priority | Requirement / gap | Small next step | Rough effort |
+## Requisitos pendientes y siguientes pasos
+
+| Prioridad | Requisito / brecha | Siguiente paso concreto | Esfuerzo estimado |
 |---|---|---|---|
-| P0 | Clean image build and real distributed Spark execution unverified | Use a host with enough free memory; verify Python parity, Java, pinned connectors and driver reachability | 0.5–1 day |
-| P0 | Complete source → Airflow → Bronze → Silver → Gold → Trino → API/browser unverified | Upload a small CSV with explicit business keys/amount/date fields; query expected totals, retry the same batch, inject a negative amount and interrupt a dependency | 0.5–1 day |
-| P0 before restricted-user access | Ranger/Atlas, backend PII masking and row policies missing | Implement HU-GOV-03 and test real query results under distinct identities; the local director token is not a substitute | 1–3 days |
-| P1 | Canonical marts/joins/business formulas and Guardian F1–F5 incomplete | Resolve conflicting canonical field/formula requirements with the owners, then implement agreed marts and playbooks | 2–4 days |
-| P1 | Full schema-drift baseline, foreign-key checks and append-only incident history incomplete | Add persisted schema comparison and specified quality gates; quarantine currently represents a source's current invalid rows | 1–2 days |
-| P1 | Registration spans SQL and object storage; session cache/SQL writes are not one transaction | Add reconciliation for partially published contracts and transactional session/message writes | 0.5–1 day |
-| P1 | Catalog lineage/metric certification and session canvas restoration incomplete | Connect runtime catalog/lineage events to persisted topology; certify only observed metrics | 1–2 days |
-| P2 | Deployment hardening | Pin remaining mutable images, rotate development defaults, TLS/auth on query path, readiness/restart checks | After the MVP runtime gates |
+| P0 | Falta validar la compilación limpia de imágenes y la ejecución distribuida de Spark | Usar un host con memoria disponible; verificar versiones de Python, Java, conectores fijados y acceso desde el driver | 0,5–1 día |
+| P0 | Falta recorrer fuente→Airflow→Bronze→Silver→Gold→Trino→API/navegador | Cargar un CSV pequeño con claves, campos monetarios y fechas explícitos; consultar totales, repetir el lote e inyectar un monto negativo e interrupción de dependencia | 0,5–1 día |
+| P0 antes de habilitar usuarios restringidos | Faltan Ranger/Atlas, enmascaramiento PII backend y políticas de filas | Implementar HU-GOV-03 y probar resultados reales de consulta con identidades distintas; el token local de dirección no lo reemplaza | 1–3 días |
+| P1 | Faltan marts/uniones/fórmulas de negocio canónicos y playbooks Guardian F1–F5 | Resolver con los responsables las diferencias de campos/fórmulas canónicos y luego implementar marts y playbooks aprobados | 2–4 días |
+| P1 | Faltan línea base completa de cambios de esquema, controles de claves foráneas e historial de incidentes de solo anexado | Guardar comparación de esquema y agregar las reglas de calidad acordadas; hoy la cuarentena representa las filas inválidas actuales de cada fuente | 1–2 días |
+| P1 | El registro se distribuye entre SQL y almacenamiento de objetos; la caché/sesiones SQL no forman una transacción | Agregar reconciliación de contratos publicados parcialmente y escritura transaccional de sesión/mensaje | 0,5–1 día |
+| P1 | Faltan cobertura de linaje de catálogo/certificación de métricas y restauración completa del Canvas por sesión | Conectar catálogo y eventos de linaje en ejecución con la topología persistida; certificar solo métricas observadas | 1–2 días |
+| P2 | Endurecimiento de despliegue | Fijar imágenes mutables restantes, rotar valores de desarrollo y agregar TLS/autenticación a consultas y controles de readiness/reinicio | Después de los requisitos de ejecución del MVP |
 
-Gold is triggered by Silver dataset updates **and** its configured cron; a cron run
-can use the last published Silver snapshot. A stable batch ID makes a retry target
-the same Bronze path, while a new scheduled run creates a new batch. Source snapshots
-are accumulated; deletions/CDC semantics need an explicit contract. Gold has one
-active run per generated destination, with contract validation preventing another
-pipeline from claiming that destination. These guarantees still need live failure checks.
+Gold se activa por cambios en datasets Silver **y** por su horario configurado;
+un ciclo horario puede consultar la última instantánea Silver publicada. Un ID de
+lote estable hace que el reintento use la misma ruta Bronze; cada nueva ejecución
+programada crea otro lote. Las instantáneas de fuentes se acumulan: el manejo de
+borrados y semántica CDC necesita un contrato explícito. Cada destino Gold generado
+admite una ejecución activa y la validación impide que otro pipeline reclame ese
+destino. Estas garantías aún requieren pruebas reales de fallos.
 
-## Anti-drift and approval checklist
+## Lista anti-desvío y aprobaciones
 
-- [x] Canonical requirements and existing code were inspected before implementation.
-- [x] Business formulas were not invented or changed.
-- [x] Existing upstream session/upload work was preserved and integrated.
-- [x] Tests distinguish mocks, real database checks and unexecuted service integration.
-- [x] Combined delivery and size exception approved by the user.
-- [ ] Ranger policies and PII enforcement complete — still missing.
-- [ ] Cross-module owner review complete — required before merge.
-- [ ] Main data pipeline verified end to end — still required.
+- [x] Se revisaron los requisitos canónicos y el código antes de implementar.
+- [x] No se inventaron ni alteraron fórmulas de negocio.
+- [x] Se preservaron e integraron los cambios upstream de sesiones/cargas.
+- [x] Las pruebas distinguen mocks, verificaciones con base real e integraciones no ejecutadas.
+- [x] El usuario aprobó la entrega combinada y la excepción de tamaño.
+- [ ] Políticas Ranger y protección PII completas: siguen pendientes.
+- [ ] Revisión de responsables de los módulos: requerida antes de integrar.
+- [ ] Pipeline principal probado de extremo a extremo: sigue pendiente.
 
-## Rollback boundaries
+## Límites de reversión
 
-Review commits group infrastructure/pipeline changes, API/auth/data correctness,
-and frontend observation changes. Revert dependent frontend/auth changes together
-if removing the login contract. The added session/event SQL is additive; preserve
-its data and volumes when rolling application containers back. No migration or
-rollback should delete an existing database volume.
+Los commits separan infraestructura/pipeline, consultas/autenticación/persistencia
+y cambios frontend de observabilidad. Si se retira el inicio de sesión, hay que
+revertir en conjunto los cambios frontend y de autenticación que dependen de él.
+El SQL agregado es aditivo; conserva sus datos y volúmenes al revertir contenedores
+de la aplicación. No se deben borrar volúmenes PostgreSQL para migrar o revertir.

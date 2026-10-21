@@ -9,14 +9,15 @@
 
 ## 1. Visión del Copiloto Agéntico: Asistente Dialógico Proactivo
 
-### Audit repair execution contract
+### Contrato de ejecución actualizado por la auditoría
 
-Normal execution always reads real Trino results. The local result simulator is
-available only when a test explicitly requests it. Every Trino response page,
-including the initial response, must be checked for errors and consumed. One
-timeout covers the complete query; interrupted queries are cancelled rather
-than reported as successful partial results. SQL cost estimates are heuristics,
-not an executed Trino EXPLAIN plan.
+La ejecución normal siempre consulta resultados reales de Trino. El simulador
+local de resultados solo está disponible cuando una prueba lo solicita de forma
+explícita. Se deben revisar y consumir todas las páginas de respuesta de Trino,
+incluida la primera. Un único tiempo límite cubre la consulta completa; las
+consultas interrumpidas se cancelan en vez de presentarse como resultados parciales
+correctos. Las estimaciones de costo SQL son heurísticas: no son un plan
+`EXPLAIN` ejecutado por Trino.
 
 
 El Copiloto Agéntico de Midas trasciende el paradigma de "pregunta y respuesta pasiva". Opera como un **Consultor de Datos Autónomo** que:

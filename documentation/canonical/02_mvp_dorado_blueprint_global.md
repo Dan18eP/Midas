@@ -10,23 +10,24 @@
 
 ## 1. Visión General del MVP Dorado
 
-### Audit repair: local access and startup
+### Reparación de auditoría: acceso e inicio local
 
-The local API requires a randomly generated `MIDAS_OPERATOR_TOKEN` of at least
-32 characters. It identifies the local director account and can be exchanged
-at `POST /api/v1/auth/login` for an HttpOnly session cookie. Caller role headers
-are not authentication. Pipeline publishers use a separate
-`MIDAS_TELEMETRY_TOKEN`, accepted only on the telemetry publication endpoint.
-This access gate does not implement Ranger/Atlas; restricted-role analytical
-access remains unavailable until the intended query policies are installed.
+La API local requiere un `MIDAS_OPERATOR_TOKEN` aleatorio de al menos 32 caracteres.
+Este token identifica la cuenta local de dirección y puede intercambiarse por una
+cookie de sesión HttpOnly en `POST /api/v1/auth/login`. Los encabezados de rol del
+cliente no autentican. Quien publica eventos de pipeline usa un
+`MIDAS_TELEMETRY_TOKEN` distinto, aceptado únicamente en el endpoint de publicación
+de telemetría. Esta barrera local no implementa Ranger ni Atlas; el acceso analítico
+con roles restringidos seguirá deshabilitado hasta instalar las políticas de consulta.
 
-Use `docker compose --profile orchestration up -d --build` for the pipeline
-services, and `--profile full` to include OpenMetadata/OpenSearch. Run the web
-client separately with `npm ci` and `npm run dev`. The API, storage, and service
-UI ports bind to localhost. Compose owns network and volume names so an audit
-project can use a different `-p` name and port overrides without sharing data.
-Existing PostgreSQL volumes need the new SQL migrations applied explicitly;
-initialization scripts run automatically only for a fresh volume.
+Usa `docker compose --profile orchestration up -d --build` para los servicios del
+pipeline y `--profile full` para agregar OpenMetadata/OpenSearch. Inicia el cliente
+web por separado con `npm ci` y `npm run dev`. Los puertos de la API, el almacenamiento
+y las interfaces de servicio se enlazan a localhost. Compose administra los nombres
+de red y volúmenes para que un proyecto de auditoría pueda usar otro nombre `-p` y
+sobrescribir los puertos sin compartir datos. En volúmenes PostgreSQL existentes,
+aplica explícitamente los nuevos scripts SQL; los scripts de inicialización solo se
+ejecutan automáticamente en un volumen nuevo.
 
 
 El **MVP Dorado** de Midas es una plataforma unificada que demuestra la convergencia de:

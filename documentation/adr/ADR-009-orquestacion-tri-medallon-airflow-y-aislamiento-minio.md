@@ -74,28 +74,31 @@ silver:
 
 ## 3. Consecuencias
 
-### Audit repair details
+### Detalles de las reparaciones de auditoría
 
-Airflow explicitly loads `/opt/midas/spark-conf/spark-defaults.conf` and runs
-Python drivers in the scheduler container. Executors connect to that scheduler
-on the private Docker network. Spark 3.5.1 uses the Scala 2.12 Iceberg 1.5.0
-runtime and AWS bundle, Hadoop S3A 3.3.4, and PostgreSQL JDBC 42.7.3 through
-Spark's package resolver. The first job needs access to Maven Central.
-The Spark connection uses JSON with the full `spark://host:port` as its host;
-a plain `spark://host:port` connection URI loses the protocol during parsing.
+Airflow carga explícitamente `/opt/midas/spark-conf/spark-defaults.conf` y ejecuta
+los controladores de Python en el contenedor del scheduler. Los ejecutores se
+conectan con ese scheduler por la red privada de Docker. Spark 3.5.1 usa el runtime
+Iceberg 1.5.0 para Scala 2.12 y su paquete AWS, Hadoop S3A 3.3.4 y PostgreSQL JDBC
+42.7.3, resueltos por Spark. El primer trabajo requiere acceso a Maven Central.
+La conexión de Spark usa JSON y conserva `spark://host:port` completo en el campo
+de host; una URI de conexión `spark://host:port` sin JSON pierde el protocolo al
+ser analizada.
 
-Only ingestion is scheduled for a connection. Successful ingestion triggers its
-cleaning DAG with the same batch identifier; Gold waits for the Silver datasets
-it reads. Each destination has a single active writer and bounded retries.
-Bronze batches have stable paths and a completion manifest written after the
-Parquet commit. Cleaning reads completed batches only and deduplicates explicit
-business keys before replacing the connection-owned Silver table. Telemetry
-failure must not repeat a committed data write.
+Para cada conexión, solo la ingesta tiene un horario. Si termina correctamente,
+activa el DAG de limpieza con el mismo identificador de lote. Gold espera a los
+datasets Silver que consulta. Cada destino admite un escritor activo y reintentos
+limitados. Los lotes Bronze usan rutas estables y un manifiesto de finalización
+que se escribe después del commit de Parquet. La limpieza solo lee lotes completos
+y deduplica con las claves de negocio indicadas antes de reemplazar la tabla Silver
+propia de la conexión. Un fallo de telemetría no debe repetir una escritura ya
+confirmada.
 
-Registration stores complete runtime configuration in PostgreSQL and publishes
-its YAML contract to MinIO. Incomplete registrations remain inactive. A storage
-or database failure is reported instead of silently accepting an active source.
-Credentials are environment references, never inline passwords or tokens.
+El registro guarda la configuración de ejecución en PostgreSQL y publica el
+contrato YAML en MinIO. Las fuentes incompletas quedan inactivas. Los errores de
+almacenamiento o base de datos se informan; nunca se marca silenciosamente una
+fuente como activa. Las credenciales se referencian mediante variables de entorno,
+nunca con contraseñas o tokens incrustados.
 
 
 ### Positivas:

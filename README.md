@@ -1,47 +1,48 @@
 # Midas
 
-## Local startup after the integration audit
+## Inicio local después de la auditoría de integración
 
-The repository describes the target architecture. Ranger/Atlas enforcement,
-all Guardian playbooks and the canonical business marts are still incomplete.
-The local API currently supports one authenticated director account.
+El repositorio describe la arquitectura objetivo. Aún faltan las políticas de
+Ranger/Atlas, los playbooks de Guardian y los marts canónicos. La API local admite
+por ahora una sola cuenta autenticada de dirección.
 
-1. Copy `.env.example` to `.env` if no local configuration exists. Generate two
-   different random tokens with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
-   and set `MIDAS_OPERATOR_TOKEN` and `MIDAS_TELEMETRY_TOKEN` in that file.
-   Keep the database URL consistent with the configured database credentials.
-2. Validate with `docker compose --profile orchestration config --quiet`.
-3. For a **new local database**, run
+1. Si aún no tienes una configuración local, copia `.env.example` a `.env`.
+   Genera dos tokens aleatorios distintos con
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"` y configúralos
+   en `MIDAS_OPERATOR_TOKEN` y `MIDAS_TELEMETRY_TOKEN`. Mantén la URL de la base
+   de datos coherente con las credenciales configuradas.
+2. Valida la configuración con `docker compose --profile orchestration config --quiet`.
+3. Para una **base de datos local nueva**, ejecuta
    `docker compose --profile orchestration up -d --build`.
-   This includes PostgreSQL, MinIO, Iceberg REST, Spark, Trino, the API and Airflow.
-   The first Spark job downloads pinned connectors from Maven Central.
-4. Run `npm ci` and `npm run dev` from the repository root. Open
-   `http://localhost:3000` and sign in with the operator token.
-   The browser uses `http://localhost:8000` for the API by default. Use the same
-   hostname for both applications so the login cookie reaches SSE requests.
-5. Airflow is at `http://localhost:8085`; Trino is at `http://localhost:8082`.
-   Ollama runs separately on the host, with `qwen2.5:3b` downloaded if using the model.
+   Inicia PostgreSQL, MinIO, Iceberg REST, Spark, Trino, la API y Airflow. El primer
+   trabajo de Spark descarga conectores fijados desde Maven Central.
+4. Desde la raíz del repositorio, ejecuta `npm ci` y `npm run dev`. Abre
+   `http://localhost:3000` e inicia sesión con el token de operador. El navegador
+   usa `http://localhost:8000` para la API. Usa el mismo nombre de host en ambas
+   aplicaciones para que la cookie de inicio de sesión también llegue al SSE.
+5. Airflow está en `http://localhost:8085` y Trino en `http://localhost:8082`.
+   Ollama se ejecuta por separado en el host. Descarga `qwen2.5:3b` si usarás ese modelo.
 
-For an **existing database**, initialization scripts will not run again. Back up
-the local database and apply these additive scripts before starting the updated API:
+En una **base de datos existente**, los scripts de inicialización no se ejecutan
+de nuevo. Haz una copia de seguridad de la base local y aplica estos scripts
+aditivos antes de iniciar la API actualizada:
 
 ```powershell
 Get-Content docker/postgres/02-init-sessions-schema.sql | docker compose exec -T midas-postgres psql -v ON_ERROR_STOP=1 -U midas_admin -d midas_operational
 Get-Content docker/postgres/03-init-telemetry.sql | docker compose exec -T midas-postgres psql -v ON_ERROR_STOP=1 -U midas_admin -d midas_operational
 ```
 
-Use your configured PostgreSQL username in these commands. Never delete an
-existing volume to apply a schema update. Compose projects have separate names
-and volumes; an isolated project also needs different host ports in its env file.
-Images with old explicit container names may require a planned container recreation
-when upgrading; preserve their volumes.
+Usa el nombre de usuario PostgreSQL configurado. No elimines un volumen existente
+para actualizar el esquema. Los proyectos Compose tienen nombres y volúmenes
+separados; para usar un proyecto aislado, configura también otros puertos del host.
+Al actualizar, quizá debas recrear de forma planificada los contenedores con nombres
+anteriores explícitos. Conserva sus volúmenes.
 
-The `api` profile starts the query stack without Airflow/Spark. The `governance`
-profile adds OpenMetadata/OpenSearch; it does not provide Ranger/Atlas policies.
-All published service ports bind to localhost. These are development settings.
+El perfil `api` inicia la pila de consultas sin Airflow ni Spark. El perfil
+`governance` agrega OpenMetadata/OpenSearch, pero no instala políticas de Ranger
+ni Atlas. Los puertos publicados se enlazan a localhost; son ajustes de desarrollo.
 
-Verification and remaining release gates:
-[audit repair report](documentation/done/other/infra-audit-integration-repairs-04.md).
+Consulta la [auditoría de reparaciones y tareas pendientes](documentation/done/other/infra-audit-integration-repairs-04.md).
 
 > **Enterprise Active Lakehouse & Conversational Intelligence Platform**  
 > Data Fabric Medallón con Gobernanza Zero-Trust, Resiliencia Activa (Midas Guardian), Observabilidad en Tiempo Real y Copiloto Agéntico Dialógico
