@@ -42,6 +42,34 @@ Se decide **orquestar de extremo a extremo todas las transiciones del Lakehouse 
 4. **Registro Central de Conexiones (`SourceConnectionRegistry`):**  
    Cada conexión se registra en la base de datos operacional (`midas_operational.source_connections`) mediante FastAPI. El registro dispara la creación del contrato declarativo correspondiente en `midas-governance/source-contracts/<connection_id>.yaml`, activando automáticamente sus DAGs en Airflow.
 
+5. **Contratos YAML gobernados:**
+   - Cada contrato de conexión se guarda en `source-contracts/<conn_id>.yaml` dentro del bucket `midas-governance`. Contiene `kind: connection`, `conn_id`, `cron_schedule`, `source`, `bronze` y `silver`.
+   - `source.type` admite `postgres`, `csv` y `rest_api`. PostgreSQL usa `source.table` y `source.schema` de forma opcional; la URL se obtiene de la variable de entorno indicada por `source.url_env` (por defecto: `POSTGRES_OPERATIONAL_URL`). CSV usa `source.path`. REST usa `source.url`, opcionalmente `source.data_key` para la lista de respuesta y `source.headers_env` para cargar encabezados JSON desde una variable de entorno.
+   - `bronze.path` es opcional. De forma predeterminada, los archivos Parquet con el sobre de auditoría se escriben en `s3a://midas-bronze/sources/<conn_id>/<dataset>/year=YYYY/month=MM/day=DD/<batch_id>.parquet`.
+   - `silver.table` es obligatorio y debe usar el espacio de nombres `silver`. Los campos opcionales `primary_key_fields`, `amount_fields` y `date_fields` configuran la puerta de calidad. `quarantine_path` es opcional; su valor predeterminado es `s3a://midas-quarantine/incidents/<conn_id>/`.
+   - Cada contrato Gold se guarda en `airflow-specs/dag_gold_<pipeline_id>.yaml` y declara `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table` y `quality_policies`. Solo se admite una instrucción `SELECT`. El resultado se audita en una tabla WAP temporal antes de reemplazar el destino Gold.
+   - Las credenciales no se incluyen en YAML. Los jobs leen secretos desde variables de entorno y publican eventos de inicio y resultado en `POST /api/v1/telemetry/publish`.
+
+Ejemplo mínimo de contrato de conexión:
+
+```yaml
+kind: connection
+conn_id: crm
+cron_schedule: "0 */6 * * *"
+source:
+  type: postgres
+  schema: public
+  table: orders
+  url_env: POSTGRES_OPERATIONAL_URL
+bronze:
+  path: s3a://midas-bronze/sources/crm/
+silver:
+  table: silver.orders
+  primary_key_fields: [transaccion_id]
+  amount_fields: [monto]
+  date_fields: [fecha_transaccion]
+```
+
 ---
 
 ## 3. Consecuencias

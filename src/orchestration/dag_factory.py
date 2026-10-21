@@ -1,123 +1,137 @@
-"""Load approved MinIO contracts as dynamic Airflow DAGs."""
+"""Load governed source and Gold contracts as dynamic Airflow DAGs."""
 
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any
-from urllib.request import Request, urlopen
 
 import yaml
 import sqlglot
 from sqlglot import exp
-
-from src.lakehouse.storage.minio_client import MidasMinioClient
 from src.core.cron import is_valid_cron_schedule
-
+from src.lakehouse.storage.minio_client import MidasMinioClient
 
 logger = logging.getLogger(__name__)
 SPEC_BUCKET = "midas-governance"
-SPEC_PREFIX = "airflow-specs/"
+SOURCE_PREFIX = "source-contracts/"
+GOLD_PREFIX = "airflow-specs/"
+START_DATE = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
 def load_pipeline_specs(storage: MidasMinioClient | None = None) -> list[dict[str, Any]]:
-    """Read and validate the YAML contracts currently approved in MinIO."""
+    """Read YAML source and Gold contracts from the governance bucket."""
     client = storage or MidasMinioClient()
-    specs = []
-    for object_name in client.list_objects(SPEC_BUCKET, prefix=SPEC_PREFIX):
-        if not object_name.endswith(".yaml"):
-            continue
-        try:
-            spec = yaml.safe_load(client.get_object(SPEC_BUCKET, object_name))
-            _validate_spec(spec)
-            specs.append(spec)
-        except (ValueError, yaml.YAMLError):
-            logger.exception("Skipping invalid pipeline spec %s", object_name)
+    specs: list[dict[str, Any]] = []
+    for prefix in (SOURCE_PREFIX, GOLD_PREFIX):
+        for object_name in client.list_objects(SPEC_BUCKET, prefix=prefix):
+            if not object_name.endswith((".yaml", ".yml")):
+                continue
+            try:
+                spec = yaml.safe_load(client.get_object(SPEC_BUCKET, object_name))
+                _validate_spec(spec)
+                specs.append(spec)
+            except (ValueError, yaml.YAMLError):
+                logger.exception("Skipping invalid pipeline spec %s", object_name)
     return specs
 
 
 def build_dynamic_dags(specs: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build one Spark-backed Airflow DAG per valid spec."""
+    """Build ingestion, cleansing, and Gold DAGs from validated contracts."""
     try:
         from airflow import DAG
         from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-        from airflow.operators.python import PythonOperator
     except ImportError:
         return {}
 
-    spark_job = os.getenv("MIDAS_GOLD_SPARK_JOB")
-    if not spark_job:
-        logger.warning("MIDAS_GOLD_SPARK_JOB is unset; no Gold DAGs were registered")
-        return {}
-
-    dags = {}
+    jobs_dir = os.getenv("MIDAS_JOBS_DIR", "/opt/midas/jobs")
+    dags: dict[str, Any] = {}
     for spec in specs:
+        _validate_spec(spec)
+        if spec.get("kind") == "connection":
+            conn_id = spec["conn_id"]
+            for stage, job_file, tags in (
+                ("ingest", "ingest_bronze.py", ["midas", "bronze", "connection", conn_id]),
+                ("clean", "transform_silver.py", ["midas", "silver", "connection", conn_id]),
+            ):
+                dag_id = f"dag_{stage}_{conn_id}"
+                # A fixed UTC start date lets Airflow register each scheduled DAG.
+                dag = DAG(dag_id=dag_id, schedule=spec["cron_schedule"], start_date=START_DATE,
+                          catchup=False, tags=tags)
+                with dag:
+                    SparkSubmitOperator(
+                        task_id=f"spark_{stage}_{conn_id}",
+                        application=os.path.join(jobs_dir, job_file),
+                        conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
+                        application_args=["--spec-json", json.dumps(spec)],
+                    )
+                dags[dag_id] = dag
+            continue
+
         pipeline_id = spec["pipeline_id"]
-        dag = DAG(
-            dag_id=pipeline_id,
-            schedule=spec["cron_schedule"],
-            catchup=False,
-            tags=["midas", "gold", "dynamic"],
-        )
+        dag_id = f"dag_gold_{pipeline_id}"
+        # A fixed UTC start date lets Airflow register each scheduled DAG.
+        dag = DAG(dag_id=dag_id, schedule=spec["cron_schedule"], start_date=START_DATE,
+                  catchup=False, tags=["midas", "gold", "dynamic"])
         with dag:
-            materialize = SparkSubmitOperator(
-                task_id="spark_execute_gold",
-                application=spark_job,
+            SparkSubmitOperator(
+                task_id="spark_materialize_gold",
+                application=os.getenv("MIDAS_GOLD_SPARK_JOB", os.path.join(jobs_dir, "materialize_gold.py")),
                 conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
-                application_args=[
-                    "--sql", spec["transform_sql"],
-                    "--output-table", spec["output_table"],
-                    "--quality-policies", ",".join(spec["quality_policies"]),
-                ],
+                application_args=["--spec-json", json.dumps(spec)],
             )
-            notify = PythonOperator(
-                task_id="sse_notify_canvas",
-                python_callable=_notify_canvas,
-                op_kwargs={"pipeline_id": pipeline_id, "output_table": spec["output_table"]},
-            )
-            materialize >> notify
-        dags[pipeline_id] = dag
+        dags[dag_id] = dag
     return dags
 
 
-def _notify_canvas(pipeline_id: str, output_table: str) -> None:
-    """Send the new Gold node through the canonical telemetry endpoint."""
-    endpoint = os.getenv("MIDAS_TELEMETRY_PUBLISH_URL", "http://midas-api:8000/api/v1/telemetry/publish")
-    event = {
-        "pipeline_id": pipeline_id,
-        "node_id": output_table,
-        "status": "IN_PROGRESS",
-        "details": {"event_type": "NEW_GOLD_NODE_AVAILABLE", "output_table": output_table},
-    }
-    request = Request(
-        endpoint,
-        data=json.dumps(event).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urlopen(request, timeout=10) as response:
-        if response.status >= 300:
-            raise RuntimeError(f"Telemetry publish failed with status {response.status}")
-
-
 def _validate_spec(spec: Any) -> None:
-    """Reject incomplete contracts before exposing them to Airflow."""
-    required = {"pipeline_id", "cron_schedule", "transform_sql", "output_table", "quality_policies"}
-    if not isinstance(spec, dict) or not required.issubset(spec):
-        raise ValueError("Pipeline spec is missing required fields")
-    if not all(isinstance(spec[key], str) and spec[key] for key in required - {"quality_policies"}):
-        raise ValueError("Pipeline spec contains empty fields")
-    if not isinstance(spec["quality_policies"], list) or not spec["quality_policies"]:
-        raise ValueError("Pipeline spec needs quality policies")
-    if any(policy != "row_count_gt_zero" for policy in spec["quality_policies"]):
-        raise ValueError("Pipeline spec contains an unsupported quality policy")
-    if not is_valid_cron_schedule(spec["cron_schedule"]):
+    """Reject incomplete contracts and unsafe identifiers before DAG creation."""
+    if not isinstance(spec, dict) or not is_valid_cron_schedule(spec.get("cron_schedule", "")):
         raise ValueError("Pipeline schedule is invalid")
+
+    if spec.get("kind") == "connection":
+        if not re.fullmatch(r"[a-z0-9_]+", str(spec.get("conn_id", ""))):
+            raise ValueError("Connection id is invalid")
+        source = spec.get("source")
+        clean = spec.get("silver")
+        if not isinstance(source, dict) or not isinstance(clean, dict):
+            raise ValueError("Connection contract needs source and silver sections")
+        if source.get("type") not in {"postgres", "csv", "rest_api"}:
+            raise ValueError("Unsupported governed source type")
+        if not source.get("table") and source.get("type") == "postgres":
+            raise ValueError("PostgreSQL source needs a table")
+        if source.get("type") == "postgres":
+            for name in (source.get("schema", "public"), source["table"]):
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(name)):
+                    raise ValueError("PostgreSQL table and schema must be simple identifiers")
+        if not source.get("path") and source.get("type") == "csv":
+            raise ValueError("CSV source needs a path")
+        if not source.get("url") and source.get("type") == "rest_api":
+            raise ValueError("REST source needs a URL")
+        if not re.fullmatch(r"silver\.[a-z0-9_]+", str(clean.get("table", ""))):
+            raise ValueError("Silver output must use the silver namespace")
+        for field in ("primary_key_fields", "amount_fields", "date_fields"):
+            if field in clean and (not isinstance(clean[field], list) or not all(
+                isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in clean[field]
+            )):
+                raise ValueError(f"Silver {field} must be a list of column names")
+        return
+
+    required = {"pipeline_id", "cron_schedule", "transform_sql", "output_table", "quality_policies"}
+    if not required.issubset(spec):
+        raise ValueError("Gold pipeline spec is missing required fields")
+    if not all(isinstance(spec[key], str) and spec[key] for key in required - {"quality_policies"}):
+        raise ValueError("Gold pipeline spec contains empty fields")
+    if not isinstance(spec["quality_policies"], list) or not spec["quality_policies"]:
+        raise ValueError("Gold pipeline needs quality policies")
+    if any(policy != "row_count_gt_zero" for policy in spec["quality_policies"]):
+        raise ValueError("Gold pipeline contains an unsupported quality policy")
     if not re.fullmatch(r"gold_[a-z0-9_]+", spec["pipeline_id"]):
-        raise ValueError("Pipeline id is invalid")
+        raise ValueError("Gold pipeline id is invalid")
     if not re.fullmatch(r"gold\.[a-z0-9_]+", spec["output_table"]):
         raise ValueError("Output table must be in the Gold schema")
     try:
@@ -128,7 +142,6 @@ def _validate_spec(spec: Any) -> None:
         raise ValueError("Transform SQL must contain one SELECT")
 
 
-# Airflow reparses this module periodically, so new MinIO specs become DAGs without a restart.
 if importlib.util.find_spec("airflow") is not None:
     try:
         globals().update(build_dynamic_dags(load_pipeline_specs()))

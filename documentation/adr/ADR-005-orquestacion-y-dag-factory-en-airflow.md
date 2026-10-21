@@ -36,6 +36,7 @@ Se adopta el patrón **Pipeline-as-a-Prompt con Fábrica Dinámica de DAGs (DAG 
    Este contrato se almacena en el bucket dedicado `s3://midas-governance/airflow-specs/`.
 2. **DAG Maestro Parametrizado en Apache Airflow:**  
    Un script maestro en Airflow (`dags/dynamic_gold_factory_dag.py`) lee periódicamente las especificaciones aprobadas en MinIO y genera dinámicamente las instancias de DAGs correspondientes.
+   Cada DAG generado usa una fecha de inicio UTC fija (`2026-01-01`) y `catchup=false`. Airflow requiere una fecha de inicio, y desactivar la recuperación evita ejecuciones históricas cuando se registra un contrato.
 3. **Estructura Estándar del Pipeline Generado:**  
    Cada DAG generado ejecuta 4 pasos estandarizados:
    - `sensor_silver_ready`: Valida que las tablas Silver fuente tengan un snapshot reciente y sin alertas de Guardian.
