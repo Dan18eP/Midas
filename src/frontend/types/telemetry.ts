@@ -41,6 +41,14 @@ export interface TelemetryEventPayload {
     records_per_second?: number;
     spark_rps?: number;
     airflow_rps?: number;
+    /**
+     * Discriminante semántico del evento. El backend publica
+     * `NEW_GOLD_NODE_AVAILABLE` al anunciar un mart Gold recién materializado
+     * (ver src/agent/tools/dag_generator.py).
+     */
+    event_type?: string;
+    /** Nombre calificado de la tabla anunciada (Gold). */
+    output_table?: string;
     [key: string]: unknown;
   };
 }

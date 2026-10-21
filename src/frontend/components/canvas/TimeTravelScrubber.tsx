@@ -19,6 +19,7 @@ import {
   PipelineSnapshot,
   HistoricalTimelinePoint,
 } from '@/types/timeTravel';
+import type { TelemetryHistoryStatus } from '@/services/historicalTelemetryService';
 
 export interface TimeTravelScrubberProps {
   mode: TimeTravelMode;
@@ -32,6 +33,10 @@ export interface TimeTravelScrubberProps {
   relativeOffsetMinutes: number;
   relativeOffsetLabel: string;
   timelinePoints?: HistoricalTimelinePoint[];
+  /** Estado de la hidratación del historial real (HU-FRONT-08). */
+  historyStatus?: TelemetryHistoryStatus;
+  /** Mensaje de error de la hidratación, si lo hay. */
+  historyError?: string | null;
   onPlay: () => void;
   onPause: () => void;
   onTogglePlay: () => void;
@@ -73,6 +78,8 @@ export const TimeTravelScrubber: React.FC<TimeTravelScrubberProps> = memo(({
   relativeOffsetMinutes,
   relativeOffsetLabel,
   timelinePoints = [],
+  historyStatus = 'idle',
+  historyError = null,
   onPlay,
   onPause,
   onTogglePlay,
@@ -131,6 +138,38 @@ export const TimeTravelScrubber: React.FC<TimeTravelScrubberProps> = memo(({
     const progress = Math.max(0, Math.min(total, currentTimeMs - windowStartMs));
     return (progress / total) * 100;
   }, [currentTimeMs, windowStartMs, windowEndMs]);
+
+  /**
+   * Estado de la fuente de verdad del historial (HU-FRONT-08). Se muestra sólo
+   * cuando el scrubber no dispone de una línea de tiempo real: nunca se
+   * presentan datos fabricados como si fueran telemetría persistida.
+   */
+  const historyNotice = useMemo(() => {
+    if (historyStatus === 'error') {
+      return {
+        tone: 'error' as const,
+        testId: 'scrubber-history-error',
+        text: historyError
+          ? `Historial no disponible: ${historyError}`
+          : 'Historial no disponible: el Gateway de telemetría no respondió.',
+      };
+    }
+    if (historyStatus === 'loading') {
+      return {
+        tone: 'info' as const,
+        testId: 'scrubber-history-loading',
+        text: 'Cargando historial real del Gateway de telemetría...',
+      };
+    }
+    if (historyStatus === 'empty') {
+      return {
+        tone: 'info' as const,
+        testId: 'scrubber-history-empty',
+        text: 'El Gateway de telemetría no reporta eventos en la ventana consultada.',
+      };
+    }
+    return null;
+  }, [historyStatus, historyError]);
 
   return (
     <section
@@ -203,6 +242,20 @@ export const TimeTravelScrubber: React.FC<TimeTravelScrubberProps> = memo(({
       </div>
 
       {/* --- MIDDLE ROW: Continuous 24h Slider & Incident Markers --- */}
+      {historyNotice && (
+        <div
+          data-testid={historyNotice.testId}
+          role="status"
+          aria-live="polite"
+          className={`mb-2 rounded-md border px-2.5 py-1.5 text-[10px] font-mono ${
+            historyNotice.tone === 'error'
+              ? 'border-[#A8422B]/30 bg-[#FFF5F2] text-[#A8422B]'
+              : 'border-[#D4AF37]/40 bg-[#FBF8EF] text-[#8C6D1F]'
+          }`}
+        >
+          {historyNotice.text}
+        </div>
+      )}
       <div className="pt-2 pb-1">
         <div className="relative flex flex-col justify-center">
           {/* Custom Track Slider */}
