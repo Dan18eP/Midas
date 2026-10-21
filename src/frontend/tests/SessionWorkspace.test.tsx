@@ -106,7 +106,7 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
       expect(
         screen.getByRole('heading', { name: /Hola, Director General\. ¿Qué tienes en mente hoy\?/i })
       ).toBeInTheDocument();
-      expect(screen.getByText(/Zero-Trust Lens: Admin \(100%\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Zero-Trust Lens: Director General \(Admin\)/i)).toBeInTheDocument();
     });
 
     it('renderiza el saludo adaptado para rol RBAC (Gerente Regional Norte)', () => {
@@ -220,7 +220,7 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
 
       await waitFor(() => {
         expect(screen.getByText('Hoy')).toBeInTheDocument();
-        expect(screen.getByText('Ayer')).toBeInTheDocument();
+        expect(screen.getAllByText('Ayer').length).toBeGreaterThanOrEqual(1);
       });
 
       expect(

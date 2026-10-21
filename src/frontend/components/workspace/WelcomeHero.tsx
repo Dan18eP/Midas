@@ -70,7 +70,7 @@ export function WelcomeHero({
         <div className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/40 bg-[#FFFFFF] px-3 py-1 shadow-xs">
           <Shield className="h-3.5 w-3.5 text-[#B8860B]" />
           <span className="font-mono text-xs font-semibold text-[#8C6D1F]">
-            Zero-Trust Lens: {profile.short} ({profile.visibility})
+            Zero-Trust Lens: {profile.label} ({profile.short})
           </span>
         </div>
 

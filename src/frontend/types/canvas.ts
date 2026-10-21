@@ -33,6 +33,8 @@ export type MidasNodeSubtype =
   | 'postgresql'
   | 'excel'
   | 'api'
+  /** Nodo recibido en caliente cuyo tipo no pudo deducirse del `node_id`. */
+  | 'generic'
   | 'bronze'
   | 'silver'
   | 'gold'
