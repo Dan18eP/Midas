@@ -102,6 +102,38 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
     expect(screen.getByTestId('pii-salary')).toHaveTextContent('****');
   });
 
+  it('6b. Abre el modal de Zero-Trust desde el Header al hacer clic en el botón de visibilidad', () => {
+    render(<ZeroTrustLens role="admin" />);
+    
+    // El modal no debe estar visible inicialmente
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    // Hacemos clic en el trigger del modal
+    const modalTrigger = screen.getByTestId('open-zero-trust-modal');
+    expect(modalTrigger).toBeInTheDocument();
+    fireEvent.click(modalTrigger);
+
+    // Ahora el modal debe estar presente
+    const modal = screen.getByRole('dialog');
+    expect(modal).toBeInTheDocument();
+    expect(screen.getByText('Lens Zero-Trust — Gobernanza & PII')).toBeInTheDocument();
+    expect(screen.getByTestId('zero-trust-lens-preview')).toBeInTheDocument();
+
+    // Cierra con el botón cerrar
+    fireEvent.click(screen.getByLabelText('Cerrar modal'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('6c. Cierra el modal de Zero-Trust al presionar la tecla Escape', () => {
+    render(<ZeroTrustLens role="rbac" />);
+    
+    fireEvent.click(screen.getByTestId('open-zero-trust-modal'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('7. SourceNode y StageNode muestran candado y aviso cuando securityMask está activo', () => {
     const unmaskedSourceData: MidasNodeData = {
       id: 'source_postgres',

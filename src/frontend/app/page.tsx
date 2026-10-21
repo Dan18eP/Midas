@@ -182,11 +182,6 @@ function MidasConsoleWorkspace() {
                 initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
                 initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
               />
-
-              {/* Frontera HU-FRONT-05: Overlay Tarjeta Flotante PII Preview */}
-              <div className="pointer-events-auto absolute bottom-20 left-4 z-20">
-                <ZeroTrustLens role={selectedRole} preview />
-              </div>
             </section>
           )}
         </main>
