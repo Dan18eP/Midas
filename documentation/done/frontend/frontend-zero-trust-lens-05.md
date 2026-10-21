@@ -39,9 +39,10 @@
   - Icono `Lock` dorado sobre fondo marfil en la esquina superior derecha (`SourceNode.tsx` y `StageNode.tsx`).
   - Badge de advertencia `Datos protegidos por política`.
 
-### 2.3. Previsualización PII Reactiva Flotante
-- Tarjeta flotante `ZeroTrustLens (preview = true)` anclada en la esquina inferior izquierda (`bottom-20 left-4 z-20`) sin obstruir los controles de navegación de React Flow.
-- Muestra el estado de acceso por perfil, métricas de visibilidad y enmascaramiento en vivo de emails y salarios.
+### 2.3. Modal Interactivo Desplegable en Header (Reubicación sin obstrucción de Canvas)
+- Para evitar la colisión visual con los controles de zoom (`+` y `-`) del `PipelineCanvas` en la esquina inferior izquierda, la previsualización se transformó en un modal interactivo accesible (`role="dialog"`, `aria-modal="true"`) disparado desde el botón de escudo y porcentaje de visibilidad en el selector de la cabecera ejecutiva (`data-testid="open-zero-trust-modal"`).
+- Incluye cierre accesible mediante botón de aspa, clic exterior y tecla `Escape`.
+- Muestra el estado de acceso por perfil, métricas de visibilidad y enmascaramiento en vivo de emails y salarios con selector de roles sincronizado.
 
 ---
 
