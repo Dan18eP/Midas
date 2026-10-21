@@ -24,6 +24,16 @@ class BufferStatusResponse(BaseModel):
     max_capacity: int = Field(100, description="Maximum retention capacity.")
     events: List[Dict[str, Any]] = Field(..., description="Chronological list of buffered events.")
 
+class TelemetryHistoryResponse(BaseModel):
+    """Snapshot of historical telemetry events for Time-Travel replay scrubber."""
+    window: str = Field("24h", description="Selected time window.")
+    total_events: int = Field(..., description="Total events in this snapshot.")
+    events: List[Dict[str, Any]] = Field(..., description="Chronological list of events.")
+    nodes_summary: Dict[str, Any] = Field(..., description="Consolidated node statuses and metrics.")
+    active_alerts_count: int = Field(0, description="Count of active alerts/anomalies.")
+    retrieved_at: str = Field(..., description="ISO 8601 timestamp.")
+
+
 
 @router.get(
     "/stream",
@@ -106,6 +116,58 @@ async def reset_buffer() -> Dict[str, Any]:
     hub = get_telemetry_hub()
     hub.clear()
     return {"status": "cleared", "buffer_size": 0}
+
+
+@router.get(
+    "/history",
+    response_model=TelemetryHistoryResponse,
+    summary="Retrieve Telemetry History for Time-Travel Scrubber",
+    description="Returns chronological events and consolidated node statuses for the 24-hour Canvas scrubber.",
+)
+async def get_telemetry_history(
+    window: str = Query("24h", description="Time window filter (1h, 6h, 12h, 24h, all)"),
+    limit: int = Query(200, ge=1, le=1000, description="Max number of events to return"),
+    node_id: Optional[str] = Query(None, description="Optional node_id filter"),
+) -> TelemetryHistoryResponse:
+    """Query telemetry history for Time-Travel slider."""
+    from datetime import datetime, timezone
+    from src.core.telemetry.scenarios import get_scenario_events
+
+    hub = get_telemetry_hub()
+    buffered = hub.get_buffered_events()
+    if not buffered:
+        buffered = get_scenario_events("T0")
+
+    events = [e.to_dict() for e in buffered]
+    if node_id:
+        events = [e for e in events if e.get("node_id") == node_id]
+
+    events = events[-limit:]
+
+    nodes_summary: Dict[str, Any] = {}
+    active_alerts = 0
+    for evt in events:
+        nid = evt.get("node_id")
+        if nid:
+            nodes_summary[nid] = {
+                "status": evt.get("status", "HEALTHY"),
+                "records_in": evt.get("records_in", 0),
+                "records_out": evt.get("records_out", 0),
+                "latency_ms": evt.get("latency_ms", 0.0),
+                "last_event_id": evt.get("event_id"),
+            }
+            if evt.get("status") in ("DEGRADED", "FAILED", "AUTO_HEALING"):
+                active_alerts += 1
+
+    return TelemetryHistoryResponse(
+        window=window,
+        total_events=len(events),
+        events=events,
+        nodes_summary=nodes_summary,
+        active_alerts_count=active_alerts,
+        retrieved_at=datetime.now(timezone.utc).isoformat(),
+    )
+
 
 
 # ==============================================================================
