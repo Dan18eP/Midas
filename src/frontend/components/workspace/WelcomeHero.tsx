@@ -16,7 +16,6 @@ import {
   Database,
   ArrowUp,
   Sparkles,
-  Shield,
 } from 'lucide-react';
 import { PROFILES, type ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 import { QuickConnectionModal, type QuickSourceType } from './QuickConnectionModal';
@@ -66,23 +65,11 @@ export function WelcomeHero({
       <ChatParticleBackground maxParticles={85} connectionDistance={155} mouseRadius={135} />
 
       <div className="relative z-10 w-full max-w-3xl flex flex-col items-center text-center space-y-6">
-        {/* Zero-Trust Badge */}
-        <div className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/40 bg-[#FFFFFF] px-3 py-1 shadow-xs">
-          <Shield className="h-3.5 w-3.5 text-[#B8860B]" />
-          <span className="font-mono text-xs font-semibold text-[#8C6D1F]">
-            Zero-Trust Lens: {profile.short} ({profile.visibility})
-          </span>
-        </div>
-
         {/* Dynamic Executive Greeting (ADR-010) */}
         <div className="space-y-2">
           <h1 className="font-serif text-3xl md:text-4xl font-semibold tracking-tight text-[#1C1E21]">
             Hola, {userName}. ¿Qué tienes en mente hoy?
           </h1>
-          <p className="max-w-xl mx-auto text-sm text-[#787164]">
-            Midas introspecciona tus fuentes conectadas, analiza linaje en Bronze/Silver/Gold y genera
-            pipelines verificados con IA para decisiones ejecutivas confiables.
-          </p>
         </div>
 
         {/* Central Prompt Input Bar (ChatGPT-Style) con Menú «+» */}
