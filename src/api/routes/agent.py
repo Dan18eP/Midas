@@ -132,10 +132,24 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
                 schemas,
             )
             spec_uri = publish_pipeline_spec(spec, confirmed=True)
+            confirmation_msg = f"Gold pipeline **{spec.pipeline_id}** is scheduled daily. Contract: `{spec_uri}`."
+            try:
+                from src.core.session.store import get_session_store
+                s_store = get_session_store()
+                s_store.add_message(session_id=thread_id, sender="user", content=user_message)
+                s_store.add_message(
+                    session_id=thread_id,
+                    sender="assistant",
+                    content=confirmation_msg,
+                    metadata={"intent": "materialize_gold", "spec_uri": spec_uri, "pipeline_id": spec.pipeline_id},
+                )
+            except Exception as store_err:
+                logger.warning("Could not persist materialization confirmation to session store: %s", store_err)
+
             return ChatResponse(
                 thread_id=thread_id,
                 intent="materialize_gold",
-                response=f"Gold pipeline **{spec.pipeline_id}** is scheduled daily. Contract: `{spec_uri}`.",
+                response=confirmation_msg,
             )
 
         result_state = invoke_turn(graph=graph, thread_id=thread_id, user_message=user_message)
@@ -177,6 +191,31 @@ async def chat_with_agent(payload: ChatRequest) -> ChatResponse:
                 metrics_summary = parsed_json["metrics_summary"]
         except (json.JSONDecodeError, TypeError):
             clean_markdown = raw_response
+
+    try:
+        from src.core.session.store import get_session_store
+        session_store = get_session_store()
+        session_store.add_message(session_id=thread_id, sender="user", content=user_message)
+        session_metadata = {
+            "intent": intent,
+            "suggestions": suggestions if isinstance(suggestions, list) else [],
+            "needs_clarification": bool(needs_clarification),
+        }
+        if isinstance(echarts_option, dict):
+            session_metadata["echarts_option"] = echarts_option
+        if isinstance(metrics_summary, list):
+            session_metadata["metrics_summary"] = metrics_summary
+        if result_state.get("sql"):
+            session_metadata["sql"] = result_state.get("sql")
+
+        session_store.add_message(
+            session_id=thread_id,
+            sender="assistant",
+            content=clean_markdown,
+            metadata=session_metadata,
+        )
+    except Exception as store_err:
+        logger.warning("Could not persist chat turn to session store: %s", store_err)
 
     return ChatResponse(
         thread_id=thread_id,
