@@ -6,18 +6,14 @@ import os
 import urllib.request
 import uuid
 
+import sqlglot
+from runtime import publish_event, prepare_namespaces
 from pyspark.sql import SparkSession
 
 
 def publish(spec: dict, status: str, count: int = 0, detail: str = "") -> None:
-    event = {"pipeline_id": spec["pipeline_id"], "node_id": spec["output_table"],
-             "status": status, "records_in": count, "records_out": count,
-             "details": {"event_type": "NEW_GOLD_NODE_AVAILABLE" if status == "HEALTHY" else "GOLD_MATERIALIZATION",
-                         "message": detail}}
-    request = urllib.request.Request(os.getenv("MIDAS_TELEMETRY_PUBLISH_URL", "http://midas-api:8000/api/v1/telemetry/publish"),
-                                     data=json.dumps(event).encode(), headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(request, timeout=10):
-        pass
+    publish_event(spec["pipeline_id"], spec["output_table"], status, count, detail, details={"event_type": "NEW_GOLD_NODE_AVAILABLE" if status == "HEALTHY" else "GOLD_MATERIALIZATION",
+        "upstream_nodes": [f"silver_{table.name}" for table in sqlglot.parse_one(spec["transform_sql"], read="trino").find_all(sqlglot.exp.Table) if table.db == "silver"]})
 
 
 def main() -> None:
@@ -46,13 +42,15 @@ def main() -> None:
     count = 0
     publish(spec, "RUNNING", detail="gold materialization started")
     try:
-        result = spark.sql(spec["transform_sql"])
-        result.writeTo(stage_table).using("iceberg").createOrReplace()
+        prepare_namespaces(spark)
+        sql = sqlglot.transpile(spec["transform_sql"], read="trino", write="spark")[0]
+        result = spark.sql(sql)
+        result.writeTo(stage_table).using("iceberg").tableProperty("format-version", "2").createOrReplace()
         staged = spark.table(stage_table)
         count = staged.count()
         if "row_count_gt_zero" in policies and count == 0:
             raise ValueError("Gold output failed row_count_gt_zero")
-        staged.writeTo(output_table).using("iceberg").createOrReplace()
+        staged.writeTo(output_table).using("iceberg").tableProperty("format-version", "2").createOrReplace()
         publish(spec, "HEALTHY", count, f"WAP audit passed and {output_table} was published")
     except Exception as exc:
         publish(spec, "ERROR", count, str(exc)[:500])

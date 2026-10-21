@@ -7,16 +7,12 @@ name: midas
 
 networks:
   midas-network:
-    name: midas-network
     driver: bridge
 
 volumes:
-  postgres_data:
-    name: midas_postgres_data
-  minio_data:
-    name: midas_minio_data
-  opensearch_data:
-    name: midas_opensearch_data
+  postgres_data: {}
+  minio_data: {}
+  opensearch_data: {}
 
 services:
   # ----------------------------------------------------------------------------
@@ -25,7 +21,6 @@ services:
   # ----------------------------------------------------------------------------
   midas-postgres:
     image: postgres:16-alpine
-    container_name: midas-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-midas_admin}
@@ -33,15 +28,17 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_MULTIPLE_DATABASES:-iceberg_catalog,midas_operational,openmetadata_db,airflow_db,midas_guardian}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init-multi-db.sh:/docker-entrypoint-initdb.d/00-init-multi-db.sh:ro
       - ./docker/postgres/01-init-operational-seed.sql:/docker-entrypoint-initdb.d/01-init-operational-seed.sql:ro
+      - ./docker/postgres/02-init-sessions-schema.sql:/docker-entrypoint-initdb.d/02-init-sessions-schema.sql:ro
+      - ./docker/postgres/03-init-telemetry.sql:/docker-entrypoint-initdb.d/03-init-telemetry.sql:ro
     networks:
       - midas-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-midas_admin}"]
+      test: ["CMD-SHELL", "pg_isready -d postgres -U ${POSTGRES_USER:-midas_admin}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -54,15 +51,14 @@ services:
     # minio/minio fue retirada de Docker Hub y quay.io exige credenciales.
     # bitnamilegacy publica el ultimo build comunitario de MinIO.
     image: bitnamilegacy/minio:latest
-    container_name: midas-minio
     restart: unless-stopped
     user: "0"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/bitnami/minio/data
     networks:
@@ -79,7 +75,6 @@ services:
   midas-minio-init:
     # minio/mc fue retirada de Docker Hub junto con minio/minio.
     image: bitnamilegacy/minio-client:latest
-    container_name: midas-minio-init
     restart: "no"
     depends_on:
       midas-minio:
@@ -102,9 +97,8 @@ services:
   # ----------------------------------------------------------------------------
   midas-iceberg-catalog:
     image: tabulario/iceberg-rest:1.5.0
-    container_name: midas-iceberg-catalog
     restart: unless-stopped
-    profiles: ["lakehouse", "full"]
+    profiles: ["lakehouse", "query", "api", "orchestration", "full"]
     depends_on:
       midas-postgres:
         condition: service_healthy
@@ -125,7 +119,7 @@ services:
       CATALOG_JDBC_USER: ${POSTGRES_USER:-midas_admin}
       CATALOG_JDBC_PASSWORD: ${POSTGRES_PASSWORD:-midas_secret_password_2026}
     ports:
-      - "${ICEBERG_REST_PORT:-8181}:8181"
+      - "127.0.0.1:${ICEBERG_REST_PORT:-8181}:8181"
     networks:
       - midas-network
 
@@ -135,16 +129,20 @@ services:
   # ----------------------------------------------------------------------------
   midas-trino:
     image: trinodb/trino:450
-    container_name: midas-trino
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-midas_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-midas_secret_password_2026}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
     restart: unless-stopped
-    profiles: ["lakehouse", "query", "full"]
+    profiles: ["lakehouse", "query", "api", "orchestration", "full"]
     depends_on:
       midas-postgres:
         condition: service_healthy
       midas-minio:
         condition: service_healthy
     ports:
-      - "${TRINO_PORT:-8082}:8080"
+      - "127.0.0.1:${TRINO_PORT:-8082}:8080"
     volumes:
       - ./docker/trino/etc:/etc/trino:ro
     networks:
@@ -157,7 +155,6 @@ services:
   midas-spark-master:
     # bitnami/spark:3.5.1 fue movida al namespace bitnamilegacy.
     image: bitnamilegacy/spark:3.5.1
-    container_name: midas-spark-master
     restart: unless-stopped
     profiles: ["lakehouse", "spark", "orchestration", "full"]
     depends_on:
@@ -172,8 +169,8 @@ services:
       - SPARK_MASTER_PORT=7077
       - SPARK_MASTER_WEBUI_PORT=8080
     ports:
-      - "${SPARK_MASTER_PORT:-7077}:7077"
-      - "${SPARK_MASTER_WEBUI_PORT:-8086}:8080"
+      - "127.0.0.1:${SPARK_MASTER_PORT:-7077}:7077"
+      - "127.0.0.1:${SPARK_MASTER_WEBUI_PORT:-8086}:8080"
     volumes:
       - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
@@ -184,7 +181,6 @@ services:
   midas-spark-worker:
     # bitnami/spark:3.5.1 fue movida al namespace bitnamilegacy.
     image: bitnamilegacy/spark:3.5.1
-    container_name: midas-spark-worker
     restart: unless-stopped
     profiles: ["lakehouse", "spark", "orchestration", "full"]
     depends_on:
@@ -195,12 +191,15 @@ services:
       - SPARK_MASTER_URL=spark://midas-spark-master:7077
       - SPARK_WORKER_MEMORY=${SPARK_WORKER_MEMORY:-1G}
       - SPARK_WORKER_CORES=${SPARK_WORKER_CORES:-1}
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-midas_minio_admin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      - AWS_REGION=us-east-1
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     ports:
-      - "${SPARK_WORKER_WEBUI_PORT:-8081}:8081"
+      - "127.0.0.1:${SPARK_WORKER_WEBUI_PORT:-8081}:8081"
     volumes:
       - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
@@ -214,7 +213,6 @@ services:
   # ----------------------------------------------------------------------------
   midas-opensearch:
     image: opensearchproject/opensearch:2.11.1
-    container_name: midas-opensearch
     restart: unless-stopped
     profiles: ["governance", "full"]
     environment:
@@ -230,7 +228,7 @@ services:
         soft: 65536
         hard: 65536
     ports:
-      - "${OPENSEARCH_PORT:-9200}:9200"
+      - "127.0.0.1:${OPENSEARCH_PORT:-9200}:9200"
     volumes:
       - opensearch_data:/usr/share/opensearch/data
     networks:
@@ -246,7 +244,6 @@ services:
   # antes de que arranque el servidor. Termina y no se reinicia.
   midas-openmetadata-migrate:
     image: docker.getcollate.io/openmetadata/server:1.5.11
-    container_name: midas-openmetadata-migrate
     restart: "no"
     profiles: ["governance", "full"]
     depends_on:
@@ -287,7 +284,6 @@ services:
 
   midas-openmetadata:
     image: docker.getcollate.io/openmetadata/server:1.5.11
-    container_name: midas-openmetadata
     restart: unless-stopped
     profiles: ["governance", "full"]
     depends_on:
@@ -295,8 +291,8 @@ services:
         condition: service_completed_successfully
     environment: *openmetadata-environment
     ports:
-      - "${OPENMETADATA_PORT:-8585}:8585"
-      - "${OPENMETADATA_ADMIN_PORT:-8586}:8586"
+      - "127.0.0.1:${OPENMETADATA_PORT:-8585}:8585"
+      - "127.0.0.1:${OPENMETADATA_ADMIN_PORT:-8586}:8586"
     networks:
       - midas-network
     healthcheck:
@@ -314,14 +310,19 @@ services:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
-    container_name: midas-api
     restart: unless-stopped
-    profiles: ["api", "full"]
+    profiles: ["api", "orchestration", "full"]
     depends_on:
       midas-postgres:
         condition: service_healthy
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      MIDAS_OPERATOR_TOKEN: ${MIDAS_OPERATOR_TOKEN:-}
+      MIDAS_TELEMETRY_TOKEN: ${MIDAS_TELEMETRY_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      TRINO_HOST: midas-trino
+      TRINO_PORT: "8080"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       DATABASE_URL: ${OPERATIONAL_DB_URL:-postgresql://midas_admin:midas_secret_password_2026@midas-postgres:5432/midas_operational}
       MINIO_ENDPOINT: http://midas-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
@@ -336,7 +337,7 @@ services:
       OPENMETADATA_SERVICE_ICEBERG: ${OPENMETADATA_SERVICE_ICEBERG:-midas_lakehouse_iceberg}
       OPENMETADATA_SERVICE_POSTGRES: ${OPENMETADATA_SERVICE_POSTGRES:-midas_operational_postgres}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     networks:
       - midas-network
 
@@ -347,7 +348,6 @@ services:
     build:
       context: .
       dockerfile: docker/airflow/Dockerfile
-    container_name: midas-airflow-init
     profiles: ["orchestration", "full"]
     depends_on:
       midas-postgres:
@@ -364,7 +364,7 @@ services:
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-midas_admin}:${POSTGRES_PASSWORD:-midas_secret_password_2026}@midas-postgres:5432/airflow_db
       AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 30
-      AIRFLOW_CONN_SPARK_DEFAULT: ${AIRFLOW_CONN_SPARK_DEFAULT:-spark://midas-spark-master:7077}
+      AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"${SPARK_MASTER_URL:-spark://midas-spark-master:7077}"}'
       AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-midas_airflow_admin_2026}
       AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@midas.local}
@@ -372,8 +372,16 @@ services:
       MINIO_ENDPOINT: http://midas-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      SPARK_CONF_DIR: /opt/midas/spark-conf
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-midas_minio_admin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      AWS_REGION: us-east-1
+      POSTGRES_OPERATIONAL_URL: jdbc:postgresql://midas-postgres:5432/midas_operational
+      POSTGRES_USER: ${POSTGRES_USER:-midas_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-midas_secret_password_2026}
       MIDAS_GOLD_SPARK_JOB: ${MIDAS_GOLD_SPARK_JOB:-/opt/midas/jobs/materialize_gold.py}
       MIDAS_TELEMETRY_PUBLISH_URL: http://midas-api:8000/api/v1/telemetry/publish
+      MIDAS_TELEMETRY_TOKEN: ${MIDAS_TELEMETRY_TOKEN:-}
       PYTHONPATH: /opt/midas
     volumes: &airflow-volumes
       - ./docker/airflow/init.sh:/opt/airflow/init.sh:ro
@@ -381,7 +389,7 @@ services:
       - ./src:/opt/midas/src:ro
       - ./jobs:/opt/midas/jobs:ro
       - ./docker/spark/jars:/opt/midas/spark-jars:ro
-      - ./docker/spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./docker/spark/conf/spark-defaults.conf:/opt/midas/spark-conf/spark-defaults.conf:ro
     networks:
       - midas-network
 
@@ -389,7 +397,6 @@ services:
     build:
       context: .
       dockerfile: docker/airflow/Dockerfile
-    container_name: midas-airflow-webserver
     restart: unless-stopped
     profiles: ["orchestration", "full"]
     depends_on:
@@ -399,7 +406,7 @@ services:
     environment: *airflow-environment
     volumes: *airflow-volumes
     ports:
-      - "${AIRFLOW_WEBSERVER_PORT:-8085}:8080"
+      - "127.0.0.1:${AIRFLOW_WEBSERVER_PORT:-8085}:8080"
     networks:
       - midas-network
 
@@ -407,7 +414,6 @@ services:
     build:
       context: .
       dockerfile: docker/airflow/Dockerfile
-    container_name: midas-airflow-scheduler
     restart: unless-stopped
     profiles: ["orchestration", "full"]
     depends_on:

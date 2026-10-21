@@ -1,4 +1,48 @@
 # Midas
+
+## Local startup after the integration audit
+
+The repository describes the target architecture. Ranger/Atlas enforcement,
+all Guardian playbooks and the canonical business marts are still incomplete.
+The local API currently supports one authenticated director account.
+
+1. Copy `.env.example` to `.env` if no local configuration exists. Generate two
+   different random tokens with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+   and set `MIDAS_OPERATOR_TOKEN` and `MIDAS_TELEMETRY_TOKEN` in that file.
+   Keep the database URL consistent with the configured database credentials.
+2. Validate with `docker compose --profile orchestration config --quiet`.
+3. For a **new local database**, run
+   `docker compose --profile orchestration up -d --build`.
+   This includes PostgreSQL, MinIO, Iceberg REST, Spark, Trino, the API and Airflow.
+   The first Spark job downloads pinned connectors from Maven Central.
+4. Run `npm ci` and `npm run dev` from the repository root. Open
+   `http://localhost:3000` and sign in with the operator token.
+   The browser uses `http://localhost:8000` for the API by default. Use the same
+   hostname for both applications so the login cookie reaches SSE requests.
+5. Airflow is at `http://localhost:8085`; Trino is at `http://localhost:8082`.
+   Ollama runs separately on the host, with `qwen2.5:3b` downloaded if using the model.
+
+For an **existing database**, initialization scripts will not run again. Back up
+the local database and apply these additive scripts before starting the updated API:
+
+```powershell
+Get-Content docker/postgres/02-init-sessions-schema.sql | docker compose exec -T midas-postgres psql -v ON_ERROR_STOP=1 -U midas_admin -d midas_operational
+Get-Content docker/postgres/03-init-telemetry.sql | docker compose exec -T midas-postgres psql -v ON_ERROR_STOP=1 -U midas_admin -d midas_operational
+```
+
+Use your configured PostgreSQL username in these commands. Never delete an
+existing volume to apply a schema update. Compose projects have separate names
+and volumes; an isolated project also needs different host ports in its env file.
+Images with old explicit container names may require a planned container recreation
+when upgrading; preserve their volumes.
+
+The `api` profile starts the query stack without Airflow/Spark. The `governance`
+profile adds OpenMetadata/OpenSearch; it does not provide Ranger/Atlas policies.
+All published service ports bind to localhost. These are development settings.
+
+Verification and remaining release gates:
+[audit repair report](documentation/done/other/infra-audit-integration-repairs-04.md).
+
 > **Enterprise Active Lakehouse & Conversational Intelligence Platform**  
 > Data Fabric Medallón con Gobernanza Zero-Trust, Resiliencia Activa (Midas Guardian), Observabilidad en Tiempo Real y Copiloto Agéntico Dialógico
 

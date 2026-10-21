@@ -10,6 +10,25 @@
 
 ## 1. Visión General del MVP Dorado
 
+### Audit repair: local access and startup
+
+The local API requires a randomly generated `MIDAS_OPERATOR_TOKEN` of at least
+32 characters. It identifies the local director account and can be exchanged
+at `POST /api/v1/auth/login` for an HttpOnly session cookie. Caller role headers
+are not authentication. Pipeline publishers use a separate
+`MIDAS_TELEMETRY_TOKEN`, accepted only on the telemetry publication endpoint.
+This access gate does not implement Ranger/Atlas; restricted-role analytical
+access remains unavailable until the intended query policies are installed.
+
+Use `docker compose --profile orchestration up -d --build` for the pipeline
+services, and `--profile full` to include OpenMetadata/OpenSearch. Run the web
+client separately with `npm ci` and `npm run dev`. The API, storage, and service
+UI ports bind to localhost. Compose owns network and volume names so an audit
+project can use a different `-p` name and port overrides without sharing data.
+Existing PostgreSQL volumes need the new SQL migrations applied explicitly;
+initialization scripts run automatically only for a fresh volume.
+
+
 El **MVP Dorado** de Midas es una plataforma unificada que demuestra la convergencia de:
 1. Un **Lakehouse Medallón** (MinIO S3 + Apache Iceberg + Apache Spark) con ingesta universal adaptable.
 2. Un motor de **Gobernanza Zero-Trust Activa** (OpenMetadata, Apache Atlas y Apache Ranger) con auto-clasificación de datos sensibles y control de accesos en caliente.

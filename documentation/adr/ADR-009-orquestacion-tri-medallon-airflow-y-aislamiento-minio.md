@@ -74,6 +74,30 @@ silver:
 
 ## 3. Consecuencias
 
+### Audit repair details
+
+Airflow explicitly loads `/opt/midas/spark-conf/spark-defaults.conf` and runs
+Python drivers in the scheduler container. Executors connect to that scheduler
+on the private Docker network. Spark 3.5.1 uses the Scala 2.12 Iceberg 1.5.0
+runtime and AWS bundle, Hadoop S3A 3.3.4, and PostgreSQL JDBC 42.7.3 through
+Spark's package resolver. The first job needs access to Maven Central.
+The Spark connection uses JSON with the full `spark://host:port` as its host;
+a plain `spark://host:port` connection URI loses the protocol during parsing.
+
+Only ingestion is scheduled for a connection. Successful ingestion triggers its
+cleaning DAG with the same batch identifier; Gold waits for the Silver datasets
+it reads. Each destination has a single active writer and bounded retries.
+Bronze batches have stable paths and a completion manifest written after the
+Parquet commit. Cleaning reads completed batches only and deduplicates explicit
+business keys before replacing the connection-owned Silver table. Telemetry
+failure must not repeat a committed data write.
+
+Registration stores complete runtime configuration in PostgreSQL and publishes
+its YAML contract to MinIO. Incomplete registrations remain inactive. A storage
+or database failure is reported instead of silently accepting an active source.
+Credentials are environment references, never inline passwords or tokens.
+
+
 ### Positivas:
 - **Auditabilidad Humana Completa:** Cualquier usuario o auditor puede abrir la interfaz web de Airflow (puerto 8085) y verificar el estado, historial, tiempos de ejecución y logs de cada fase desde la ingesta cruda hasta el reporte final.
 - **Tolerancia a Fallos e Independencia de Fuentes:** Si una fuente externa sufre una interrupción o envía datos corruptos, solo su DAG particular (`dag_ingest_<conn_id>`) y su ruta de cuarentena se ven afectados; las demás fuentes y marts continúan operando normalmente.

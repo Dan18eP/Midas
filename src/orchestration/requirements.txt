@@ -5,3 +5,4 @@ pyspark>=3.5.0,<3.6.0
 minio>=7.2.0,<8.0.0
 PyYAML>=6.0,<7.0
 sqlglot>=26.0,<28.0
+openpyxl>=3.1,<4.0

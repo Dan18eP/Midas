@@ -4,59 +4,25 @@ import argparse
 import json
 import os
 import urllib.request
-import uuid
+import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from pyspark.sql import SparkSession, functions as F, types as T
+from pyspark.sql.window import Window
+from runtime import completed_paths, read_manifest, publish_event, prepare_namespaces, normalize_amount, normalize_date
 
 
-def normalize_amount(value):
-    if value is None:
-        return None
-    try:
-        text = str(value).strip().replace(",", "")
-        parenthesized = text.startswith("(") and text.endswith(")")
-        cleaned = "".join(c for c in text if c.isdigit() or c in ".-")
-        if parenthesized and not cleaned.startswith("-"):
-            cleaned = f"-{cleaned}"
-        return Decimal(cleaned).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def normalize_date(value):
-    if value is None:
-        return None
-    text = str(value).strip().replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(text)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    except ValueError:
-        for pattern in ("%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d-%m-%Y %H:%M:%S", "%d/%m/%Y", "%d-%m-%Y"):
-            try:
-                return datetime.strptime(text, pattern).replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except ValueError:
-                continue
-        return None
-
-
-def publish(spec: dict, status: str, count: int = 0, detail: str = "", records_out: int | None = None) -> None:
-    event = {"pipeline_id": f"dag_clean_{spec['conn_id']}", "node_id": f"silver_{spec['conn_id']}",
-             "status": status, "records_in": count, "records_out": count if records_out is None else records_out,
-             "details": {"event_type": "SILVER_QUALITY_GATE", "message": detail}}
-    request = urllib.request.Request(os.getenv("MIDAS_TELEMETRY_PUBLISH_URL", "http://midas-api:8000/api/v1/telemetry/publish"),
-                                     data=json.dumps(event).encode(), headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(request, timeout=10):
-        pass
+def publish(spec: dict, status: str, count: int = 0, detail: str = "", records_out: int | None = None, quarantined: int = 0) -> None:
+    publish_event(f"dag_clean_{spec['conn_id']}", f"silver_{spec['conn_id']}", status, count, detail, records_out, {"quarantined_records": quarantined, "event_type": "SILVER_QUALITY_GATE"})
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec-json", required=True)
-    spec = json.loads(parser.parse_args().spec_json)
+    parser.add_argument("--batch-id", required=True)
+    args = parser.parse_args()
+    spec = json.loads(args.spec_json)
     silver = spec["silver"]
     bronze_path = spec.get("bronze", {}).get("path", f"s3a://midas-bronze/sources/{spec['conn_id']}/")
     quarantine_path = silver.get("quarantine_path", f"s3a://midas-quarantine/incidents/{spec['conn_id']}/")
@@ -64,20 +30,26 @@ def main() -> None:
     count = 0
     publish(spec, "RUNNING", detail="silver quality gate started")
     try:
-        source = spark.read.parquet(bronze_path)
+        if not read_manifest(spec, args.batch_id):
+            raise ValueError("The upstream Bronze batch has not committed")
+        prepare_namespaces(spark)
+        source = spark.read.option("mergeSchema", True).parquet(*completed_paths(spec))
         count = source.count()
         transformed = source
-        amount_fields = silver.get("amount_fields", ["monto", "total_amount", "monto_bruto"])
-        date_fields = silver.get("date_fields", ["fecha_transaccion", "fecha_pedido", "_ingested_at"])
-        keys = silver.get("primary_key_fields", ["transaccion_id", "pedido_id", "_raw_id"])
+        amount_fields = silver.get("amount_fields", [])
+        date_fields = silver.get("date_fields", [])
+        keys = silver.get("primary_key_fields", ["_raw_payload_hash"])
+        missing = set(keys + amount_fields + date_fields) - set(source.columns)
+        if missing:
+            raise ValueError(f"Required columns are missing: {sorted(missing)}")
         for field in amount_fields:
             if field in transformed.columns:
                 value_fn = F.udf(normalize_amount, T.DecimalType(18, 2))
-                transformed = transformed.withColumn(field, value_fn(F.col(field)))
+                transformed = transformed.withColumn(field, value_fn(F.col(field)).cast("decimal(18,2)"))
         for field in date_fields:
             if field in transformed.columns:
                 date_fn = F.udf(normalize_date, T.StringType())
-                transformed = transformed.withColumn(field, date_fn(F.col(field)))
+                transformed = transformed.withColumn(field, date_fn(F.col(field)).cast("timestamp"))
 
         invalid = F.lit(False)
         key_invalid = F.lit(False)
@@ -105,16 +77,20 @@ def main() -> None:
         invalid_rows = (transformed.filter(invalid)
                         .withColumn("failure_reason", reason)
                         .withColumn("source_name", F.lit(spec["conn_id"]))
-                        .withColumn("raw_data", F.to_json(F.struct(*raw_columns)))
+                        .withColumn("raw_data", F.col("_raw_payload"))
                         .withColumn("quarantine_id", F.expr("uuid()"))
                         .withColumn("quarantined_at", F.current_timestamp()))
-        valid_rows = transformed.filter(~invalid)
+        # The same business key always chooses the newest row, including on retry.
+        window = Window.partitionBy(*keys).orderBy(F.col("_ingested_at").desc(), F.col("_raw_payload_hash").desc())
+        valid_rows = (transformed.filter(~invalid).withColumn("_rank", F.row_number().over(window))
+                      .filter(F.col("_rank") == 1).drop("_rank"))
         invalid_count = invalid_rows.count()
-        if invalid_count:
-            invalid_rows.write.mode("append").parquet(quarantine_path)
-        valid_rows.writeTo(silver["table"]).using("iceberg").createOrReplace()
+        invalid_rows.write.mode("overwrite").parquet(quarantine_path)
+        if transformed.filter(amount_invalid).limit(1).count():
+            raise ValueError("SCHEMA_DRIFT: invalid monetary types; Silver publication blocked")
+        valid_rows.writeTo(silver["table"]).using("iceberg").tableProperty("format-version", "2").createOrReplace()
         publish(spec, "AUTO_HEALING" if invalid_count else "HEALTHY", count,
-                f"{invalid_count} records quarantined at {quarantine_path}", count - invalid_count)
+                f"{invalid_count} records quarantined at {quarantine_path}", valid_rows.count(), invalid_count)
     except Exception as exc:
         publish(spec, "ERROR", count, str(exc)[:500])
         raise

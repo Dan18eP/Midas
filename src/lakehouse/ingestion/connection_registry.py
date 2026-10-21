@@ -12,6 +12,9 @@ import re
 import threading
 from typing import Any, Dict, List, Optional
 import uuid
+import yaml
+
+from src.lakehouse.ingestion.source_contract import build_source_contract
 
 from src.lakehouse.models.connection import (
     SourceType,
@@ -30,14 +33,18 @@ class SourceConnectionRegistry:
     y memoria volátil para pruebas unitarias herméticas.
     """
 
-    def __init__(self, db_url: Optional[str] = None):
+    def __init__(self, db_url: Optional[str] = None, storage=None):
         self.db_url = db_url or os.getenv("OPERATIONAL_DB_URL") or os.getenv("DATABASE_URL")
         self._lock = threading.Lock()
         self._memory_store: Dict[str, Dict[str, Any]] = {}
         self._name_index: Dict[str, str] = {}  # name.lower() -> connection_id
+        self.storage = storage
 
         # Semilla canónica en memoria para funcionamiento sin DB
-        self._seed_default_connections()
+        if self.db_url:
+            self._reload_from_postgres()
+        else:
+            self._seed_default_connections()
 
     def _seed_default_connections(self) -> None:
         """Inicializa las conexiones canónicas de Midas."""
@@ -88,7 +95,7 @@ class SourceConnectionRegistry:
         token = uuid.uuid4().hex[:6]
         return f"conn_{source_type.value.lower()}_{slug}_{token}"
 
-    def register_connection(self, create_dto: SourceConnectionCreate) -> SourceConnectionResponse:
+    def register_connection(self, create_dto: SourceConnectionCreate, connection_id=None) -> SourceConnectionResponse:
         """
         Registra una nueva conexión en el catálogo operacional.
         Lanza ValueError si el nombre ya existe.
@@ -98,9 +105,13 @@ class SourceConnectionRegistry:
 
         with self._lock:
             if normalized_name in self._name_index:
-                raise ValueError(f"Ya existe una conexión registrada con el nombre '{clean_name}'.")
+                previous = self._memory_store[self._name_index[normalized_name]]
+                if previous["status"] in {"FAILED", "TESTING"} and previous["config_payload"] == create_dto.config_payload:
+                    connection_id = previous["connection_id"]
+                else:
+                    raise ValueError(f"Ya existe una conexión registrada con el nombre '{clean_name}'.")
 
-            connection_id = self._generate_connection_id(create_dto.source_type, clean_name)
+            connection_id = connection_id or self._generate_connection_id(create_dto.source_type, clean_name)
             now_iso = datetime.now(timezone.utc).isoformat()
 
             record_dict = {
@@ -112,16 +123,27 @@ class SourceConnectionRegistry:
                 "created_at": now_iso,
             }
 
-            # Guardar en memoria
+            contract = build_source_contract(record_dict)
+            record_dict["status"] = "TESTING" if contract else "INACTIVE"
+            if self.db_url:
+                self._persist_to_postgres(record_dict)
+            if contract and (self.db_url or self.storage is not None):
+                from src.lakehouse.storage.minio_client import MidasMinioClient
+
+                client = self.storage or MidasMinioClient()
+                try:
+                    client.put_object("midas-governance", f"source-contracts/{connection_id}.yaml",
+                                      yaml.safe_dump(contract).encode(), content_type="application/yaml")
+                except Exception:
+                    record_dict["status"] = "FAILED"
+                    if self.db_url:
+                        self._persist_to_postgres(record_dict)
+                    raise RuntimeError("Could not publish the source contract") from None
+            record_dict["status"] = "ACTIVE" if contract else "INACTIVE"
+            if self.db_url:
+                self._persist_to_postgres(record_dict)
             self._memory_store[connection_id] = record_dict
             self._name_index[normalized_name] = connection_id
-
-            # Persistencia opcional en PostgreSQL si está disponible
-            if self.db_url and "postgresql" in self.db_url:
-                try:
-                    self._persist_to_postgres(record_dict)
-                except Exception as exc:
-                    logger.warning("No se pudo escribir en PostgreSQL operacional (usando fallback en memoria): %s", exc)
 
             logger.info("Conexión registrada exitosamente: ID=%s, Nombre='%s'", connection_id, clean_name)
             return SourceConnectionResponse.from_dict(record_dict)
@@ -132,6 +154,8 @@ class SourceConnectionRegistry:
         status: Optional[ConnectionStatus] = None,
     ) -> List[SourceConnectionResponse]:
         """Lista todas las conexiones registradas con filtrado opcional."""
+        if self.db_url:
+            self._reload_from_postgres()
         with self._lock:
             records = list(self._memory_store.values())
 
@@ -147,6 +171,8 @@ class SourceConnectionRegistry:
 
     def get_connection(self, connection_id: str) -> Optional[SourceConnectionResponse]:
         """Obtiene una conexión por su identificador único."""
+        if self.db_url:
+            self._reload_from_postgres()
         with self._lock:
             data = self._memory_store.get(connection_id)
         if not data:
@@ -172,7 +198,7 @@ class SourceConnectionRegistry:
                 text("""
                     INSERT INTO source_connections (connection_id, name, source_type, config_payload, status)
                     VALUES (:cid, :name, :stype, :payload, :status)
-                    ON CONFLICT (connection_id) DO NOTHING
+                    ON CONFLICT (connection_id) DO UPDATE SET status = EXCLUDED.status
                 """),
                 {
                     "cid": record["connection_id"],
@@ -182,6 +208,20 @@ class SourceConnectionRegistry:
                     "status": record["status"],
                 }
             )
+        engine.dispose()
+
+    def _reload_from_postgres(self):
+        from sqlalchemy import create_engine, text
+
+        engine = create_engine(self.db_url, connect_args={"connect_timeout": 3})
+        try:
+            with engine.connect() as connection:
+                records = [dict(row) for row in connection.execute(text("SELECT * FROM source_connections")).mappings()]
+            with self._lock:
+                self._memory_store = {row["connection_id"]: row for row in records}
+                self._name_index = {row["name"].strip().lower(): row["connection_id"] for row in records}
+        finally:
+            engine.dispose()
 
 
 # Instancia Singleton Global

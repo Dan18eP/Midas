@@ -35,8 +35,9 @@ from src.lakehouse.ingestion.universal_engine import (
 
 
 @pytest.fixture(autouse=True)
-def clean_registry():
+def clean_registry(monkeypatch):
     """Reinicia el singleton del registro de conexiones antes de cada prueba."""
+    monkeypatch.setattr("src.lakehouse.storage.minio_client.MidasMinioClient.put_object", lambda *args, **kwargs: "test-etag")
     reset_connection_registry()
     yield
     reset_connection_registry()
@@ -63,9 +64,9 @@ def test_connection_registration_all_types():
     registry = get_connection_registry()
 
     types_to_test = [
-        (SourceType.POSTGRES, "Base de Datos Logística PG", {"host": "pg-logistics", "db": "logistics"}),
-        (SourceType.EXCEL, "Reporte Ventas Excel 2026", {"file_path": "data/ventas.xlsx"}),
-        (SourceType.CSV, "Catálogo Productos CSV", {"delimiter": ",", "encoding": "utf-8"}),
+        (SourceType.POSTGRES, "Base de Datos Logística PG", {"host": "pg-logistics", "db": "logistics", "table": "orders"}),
+        (SourceType.EXCEL, "Reporte Ventas Excel 2026", {"file_path": "s3://midas-bronze/uploads/ventas.xlsx"}),
+        (SourceType.CSV, "Catálogo Productos CSV", {"source": {"path": "s3://midas-bronze/uploads/catalog.csv"}, "delimiter": ",", "encoding": "utf-8"}),
         (SourceType.REST, "API Proveedores REST", {"url": "https://api.suppliers.io/v1"}),
     ]
 

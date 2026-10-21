@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import yaml
@@ -45,6 +45,10 @@ def build_dynamic_dags(specs: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         from airflow import DAG
         from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+        from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+        from airflow import Dataset
+        from airflow.timetables.datasets import DatasetOrTimeSchedule
+        from airflow.timetables.trigger import CronTriggerTimetable
     except ImportError:
         return {}
 
@@ -60,28 +64,54 @@ def build_dynamic_dags(specs: list[dict[str, Any]]) -> dict[str, Any]:
             ):
                 dag_id = f"dag_{stage}_{conn_id}"
                 # A fixed UTC start date lets Airflow register each scheduled DAG.
-                dag = DAG(dag_id=dag_id, schedule=spec["cron_schedule"], start_date=START_DATE,
-                          catchup=False, tags=tags)
+                dag = DAG(dag_id=dag_id, schedule=spec["cron_schedule"] if stage == "ingest" else None,
+                          start_date=START_DATE, max_active_runs=1,
+                          default_args={"retries": 2, "retry_delay": timedelta(seconds=2),
+                                        "retry_exponential_backoff": True}, catchup=False, tags=tags)
                 with dag:
-                    SparkSubmitOperator(
+                    task = SparkSubmitOperator(
                         task_id=f"spark_{stage}_{conn_id}",
                         application=os.path.join(jobs_dir, job_file),
                         conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
-                        application_args=["--spec-json", json.dumps(spec)],
+                        properties_file="/opt/midas/spark-conf/spark-defaults.conf",
+                        py_files=os.path.join(jobs_dir, "runtime.py"),
+                        conf={"spark.driver.host": "midas-airflow-scheduler", "spark.driver.bindAddress": "0.0.0.0"},
+                        application_args=["--spec-json", json.dumps(spec), "--batch-id",
+                                          "{{ dag_run.conf.get('batch_id', run_id) }}"],
+                        outlets=[Dataset(spec["silver"]["table"])] if stage == "clean" else [],
                     )
+                    if stage == "ingest":
+                        trigger = TriggerDagRunOperator(
+                            task_id="start_silver", trigger_dag_id=f"dag_clean_{conn_id}",
+                            trigger_run_id="{{ run_id }}", reset_dag_run=True,
+                            conf={"batch_id": "{{ dag_run.conf.get('batch_id', run_id) }}"},
+                        )
+                        task >> trigger
                 dags[dag_id] = dag
             continue
 
         pipeline_id = spec["pipeline_id"]
         dag_id = f"dag_gold_{pipeline_id}"
         # A fixed UTC start date lets Airflow register each scheduled DAG.
-        dag = DAG(dag_id=dag_id, schedule=spec["cron_schedule"], start_date=START_DATE,
+        tables = sorted({f"{table.db}.{table.name}" for table in
+                         sqlglot.parse_one(spec["transform_sql"], read="trino").find_all(exp.Table)
+                         if table.db == "silver"})
+        dag = DAG(dag_id=dag_id, schedule=DatasetOrTimeSchedule(
+                      timetable=CronTriggerTimetable(spec["cron_schedule"], timezone="UTC"),
+                      datasets=[Dataset(table) for table in tables],
+                  ) if tables else spec["cron_schedule"],
+                  start_date=START_DATE, max_active_runs=1,
+                  default_args={"retries": 2, "retry_delay": timedelta(seconds=2),
+                                "retry_exponential_backoff": True},
                   catchup=False, tags=["midas", "gold", "dynamic"])
         with dag:
             SparkSubmitOperator(
                 task_id="spark_materialize_gold",
                 application=os.getenv("MIDAS_GOLD_SPARK_JOB", os.path.join(jobs_dir, "materialize_gold.py")),
                 conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
+                properties_file="/opt/midas/spark-conf/spark-defaults.conf",
+                py_files=os.path.join(jobs_dir, "runtime.py"),
+                conf={"spark.driver.host": "midas-airflow-scheduler", "spark.driver.bindAddress": "0.0.0.0"},
                 application_args=["--spec-json", json.dumps(spec)],
             )
         dags[dag_id] = dag
@@ -100,7 +130,7 @@ def _validate_spec(spec: Any) -> None:
         clean = spec.get("silver")
         if not isinstance(source, dict) or not isinstance(clean, dict):
             raise ValueError("Connection contract needs source and silver sections")
-        if source.get("type") not in {"postgres", "csv", "rest_api"}:
+        if source.get("type") not in {"postgres", "csv", "excel", "rest_api"}:
             raise ValueError("Unsupported governed source type")
         if not source.get("table") and source.get("type") == "postgres":
             raise ValueError("PostgreSQL source needs a table")
@@ -108,8 +138,8 @@ def _validate_spec(spec: Any) -> None:
             for name in (source.get("schema", "public"), source["table"]):
                 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(name)):
                     raise ValueError("PostgreSQL table and schema must be simple identifiers")
-        if not source.get("path") and source.get("type") == "csv":
-            raise ValueError("CSV source needs a path")
+        if not source.get("path") and source.get("type") in {"csv", "excel"}:
+            raise ValueError("File source needs a path")
         if not source.get("url") and source.get("type") == "rest_api":
             raise ValueError("REST source needs a URL")
         if not re.fullmatch(r"silver\.[a-z0-9_]+", str(clean.get("table", ""))):
@@ -134,6 +164,8 @@ def _validate_spec(spec: Any) -> None:
         raise ValueError("Gold pipeline id is invalid")
     if not re.fullmatch(r"gold\.[a-z0-9_]+", spec["output_table"]):
         raise ValueError("Output table must be in the Gold schema")
+    if spec["output_table"] != "gold." + spec["pipeline_id"].removeprefix("gold_"):
+        raise ValueError("Each Gold pipeline must own its output table")
     try:
         statements = sqlglot.parse(spec["transform_sql"], read="trino")
     except sqlglot.errors.ParseError as exc:

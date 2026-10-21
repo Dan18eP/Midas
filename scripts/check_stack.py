@@ -120,7 +120,7 @@ def main():
     all_passed &= validate_docker_compose_syntax()
 
     print(f"\n{BOLD}4. Estado del Motor Docker:{RESET}")
-    check_docker_daemon()
+    all_passed &= check_docker_daemon()
 
     print(f"\n{BOLD}5. Inspección de Puertos Base en Localhost:{RESET}")
     check_port_availability(5432, "PostgreSQL")
