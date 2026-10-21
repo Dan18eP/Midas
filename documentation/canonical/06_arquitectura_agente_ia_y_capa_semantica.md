@@ -124,6 +124,23 @@ El proveedor de introspección entrega cada tabla como nombre calificado y su
 lista de columnas. Si el catálogo no está disponible o no contiene columnas,
 no se genera ni ejecuta una consulta analítica.
 
+#### Enrutamiento local de modelos (ADR-008 / HU-AI-05)
+
+El `ModelRouter` usa Ollama con `qwen2.5:3b` como proveedor primario y acepta
+únicamente los endpoints locales `http://midas-ollama:11434` o
+`http://host.docker.internal:11434`. No configura ni intenta proveedores cloud.
+Ante indisponibilidad, timeout o respuesta inutilizable de Ollama, genera SQL
+con plantillas determinísticas y SQLGlot, limitadas a intenciones analíticas
+precatalogadas (conteo, suma, promedio y filtros categóricos aprobados) y a
+tablas/columnas presentes en el catálogo activo. Si la tabla, métrica o
+intención es ambigua o requiere cruces, falla sin ejecutar una consulta.
+
+Los prompts de Text-to-Gold para Qwen reciben el catálogo permitido, solicitan
+una única consulta Trino sin prosa y recuerdan las reglas de solo lectura. Toda
+salida, incluida la del fallback, pasa por el mismo `QueryGuardrail`: solo
+`SELECT`, capas `silver`/`gold`, validación de tablas y columnas e inyección de
+`LIMIT 1000`.
+
 ### 3.4. `TrinoExecutorNode`
 - Ejecuta la consulta en Trino pasando la cabecera `X-Trino-User` con el rol actual del Lente Zero-Trust (ej. `director_general`, `gerente_norte`, `analista_externo`).
 - Ranger intercepta y aplica las políticas de enmascaramiento y filtrado de forma transparente.
