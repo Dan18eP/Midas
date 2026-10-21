@@ -351,3 +351,80 @@ def test_quarantine_isolated_paths():
     saved_key = list(mock_minio.objects.keys())[0]
     saved_data = json.loads(mock_minio.objects[saved_key]["data"].decode("utf-8"))
     assert saved_data["error_type"] == "NEGATIVE_AMOUNT"
+
+
+# ==============================================================================
+# 5. Tests del Endpoint de Carga de Archivos Binarios (POST /connections/upload)
+# ==============================================================================
+
+def test_upload_file_csv_success():
+    """Valida la carga multipart/form-data de un archivo CSV y registro automático."""
+    client = TestClient(app)
+    csv_content = b"id,producto,precio,categoria\n1,Laptop,1200.50,Tecnologia\n2,Mouse,25.00,Accesorios\n"
+
+    response = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("ventas_octubre.csv", io.BytesIO(csv_content), "text/csv")},
+        data={"name": "Ventas Octubre 2026 CSV"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+
+    assert data["connection_id"].startswith("conn_csv_")
+    assert data["source_type"] == "CSV"
+    assert data["detected_columns"] == ["id", "producto", "precio", "categoria"]
+    assert len(data["sample_rows"]) == 2
+    assert "s3://midas-bronze/sources/" in data["storage_uri"]
+
+    # Verificar que quedó registrado en el ConnectionRegistry
+    reg = get_connection_registry()
+    saved = reg.get_connection(data["connection_id"])
+    assert saved is not None
+    assert saved.name == "Ventas Octubre 2026 CSV"
+
+
+def test_upload_file_excel_success():
+    """Valida la carga multipart/form-data de un archivo Excel (.xlsx) y extracción de hojas."""
+    import openpyxl
+
+    client = TestClient(app)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Presupuesto2026"
+    ws.append(["codigo", "departamento", "monto_asignado"])
+    ws.append(["DP-01", "Finanzas", 500000.0])
+    ws.append(["DP-02", "Operaciones", 850000.0])
+
+    excel_buf = io.BytesIO()
+    wb.save(excel_buf)
+    excel_bytes = excel_buf.getvalue()
+
+    response = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("presupuesto_q4.xlsx", io.BytesIO(excel_bytes), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"name": "Presupuesto Q4 2026 Excel"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+
+    assert data["connection_id"].startswith("conn_excel_")
+    assert data["source_type"] == "EXCEL"
+    assert data["detected_columns"] == ["codigo", "departamento", "monto_asignado"]
+    assert "Presupuesto2026" in data["sheets"]
+    assert len(data["sample_rows"]) == 2
+    assert "s3://midas-bronze/sources/" in data["storage_uri"]
+
+
+def test_upload_file_unsupported_format_rejected():
+    """Valida el rechazo con HTTP 400 para extensiones no soportadas."""
+    client = TestClient(app)
+    bad_content = b"%PDF-1.4 dummy binary content"
+
+    response = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("documento.pdf", io.BytesIO(bad_content), "application/pdf")},
+        data={"name": "Reporte PDF Invalido"},
+    )
+    assert response.status_code == 400
+    assert "no soportado" in response.json()["detail"]
