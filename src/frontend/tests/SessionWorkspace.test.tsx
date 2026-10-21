@@ -220,7 +220,10 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
 
       await waitFor(() => {
         expect(screen.getByText('Hoy')).toBeInTheDocument();
-        expect(screen.getByText('Ayer')).toBeInTheDocument();
+        // 'Ayer' puede aparecer dos veces: como etiqueta del grupo cronológico y
+        // como tiempo relativo de una sesión actualizada ayer (>24h transcurridas).
+        // La aserción valida la existencia del grupo sin depender de la hora de ejecución.
+        expect(screen.getAllByText('Ayer').length).toBeGreaterThanOrEqual(1);
       });
 
       expect(
