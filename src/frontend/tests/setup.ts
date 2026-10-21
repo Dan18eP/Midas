@@ -33,6 +33,8 @@ if (typeof HTMLCanvasElement !== 'undefined') {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     scale: vi.fn(),
+    setTransform: vi.fn(),
+    resetTransform: vi.fn(),
     fillRect: vi.fn(),
     measureText: vi.fn().mockReturnValue({ width: 0 }),
     getImageData: vi.fn().mockReturnValue({ data: [] }),

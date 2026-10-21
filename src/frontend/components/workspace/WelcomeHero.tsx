@@ -21,6 +21,7 @@ import {
 import { PROFILES, type ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 import { QuickConnectionModal, type QuickSourceType } from './QuickConnectionModal';
 import { SourceActionMenu } from '@/components/copilot/SourceActionMenu';
+import { ChatParticleBackground } from '@/components/copilot/ChatParticleBackground';
 
 interface WelcomeHeroProps {
   securityRole?: ZeroTrustRole;
@@ -57,9 +58,12 @@ export function WelcomeHero({
   };
 
   return (
-    <div className="relative flex min-h-full w-full flex-col items-center justify-center px-4 py-8 bg-[#FBF8EF]/30 text-[#1C1E21] antialiased">
+    <div className="relative flex min-h-full w-full flex-col items-center justify-center px-4 py-8 bg-[#FBF8EF]/30 text-[#1C1E21] antialiased overflow-hidden">
       {/* Background Subtle Gradient & Grid Pattern */}
       <div className="absolute inset-0 bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:24px_24px] opacity-15 pointer-events-none" />
+
+      {/* Fondo Animado Aether Flow Midas (Partículas doradas en canvas transparente) */}
+      <ChatParticleBackground maxParticles={60} />
 
       <div className="relative z-10 w-full max-w-3xl flex flex-col items-center text-center space-y-6">
         {/* Zero-Trust Badge */}

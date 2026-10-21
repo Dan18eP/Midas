@@ -5,8 +5,8 @@
  *
  * Adaptado exclusivamente para el modo claro y la colorimetría de Midas (Oro y Marfil).
  * Características técnicas:
- * - HTML5 Canvas transparente con 60 FPS acelerado por GPU (sin librerías pesadas).
- * - Partículas sutiles en tonos dorado / amarillo suave (#D4AF37 / #B8860B).
+ * - HTML5 Canvas transparente con 60 FPS acelerado por GPU.
+ * - Partículas sutiles pero claramente visibles en tonos dorado / amarillo Midas (#D4AF37 / #B8860B).
  * - Conexiones de líneas finas inter-partículas basadas en proximidad.
  * - Reacción suave al cursor mediante fuerza elástica de repulsión.
  * - Densidad acotada adaptativa con ResizeObserver y soporte HiDPI (devicePixelRatio).
@@ -19,11 +19,11 @@ import React, { useEffect, useRef } from 'react';
 
 export interface ChatParticleBackgroundProps {
   className?: string;
-  /** Cantidad máxima de partículas (por defecto 45 para máxima ligereza y fluidez) */
+  /** Cantidad máxima de partículas (por defecto 55 para fluidez y presencia estética) */
   maxParticles?: number;
-  /** Distancia máxima en píxeles para trazar una línea de conexión (por defecto 100) */
+  /** Distancia máxima en píxeles para trazar una línea de conexión (por defecto 110) */
   connectionDistance?: number;
-  /** Radio de influencia del cursor (por defecto 110) */
+  /** Radio de influencia del cursor (por defecto 120) */
   mouseRadius?: number;
 }
 
@@ -34,22 +34,21 @@ interface Particle {
   vy: number;
   radius: number;
   color: string;
-  baseAlpha: number;
 }
 
-// Paleta de partículas: Tonos dorado / amarillo suave Midas en armonía con el modo claro
+// Paleta de partículas: Tonos dorado / amarillo Midas optimizados para alto contraste elegante en fondo claro
 const GOLD_COLORS = [
-  { r: 212, g: 175, b: 55, alpha: 0.38 },  // #D4AF37 (Oro claro)
-  { r: 184, g: 134, b: 11, alpha: 0.32 },  // #B8860B (Oro clásico)
-  { r: 228, g: 196, b: 98, alpha: 0.42 },  // Oro suave luminoso
-  { r: 196, g: 154, b: 42, alpha: 0.30 },  // Oro medio atenuado
+  { r: 184, g: 134, b: 11, alpha: 0.85 },  // #B8860B (Oro Midas clásico)
+  { r: 212, g: 175, b: 55, alpha: 0.78 },  // #D4AF37 (Oro metálico claro)
+  { r: 217, g: 155, b: 38, alpha: 0.80 },  // Ámbar dorado luminoso
+  { r: 196, g: 140, b: 20, alpha: 0.72 },  // Ocre dorado profundo
 ];
 
 export function ChatParticleBackground({
   className = '',
-  maxParticles = 45,
-  connectionDistance = 100,
-  mouseRadius = 110,
+  maxParticles = 55,
+  connectionDistance = 110,
+  mouseRadius = 120,
 }: ChatParticleBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,13 +87,13 @@ export function ChatParticleBackground({
 
     const createParticles = (w: number, h: number) => {
       // Densidad ajustada proporcionalmente al área del contenedor
-      const count = Math.min(maxParticles, Math.max(18, Math.floor((w * h) / 11000)));
+      const count = Math.min(maxParticles, Math.max(22, Math.floor((w * h) / 9500)));
       const result: Particle[] = [];
 
       for (let i = 0; i < count; i++) {
         const colorConfig = GOLD_COLORS[i % GOLD_COLORS.length];
-        // Velocidades lentas y sutiles (0.12 a 0.35 px/frame)
-        const speed = 0.12 + Math.random() * 0.23;
+        // Velocidades lentas y constantes (0.15 a 0.38 px/frame)
+        const speed = 0.15 + Math.random() * 0.23;
         const angle = Math.random() * Math.PI * 2;
 
         result.push({
@@ -102,9 +101,8 @@ export function ChatParticleBackground({
           y: Math.random() * h,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
-          radius: 1.1 + Math.random() * 0.9, // 1.1px a 2.0px
+          radius: 1.5 + Math.random() * 1.5, // 1.5px a 3.0px
           color: `rgba(${colorConfig.r}, ${colorConfig.g}, ${colorConfig.b}, ${colorConfig.alpha})`,
-          baseAlpha: colorConfig.alpha,
         });
       }
 
@@ -113,18 +111,26 @@ export function ChatParticleBackground({
 
     const updateDimensions = () => {
       const rect = container.getBoundingClientRect();
-      const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      const parentRect = container.parentElement?.getBoundingClientRect();
 
-      width = rect.width;
-      height = rect.height;
+      const newWidth = Math.floor(rect.width || parentRect?.width || container.clientWidth || 0);
+      const newHeight = Math.floor(rect.height || parentRect?.height || container.clientHeight || 0);
 
-      if (width === 0 || height === 0) return;
+      if (newWidth === 0 || newHeight === 0) return;
+
+      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+
+      width = newWidth;
+      height = newHeight;
 
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
+      if (typeof ctx.setTransform === 'function') {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
       ctx.scale(dpr, dpr);
 
       // Reubicar o inicializar partículas dentro de las nuevas dimensiones
@@ -143,8 +149,11 @@ export function ChatParticleBackground({
     // Render loop de animación
     const render = () => {
       if (width === 0 || height === 0) {
-        animationFrameId = requestAnimationFrame(render);
-        return;
+        updateDimensions();
+        if (width === 0 || height === 0) {
+          animationFrameId = requestAnimationFrame(render);
+          return;
+        }
       }
 
       // Fondo estrictamente transparente (sin overlays oscuros)
@@ -165,14 +174,14 @@ export function ChatParticleBackground({
 
           if (distSq < maxDistSq) {
             const distance = Math.sqrt(distSq);
-            // Opacidad dinámica inversamente proporcional a la distancia (máximo 0.16)
-            const lineAlpha = (1 - distance / connectionDistance) * 0.16;
+            // Opacidad visible y elegante en fondo claro (hasta 0.35)
+            const lineAlpha = (1 - distance / connectionDistance) * 0.35;
 
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
-            ctx.strokeStyle = `rgba(212, 175, 55, ${lineAlpha.toFixed(3)})`; // Líneas dorado suave
-            ctx.lineWidth = 0.75;
+            ctx.strokeStyle = `rgba(184, 134, 11, ${lineAlpha.toFixed(3)})`; // Líneas doradas
+            ctx.lineWidth = 1.0;
             ctx.stroke();
           }
         }
@@ -195,9 +204,9 @@ export function ChatParticleBackground({
 
             if (mDistSq < mouseDistSq && mDistSq > 0) {
               const mDist = Math.sqrt(mDistSq);
-              const force = (1 - mDist / mouseRadius) * 0.45;
-              p.x += (mdx / mDist) * force * 1.5;
-              p.y += (mdy / mDist) * force * 1.5;
+              const force = (1 - mDist / mouseRadius) * 0.5;
+              p.x += (mdx / mDist) * force * 1.8;
+              p.y += (mdy / mDist) * force * 1.8;
             }
           }
 
@@ -219,7 +228,7 @@ export function ChatParticleBackground({
           }
         }
 
-        // Dibujar partícula
+        // Dibujar partícula dorada con núcleo suave
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fillStyle = p.color;
@@ -235,7 +244,7 @@ export function ChatParticleBackground({
     // Iniciar renderizado
     render();
 
-    // Eventos de cursor sobre el contenedor
+    // Eventos de cursor
     const handleMouseMove = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
       mouse.x = e.clientX - rect.left;
@@ -247,7 +256,7 @@ export function ChatParticleBackground({
       mouse.y = null;
     };
 
-    // Redimensionamiento responsivo mediante ResizeObserver
+    // Redimensionamiento responsivo mediante ResizeObserver sobre el contenedor y la ventana
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
@@ -257,7 +266,15 @@ export function ChatParticleBackground({
         }
       });
       resizeObserver.observe(container);
+      if (container.parentElement) {
+        resizeObserver.observe(container.parentElement);
+      }
     }
+
+    const handleWindowResize = () => {
+      updateDimensions();
+    };
+    window.addEventListener('resize', handleWindowResize, { passive: true });
 
     // Pausar animación cuando la pestaña esté oculta para ahorrar CPU
     const handleVisibilityChange = () => {
@@ -273,7 +290,8 @@ export function ChatParticleBackground({
       }
     };
 
-    container.addEventListener('mousemove', handleMouseMove, { passive: true });
+    // Capturar mouse tanto en el contenedor como a nivel de ventana para mayor fluidez
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
     container.addEventListener('mouseleave', handleMouseLeave, { passive: true });
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -285,7 +303,8 @@ export function ChatParticleBackground({
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
-      container.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('resize', handleWindowResize);
+      window.removeEventListener('mousemove', handleMouseMove);
       container.removeEventListener('mouseleave', handleMouseLeave);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -297,13 +316,13 @@ export function ChatParticleBackground({
       data-testid="chat-particle-background"
       aria-hidden="true"
       role="presentation"
-      className={`pointer-events-none absolute inset-0 z-0 overflow-hidden ${className}`}
+      className={`pointer-events-none absolute inset-0 z-0 h-full w-full overflow-hidden ${className}`}
     >
       <canvas
         ref={canvasRef}
         aria-hidden="true"
         role="presentation"
-        className="block h-full w-full pointer-events-none"
+        className="pointer-events-none block h-full w-full"
       />
     </div>
   );
