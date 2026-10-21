@@ -1,5 +1,11 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach, vi } from 'vitest';
+
+afterEach(() => {
+  // Keep rendered components from leaking into the next test.
+  cleanup();
+});
 
 // Mock ResizeObserver for React Flow in JSDOM environment
 class MockResizeObserver {
