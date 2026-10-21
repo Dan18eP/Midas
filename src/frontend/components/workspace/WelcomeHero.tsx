@@ -63,7 +63,7 @@ export function WelcomeHero({
       <div className="absolute inset-0 bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:24px_24px] opacity-15 pointer-events-none" />
 
       {/* Fondo Animado Aether Flow Midas (Partículas doradas en canvas transparente) */}
-      <ChatParticleBackground maxParticles={60} />
+      <ChatParticleBackground maxParticles={85} connectionDistance={155} mouseRadius={135} />
 
       <div className="relative z-10 w-full max-w-3xl flex flex-col items-center text-center space-y-6">
         {/* Zero-Trust Badge */}

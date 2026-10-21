@@ -19,11 +19,11 @@ import React, { useEffect, useRef } from 'react';
 
 export interface ChatParticleBackgroundProps {
   className?: string;
-  /** Cantidad máxima de partículas (por defecto 55 para fluidez y presencia estética) */
+  /** Cantidad máxima de partículas (por defecto 75 para generar ricas redes de conexión) */
   maxParticles?: number;
-  /** Distancia máxima en píxeles para trazar una línea de conexión (por defecto 110) */
+  /** Distancia máxima en píxeles para trazar una línea de conexión (por defecto 145) */
   connectionDistance?: number;
-  /** Radio de influencia del cursor (por defecto 120) */
+  /** Radio de influencia del cursor (por defecto 130) */
   mouseRadius?: number;
 }
 
@@ -36,19 +36,19 @@ interface Particle {
   color: string;
 }
 
-// Paleta de partículas: Tonos dorado / amarillo Midas optimizados para alto contraste elegante en fondo claro
+// Paleta de partículas: Tonos dorado / ámbar Midas de alta notoriedad y contraste elegante en fondo claro
 const GOLD_COLORS = [
-  { r: 184, g: 134, b: 11, alpha: 0.85 },  // #B8860B (Oro Midas clásico)
-  { r: 212, g: 175, b: 55, alpha: 0.78 },  // #D4AF37 (Oro metálico claro)
-  { r: 217, g: 155, b: 38, alpha: 0.80 },  // Ámbar dorado luminoso
-  { r: 196, g: 140, b: 20, alpha: 0.72 },  // Ocre dorado profundo
+  { r: 184, g: 134, b: 11, alpha: 0.95 },  // #B8860B (Oro Midas canónico intenso)
+  { r: 197, g: 145, b: 12, alpha: 0.92 },  // Oro metálico cálido
+  { r: 217, g: 145, b: 20, alpha: 0.95 },  // Ámbar dorado brillante
+  { r: 175, g: 120, b: 10, alpha: 0.90 },  // Ocre dorado profundo con presencia
 ];
 
 export function ChatParticleBackground({
   className = '',
-  maxParticles = 55,
-  connectionDistance = 110,
-  mouseRadius = 120,
+  maxParticles = 75,
+  connectionDistance = 145,
+  mouseRadius = 130,
 }: ChatParticleBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -86,14 +86,14 @@ export function ChatParticleBackground({
     let particles: Particle[] = [];
 
     const createParticles = (w: number, h: number) => {
-      // Densidad ajustada proporcionalmente al área del contenedor
-      const count = Math.min(maxParticles, Math.max(22, Math.floor((w * h) / 9500)));
+      // Densidad aumentada proporcionalmente al área para generar una rica red de conexiones
+      const count = Math.min(maxParticles, Math.max(35, Math.floor((w * h) / 7200)));
       const result: Particle[] = [];
 
       for (let i = 0; i < count; i++) {
         const colorConfig = GOLD_COLORS[i % GOLD_COLORS.length];
-        // Velocidades lentas y constantes (0.15 a 0.38 px/frame)
-        const speed = 0.15 + Math.random() * 0.23;
+        // Velocidades lentas y constantes (0.16 a 0.40 px/frame)
+        const speed = 0.16 + Math.random() * 0.24;
         const angle = Math.random() * Math.PI * 2;
 
         result.push({
@@ -101,7 +101,7 @@ export function ChatParticleBackground({
           y: Math.random() * h,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
-          radius: 1.5 + Math.random() * 1.5, // 1.5px a 3.0px
+          radius: 2.0 + Math.random() * 2.2, // 2.0px a 4.2px (más grandes y notorias)
           color: `rgba(${colorConfig.r}, ${colorConfig.g}, ${colorConfig.b}, ${colorConfig.alpha})`,
         });
       }
@@ -174,14 +174,14 @@ export function ChatParticleBackground({
 
           if (distSq < maxDistSq) {
             const distance = Math.sqrt(distSq);
-            // Opacidad visible y elegante en fondo claro (hasta 0.35)
-            const lineAlpha = (1 - distance / connectionDistance) * 0.35;
+            // Opacidad aumentada y bien notoria en fondo claro (hasta 0.55)
+            const lineAlpha = (1 - distance / connectionDistance) * 0.55;
 
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
-            ctx.strokeStyle = `rgba(184, 134, 11, ${lineAlpha.toFixed(3)})`; // Líneas doradas
-            ctx.lineWidth = 1.0;
+            ctx.strokeStyle = `rgba(184, 134, 11, ${lineAlpha.toFixed(3)})`; // Líneas doradas visibles
+            ctx.lineWidth = 1.3;
             ctx.stroke();
           }
         }
@@ -228,11 +228,19 @@ export function ChatParticleBackground({
           }
         }
 
-        // Dibujar partícula dorada con núcleo suave
+        // Dibujar partícula dorada más notoria con halo sutil
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fillStyle = p.color;
         ctx.fill();
+
+        if (p.radius > 2.8) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius + 1.2, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(217, 145, 20, 0.35)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
       }
 
       // Si el usuario prefiere movimiento reducido, solo dibujamos un frame estático
