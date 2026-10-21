@@ -313,7 +313,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 export function useSession(): SessionContextValue {
   const context = useContext(SessionContext);
   if (!context) {
-    throw new Error('useSession debe ser utilizado dentro de un SessionProvider');
+    return {
+      activeSessionId: null,
+      activeSession: null,
+      activeTopology: null,
+      sessions: [],
+      groupedSessions: [],
+      workspaceMode: 'welcome',
+      isLoading: false,
+      isRestoring: false,
+      error: null,
+      fetchSessions: async () => {},
+      selectSession: async () => {},
+      startNewSession: () => {},
+      createAndSelectSession: async () => 'session_mock',
+      saveTopology: async () => {},
+      deleteSession: async () => {},
+      setWorkspaceMode: () => {},
+      setActiveTopology: () => {},
+      clearError: () => {},
+    };
   }
   return context;
 }
