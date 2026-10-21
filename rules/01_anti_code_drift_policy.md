@@ -69,3 +69,12 @@ Cada vez que una tarea o Historia de Usuario sea finalizada:
    - Referencia al documento técnico o ADR en el que se basó.
    - Lista de verificación de que el código coincide al 100% con la documentación.
    - Comandos de prueba y resultados de ejecución exitosa.
+
+---
+
+## 5. Política Obligatoria de Integración vía Pull Requests (PR)
+
+1. **Prohibición de Merge Directo:** Todo código destinado a `develop` o `main` debe transitar obligatoriamente a través de un Pull Request formal en GitHub (`gh pr create` o GitHub UI).
+2. **Excepción Estricta:** Queda terminantemente prohibido hacer `git merge` directo local a `develop` o `main`, **a menos que Daniel Echeverría lo apruebe explícitamente como excepción (ej. cambio quirúrgico)**.
+
+

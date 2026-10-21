@@ -1,0 +1,244 @@
+# ==============================================================================
+# Midas — Monodocker Compose Infrastructure Master
+# Enterprise Active Lakehouse & Conversational Intelligence Platform
+# ==============================================================================
+
+name: midas
+
+networks:
+  midas-network:
+    name: midas-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: midas_postgres_data
+  minio_data:
+    name: midas_minio_data
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Base de Datos Central Multi-Tenant (PostgreSQL 16)
+  # Metastore Iceberg REST, Fuentes Operacionales, OpenMetadata y Airflow
+  # ----------------------------------------------------------------------------
+  midas-postgres:
+    image: postgres:16-alpine
+    container_name: midas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-midas_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-midas_secret_password_2026}
+      POSTGRES_DB: postgres
+      POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_MULTIPLE_DATABASES:-iceberg_catalog,midas_operational,openmetadata_db,airflow_db,midas_guardian}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-multi-db.sh:/docker-entrypoint-initdb.d/00-init-multi-db.sh:ro
+      - ./docker/postgres/01-init-operational-seed.sql:/docker-entrypoint-initdb.d/01-init-operational-seed.sql:ro
+    networks:
+      - midas-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-midas_admin}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. Almacenamiento de Objetos S3 Distribuido (MinIO)
+  # Buckets: bronze, silver, gold, quarantine, governance
+  # ----------------------------------------------------------------------------
+  midas-minio:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    container_name: midas-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - midas-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2.1. Inicializador de Buckets MinIO (Squad 1 - Edgar Corzo)
+  # ----------------------------------------------------------------------------
+  midas-minio-init:
+    image: minio/mc:RELEASE.2024-05-09T17-04-24Z
+    container_name: midas-minio-init
+    restart: "no"
+    depends_on:
+      midas-minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/init_buckets.sh"]
+    volumes:
+      - ./docker/minio/init_buckets.sh:/init_buckets.sh:ro
+    environment:
+      MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+    networks:
+      - midas-network
+
+  # ----------------------------------------------------------------------------
+  # 3. Catálogo Iceberg REST (Preparado para Squad 1 - Edgar Corzo)
+  # ----------------------------------------------------------------------------
+  midas-iceberg-catalog:
+    image: tabulario/iceberg-rest:1.5.0
+    container_name: midas-iceberg-catalog
+    restart: unless-stopped
+    profiles: ["lakehouse", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+      midas-minio:
+        condition: service_healthy
+      midas-minio-init:
+        condition: service_completed_successfully
+    environment:
+      CATALOG_WAREHOUSE: s3://midas-bronze/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3__ENDPOINT: http://midas-minio:9000
+      CATALOG_S3__PATH_STYLE_ACCESS: "true"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-midas_minio_admin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      AWS_REGION: us-east-1
+      CATALOG_BACKEND: jdbc
+      CATALOG_URI: jdbc:postgresql://midas-postgres:5432/iceberg_catalog
+      CATALOG_JDBC_USER: ${POSTGRES_USER:-midas_admin}
+      CATALOG_JDBC_PASSWORD: ${POSTGRES_PASSWORD:-midas_secret_password_2026}
+    ports:
+      - "${ICEBERG_REST_PORT:-8181}:8181"
+    networks:
+      - midas-network
+
+  # ----------------------------------------------------------------------------
+  # 3.1. Motor de Consultas Distribuido (Trino 450)
+  # Catálogos federados sobre Apache Iceberg REST y PostgreSQL Operacional
+  # ----------------------------------------------------------------------------
+  midas-trino:
+    image: trinodb/trino:450
+    container_name: midas-trino
+    restart: unless-stopped
+    profiles: ["lakehouse", "query", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+      midas-minio:
+        condition: service_healthy
+    ports:
+      - "${TRINO_PORT:-8082}:8080"
+    volumes:
+      - ./docker/trino/etc:/etc/trino:ro
+    networks:
+      - midas-network
+
+  # ----------------------------------------------------------------------------
+  # 4. Core Backend FastAPI & Hub Telemetría SSE (Squad 1 - Daniel Echeverría)
+  # ----------------------------------------------------------------------------
+  midas-api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: midas-api
+    restart: unless-stopped
+    profiles: ["api", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${OPERATIONAL_DB_URL:-postgresql://midas_admin:midas_secret_password_2026@midas-postgres:5432/midas_operational}
+      MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - midas-network
+
+  # --------------------------------------------------------------------------
+  # 5. Airflow DAG Factory for approved Gold pipeline specs
+  # --------------------------------------------------------------------------
+  midas-airflow-init:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: midas-airflow-init
+    profiles: ["orchestration", "full"]
+    depends_on:
+      midas-postgres:
+        condition: service_healthy
+      midas-minio-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/bash", "/opt/airflow/init.sh"]
+    environment: &airflow-environment
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-midas_admin}:${POSTGRES_PASSWORD:-midas_secret_password_2026}@midas-postgres:5432/airflow_db
+      AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 30
+      AIRFLOW_CONN_SPARK_DEFAULT: ${AIRFLOW_CONN_SPARK_DEFAULT:-spark://midas-spark-master:7077}
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-midas_airflow_admin_2026}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@midas.local}
+      MIDAS_MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ENDPOINT: http://midas-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-midas_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      MIDAS_GOLD_SPARK_JOB: ${MIDAS_GOLD_SPARK_JOB:-/opt/midas/jobs/materialize_gold.py}
+      MIDAS_TELEMETRY_PUBLISH_URL: http://midas-api:8000/api/v1/telemetry/publish
+      PYTHONPATH: /opt/midas
+    volumes: &airflow-volumes
+      - ./docker/airflow/init.sh:/opt/airflow/init.sh:ro
+      - ./src/orchestration:/opt/airflow/dags:ro
+      - ./src:/opt/midas/src:ro
+      - ./jobs:/opt/midas/jobs:ro
+    networks:
+      - midas-network
+
+  midas-airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: midas-airflow-webserver
+    restart: unless-stopped
+    profiles: ["orchestration", "full"]
+    depends_on:
+      midas-airflow-init:
+        condition: service_completed_successfully
+    command: webserver
+    environment: *airflow-environment
+    volumes: *airflow-volumes
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT:-8085}:8080"
+    networks:
+      - midas-network
+
+  midas-airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: midas-airflow-scheduler
+    restart: unless-stopped
+    profiles: ["orchestration", "full"]
+    depends_on:
+      midas-airflow-init:
+        condition: service_completed_successfully
+    command: scheduler
+    environment: *airflow-environment
+    volumes: *airflow-volumes
+    networks:
+      - midas-network

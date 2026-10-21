@@ -20,6 +20,33 @@ El Copiloto Agéntico de Midas trasciende el paradigma de "pregunta y respuesta 
 
 ## 2. Grafo de Estados del Agente (LangGraph Architecture)
 
+La implementación inicial del diálogo usa estos nodos y mantiene la ruta
+analítica en este orden: `route_intent` → `introspect_schema` →
+`proactive_suggest` → `generate_sql` → `validate_guardrails` → `execute_query` →
+`synthesize_storytelling`. Los saludos, el descubrimiento y las preguntas ambiguas
+terminan después de `proactive_suggest`; una solicitud analítica completa sigue
+hasta la síntesis.
+
+La memoria de cada sesión se guarda con el checkpointer `PostgresSaver` de
+LangGraph en la base operacional PostgreSQL existente. Cada llamada debe incluir
+un `thread_id` estable en `configurable`; conversaciones con IDs distintos no
+comparten estado. La aplicación prepara las tablas de checkpoint al iniciar el
+servicio. Las conexiones a OpenMetadata, generación SQL y Trino se entregan al
+grafo como servicios, para que sus nodos no simulen resultados cuando una
+integración no esté disponible.
+
+El estado conversacional conserva tanto los mensajes `HumanMessage` como los
+`AIMessage` de respuesta. Si una pregunta queda pendiente de una aclaración,
+`pending_intent` y `pending_query` guardan su contexto; al recibir la respuesta,
+el enrutador combina ambos turnos antes de solicitar SQL.
+
+El guardado del grafo acepta la interfaz común `BaseCheckpointSaver`, de modo
+que PostgreSQL se usa en ejecución y `InMemorySaver` en pruebas.
+
+El catálogo de demostración muestra las tres fuentes definidas en la sección 3.1.
+En despliegue, el proveedor de fuentes activas debe consultar el registro de
+conectores y reemplazar ese catálogo de demostración.
+
 ```mermaid
 flowchart TD
     START([Mensaje del Usuario o Inicio de Sesión]) --> INTENT_ROUTER{Enrutador de Intención}
@@ -76,21 +103,59 @@ flowchart TD
 - Soporta sinónimos de negocio (ej. *"facturación"*, *"ingresos"* o *"ventas"* mapean a `monto_neto`).
 
 ### 3.3. `SqlGeneratorNode` & `SqlGuardrailsNode` (OWASP LLM01 Defense)
-- Genera sentencias SQL ANSI compatibles con Trino sobre el catálogo Iceberg.
-- **Guardrails Inmutables:**
-  - Bloqueo total de comandos de modificación DDL/DML (`DROP`, `DELETE`, `ALTER`, `UPDATE`).
-  - Forzado de límites de seguridad: inyección automática de `LIMIT 1000` si la consulta no agrupa datos.
-  - Prevención de `CROSS JOIN` accidentales entre tablas grandes sin condición de enlace.
+- Genera sentencias `SELECT` compatibles con Trino sobre tablas Gold y Silver
+  autorizadas por el catálogo introspeccionado. El proveedor activo entrega el
+  nombre calificado y las columnas reales de cada tabla; estas definiciones
+  deben coincidir con los contratos canónicos de `documentation/canonical/03`.
+- El validador procesa una sola sentencia con `sqlglot` en dialecto Trino y
+  acepta únicamente consultas de lectura. Rechaza DDL/DML (`DROP`, `DELETE`,
+  `TRUNCATE`, `ALTER`, `INSERT`, `UPDATE`, `CREATE`, `GRANT` y `REVOKE`),
+  sentencias encadenadas, tablas desconocidas y columnas fuera del catálogo.
+- Si la consulta no declara un límite, el validador agrega `LIMIT 1000` al AST.
+- Un escudo de prompt injection bloquea instrucciones para ignorar políticas,
+  revelar prompts o eludir restricciones antes de llamar al generador.
+- La consulta solo llega al ejecutor Trino después de pasar todos los controles;
+  cualquier error cierra el flujo sin ejecutar SQL.
+
+El AST resuelve alias de tablas y columnas calificadas. Una columna no
+calificada se acepta solo cuando existe en todas las tablas del `FROM`/`JOIN`
+autorizadas; ante ambigüedad o metadatos insuficientes, la consulta se rechaza.
+El proveedor de introspección entrega cada tabla como nombre calificado y su
+lista de columnas. Si el catálogo no está disponible o no contiene columnas,
+no se genera ni ejecuta una consulta analítica.
 
 ### 3.4. `TrinoExecutorNode`
 - Ejecuta la consulta en Trino pasando la cabecera `X-Trino-User` con el rol actual del Lente Zero-Trust (ej. `director_general`, `gerente_norte`, `analista_externo`).
 - Ranger intercepta y aplica las políticas de enmascaramiento y filtrado de forma transparente.
 
 ### 3.5. `StorytellingNode` y Chips de "Explícame esta Cifra"
-- Redacta la respuesta en 3 bloques ejecutivos: **1) Hallazgo Principal, 2) Comparativa Histórica, 3) Recomendación de Negocio**.
-- Convierte cada métrica calculada en un chip interactivo con enlace a su linaje completo (abriendo el Drawer de linaje al hacer clic).
-- Genera la especificación JSON de **Apache ECharts** para renderizar gráficos de líneas, barras o donas directamente en el chat.
-- Adjunta el **Sello de Certificación** (frescura en MinIO y % de calidad en OpenMetadata).
+- Sintetiza exclusivamente las filas devueltas por Trino en un resultado estructurado con tres campos:
+  - `narrative`: resumen Markdown con hallazgos y recomendación de negocio.
+  - `echarts_option`: opción compatible con Apache ECharts, con título, tooltip,
+    leyenda, ejes cuando correspondan y la paleta Midas (`#0F766E`, `#14B8A6`,
+    `#F59E0B`, `#1E293B`).
+  - `metrics_summary`: lista de cifras observadas con etiqueta, valor original,
+    columna de origen e índice de fila para que el cliente pueda abrir el drawer
+    de linaje correspondiente.
+- El generador narrativo no calcula cifras nuevas. Cada número en `narrative`
+  debe copiarse literalmente de un valor numérico presente en las filas de
+  Trino; conteos, porcentajes, diferencias y promedios no observados no se
+  agregan.
+- El sintetizador de gráficos decide el tipo a partir de los valores y nombres
+  de columnas, en este orden: una dimensión temporal con valores numéricos usa
+  línea con área; dos columnas numéricas usan dispersión; una categoría
+  discreta junto a una columna numérica usa barras horizontales. Si no hay
+  suficientes datos para esos casos, devuelve una opción ECharts válida sin
+  series y explica la limitación sin inventar cifras.
+- El contrato del estado del agente separa el texto para el chat de los datos
+  de visualización: `state.response` contiene solo `narrative` en Markdown y el
+  historial `messages` presenta ese mismo texto. `state.storytelling_result`
+  conserva el objeto serializable con `narrative`, `echarts_option` y
+  `metrics_summary`, para que la API exponga los gráficos y el linaje en campos
+  estructurados sin mostrarlos como JSON crudo en el chat.
+- Ante un error de consulta, `state.response` contiene el mensaje de error y
+  `state.storytelling_result` queda vacío. La síntesis se ejecuta después de
+  Trino y no altera las filas recibidas.
 
 ### 3.6. `TextToGoldPlannerNode` (Pipeline-as-a-Prompt Multi-Fuente)
 - Cuando el usuario solicita un cruce complejo (ej. transacciones de PostgreSQL con metas del Excel):
@@ -98,6 +163,15 @@ flowchart TD
   2. Valida que el costo de escaneo sea seguro (**Semáforo Verde**).
   3. Muestra una vista previa de 5 filas en el chat.
   4. Genera el contrato declarativo en `s3://midas-governance/airflow-specs/` y pide la aprobación del usuario para activar el DAG en Airflow.
+
+### 3.7. Confirmación y contrato de materialización Gold
+- La materialización solo se publica después de una confirmación explícita del usuario.
+- El backend valida una única consulta `SELECT` con el catálogo de Trino, conserva el SQL validado y deriva un nombre seguro para el DAG y la tabla `gold`.
+- El YAML en `midas-governance/airflow-specs/dag_gold_<nombre>.yaml` contiene `pipeline_id`, `cron_schedule`, `transform_sql`, `output_table` y `quality_policies`. No contiene código Python generado por el modelo.
+- La fábrica de Airflow vuelve a consultar el prefijo `airflow-specs/` durante el ciclo de parseo del scheduler; así puede registrar nuevos DAGs sin reiniciar el scheduler. Cada DAG ejecuta la transformación Spark con sus políticas de calidad y publica un aviso SSE.
+- Después de publicar el YAML, se emite un evento SSE `telemetry` con `details.event_type = NEW_GOLD_NODE_AVAILABLE`, el identificador del DAG y la tabla destino. El cliente usa `node_id` para agregar o actualizar el nodo Gold.
+- El botón de aprobación del Canvas envía `Materializa este reporte como tabla Gold diaria` por `POST /api/v1/agent/chat`. El backend reutiliza el SQL y el catálogo validados en ese `thread_id`; sin una consulta previa, devuelve un conflicto y no publica.
+- El endpoint `POST /api/v1/agent/materialize` también permite publicar contratos desde clientes que envían explícitamente el SQL, el catálogo, el nombre del reporte, el cron y `confirmed`. Si `confirmed` es falso, no escribe el contrato ni emite el evento.
 
 ---
 

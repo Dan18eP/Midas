@@ -49,10 +49,11 @@ flowchart TD
 ### 📌 2.4. Esquemas de Datos Multi-Fuente (`documentation/canonical/03_...`)
 - Toda tabla en MinIO S3 (`bronze`, `silver`, `gold`) debe respetar los nombres, tipos y metadatos de auditoría (`_ingested_at`, `_source_type`, `_schema_fingerprint`).
 
-### 📌 2.5. Protocolo de Concurrencia de Ramas (`.agents/skills/team-concurrency-guard/SKILL.md`)
+### 📌 2.5. Protocolo de Concurrencia de Ramas & Obligatoriedad de PR (`.agents/skills/team-concurrency-guard/SKILL.md`)
 - **Single-Area Ownership:** Nadie modifica archivos fuera de su módulo técnico asignado.
 - **Ramas Oficiales del Backlog:** Nombradas según `documentation/04_product_backlog.md` (`feature/<area>-<nombre-hu>`).
-- **Registro Obligatorio:** Toda HU terminada debe generar su reporte de evidencias en `documentation/done/[area]/[area]-[nombre_epica]-[nombre_hu]-[numero].md`.
+- **PROHIBICIÓN ESTRICTA DE MERGE DIRECTO:** Está terminantemente prohibido hacer merge directo hacia `develop` o `main`. Todo cambio DEBE integrarse exclusivamente mediante un Pull Request (PR) formal (ej. vía `gh pr create` o GitHub UI), **a menos que Daniel Echeverría lo apruebe explícitamente como excepción (ej. cambio quirúrgico)**.
+- **Registro Obligatorio:** Toda HU terminada debe generar su reporte de evidencias en `documentation/done/[area]/[area]-[nombre_epica]-[nombre_hu]-[numero].md` antes de abrir el PR.
 
 ---
 

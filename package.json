@@ -1,0 +1,13 @@
+{
+  "name": "midas-platform",
+  "private": true,
+  "workspaces": [
+    "src/frontend"
+  ],
+  "scripts": {
+    "test": "vitest run --config src/frontend/vitest.config.ts",
+    "build": "npm --workspace=src/frontend run build",
+    "dev": "npm --workspace=src/frontend run dev",
+    "lint": "npm --workspace=src/frontend run lint"
+  }
+}
