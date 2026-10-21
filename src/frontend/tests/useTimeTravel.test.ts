@@ -16,7 +16,7 @@ describe('useTimeTravel hook', () => {
     vi.useFakeTimers();
     vi.setSystemTime(mockNow);
     mockStore = new HistoricalSnapshotStore();
-    mockStore.initialize(mockNow);
+    mockStore.seedCanonicalScenarios(mockNow);
   });
 
   afterEach(() => {

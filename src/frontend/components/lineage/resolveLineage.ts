@@ -5,47 +5,36 @@ import type {
   ExplainTarget,
   LineageCertification,
   LineageGatewayPayload,
+  LineageLayer,
   LineageStageNode,
   NumberLineage,
 } from './types';
 
-const LAYER_ORDER: LineageStageNode['layer'][] = ['source', 'bronze', 'silver', 'gold'];
+const LAYER_ORDER: LineageLayer[] = ['source', 'bronze', 'silver', 'gold'];
 
-const LAYER_FALLBACK: Record<LineageStageNode['layer'], LineageStageNode> = {
-  source: {
-    layer: 'source',
-    title: 'Fuente Original',
-    table: 'public.pedidos_crm',
-    location: 'midas-postgres:5432/midas_operational',
-    detail: 'Fuente operacional registrada por el motor de ingesta universal.',
-  },
-  bronze: {
-    layer: 'bronze',
-    title: 'Bronze Parquet',
-    table: 'bronze.pedidos_raw',
-    location: 's3://midas-bronze/pedidos_raw/',
-    detail: 'Ingesta cruda inmutable Iceberg v2 Parquet con envoltorio de auditoría.',
-  },
-  silver: {
-    layer: 'silver',
-    title: 'Silver Cleanse',
-    table: 'silver.pedidos',
-    location: 's3://midas-silver/pedidos/',
-    detail: 'Quality Gates aprobados y cuarentena de registros inválidos.',
-  },
-  gold: {
-    layer: 'gold',
-    title: 'Gold Mart',
-    table: 'gold.fact_ventas',
-    location: 's3://midas-gold/fact_ventas/',
-    detail: 'Mart dimensional gobernado con promoción Write-Audit-Publish.',
-  },
+/**
+ * Títulos canónicos de cada capa de la Medallion.
+ * Mismo vocabulario que `canonicalMetrics.ts` (espejo del doc canónico 04) y que
+ * las descripciones del motor canónico del backend
+ * (`src/core/lineage/canonical_lineage.py`).
+ *
+ * HU-FRONT-08: el backend **no** devuelve `title` en cada etapa; el frontend lo
+ * deriva de esta tabla canónica en lugar de inventarlo.
+ */
+const LAYER_TITLES: Record<LineageLayer, string> = {
+  source: 'Fuente Original',
+  bronze: 'Bronze Parquet',
+  silver: 'Silver Cleanse',
+  gold: 'Gold Mart',
 };
 
-export const CANONICAL_QUALITY_PERCENT = null;
-export const CANONICAL_QUALITY_SUMMARY = 'Data quality has not been verified';
+/** Resumen honesto cuando el gateway de linaje no entrega certificación. */
+export const UNCERTIFIED_QUALITY_SUMMARY =
+  'Sin certificación: el gateway de linaje no entregó evidencia verificable.';
 
-/** FNV-1a 64-bit determinístico para trazas de auditoría locales (sin red). */
+/** Resumen honesto cuando el gateway responde sin métrica de calidad. */
+export const UNREPORTED_QUALITY_SUMMARY = 'El gateway de linaje no reportó calidad.';
+
 export function deriveAuditHash(input: string): string {
   let hash = 0xcbf29ce484222325n;
   const prime = 0x100000001b3n;
@@ -81,10 +70,18 @@ export function resolveDisplayValue(target: ExplainTarget): string {
   return `${target.rawValue}${suffix}`;
 }
 
-function resolveGoldTable(target: ExplainTarget, metric: CanonicalMetricDefinition | null): string {
+/**
+ * Resuelve la tabla Gold que se debe consultar en el gateway.
+ * Devuelve `null` cuando no hay evidencia de qué tabla preguntar: en ese caso
+ * **no se consulta** ningún endpoint (HU-FRONT-08).
+ */
+export function resolveGoldTable(
+  target: ExplainTarget,
+  metric: CanonicalMetricDefinition | null,
+): string | null {
   if (target.goldTableHint) return target.goldTableHint;
   const goldStage = metric?.stages.find((stage) => stage.layer === 'gold');
-  return goldStage?.table ?? LAYER_FALLBACK.gold.table;
+  return goldStage?.table ?? null;
 }
 
 function buildCertification(
@@ -92,26 +89,37 @@ function buildCertification(
   auditHash: string,
   auditHashSource: LineageCertification['auditHashSource'],
   now: Date,
-  overrides: { qualityPercent?: number | null; qualitySummary?: string } = {},
+  qualityPercent: number | null,
+  qualitySummary: string,
 ): LineageCertification {
   return {
-    qualityPercent: overrides.qualityPercent ?? CANONICAL_QUALITY_PERCENT,
-    qualitySummary: overrides.qualitySummary ?? CANONICAL_QUALITY_SUMMARY,
+    qualityPercent,
+    qualitySummary,
     lastSyncIso,
-    freshnessLabel: lastSyncIso ? formatRelativeFreshness(lastSyncIso, now) : 'Data freshness has not been verified',
+    freshnessLabel: formatRelativeFreshness(lastSyncIso, now),
     auditHash,
     auditHashSource,
   };
 }
 
-export function buildFallbackLineage(
+/**
+ * Construye un linaje **explícitamente no certificado**.
+ *
+ * HU-FRONT-08: sin gateway de linaje no hay evidencia de certificación. Este
+ * resultado NO declara porcentaje de calidad, NO invoca el resumen "100%
+ * Contratos de Datos Certificados (OpenMetadata)" y marca el hash como traza
+ * local reproducible (no como firma del catálogo).
+ */
+export function buildUncertifiedLineage(
   target: ExplainTarget,
   metric: CanonicalMetricDefinition | null,
   options: { lastSyncIso: string; now?: Date },
 ): NumberLineage {
   const now = options.now ?? new Date();
   const goldTable = resolveGoldTable(target, metric);
-  const auditHash = deriveAuditHash(`${metric?.key ?? 'unclassified'}|${goldTable}|${options.lastSyncIso}`);
+  const auditHash = deriveAuditHash(
+    `${metric?.key ?? 'unclassified'}|${goldTable ?? 'no-table'}|${options.lastSyncIso}`,
+  );
 
   return {
     metricLabel: metric?.label ?? target.label,
@@ -123,24 +131,51 @@ export function buildFallbackLineage(
     transformation:
       metric?.transformation ??
       'Sin transformación certificada: la cifra no está registrada en el Diccionario Semántico Inmutable.',
-    certification: buildCertification('', auditHash, 'derived-local', now),
-    provenance: 'canonical-fallback',
+    certification: buildCertification(
+      options.lastSyncIso,
+      auditHash,
+      'derived-local',
+      now,
+      null,
+      UNCERTIFIED_QUALITY_SUMMARY,
+    ),
+    provenance: 'uncertified',
     requestedAtIso: now.toISOString(),
   };
 }
 
-function mapGatewayStage(raw: Record<string, unknown>): LineageStageNode | null {
-  const layer = String(raw.layer ?? '').toLowerCase() as LineageStageNode['layer'];
+/**
+ * Mapea una etapa del gateway. **No rellena** campos ausentes con literales:
+ * una etapa sin tabla o sin ubicación no es certificable y se descarta.
+ */
+export function mapGatewayStage(raw: Record<string, unknown>): LineageStageNode | null {
+  const layer = String(raw.layer ?? '').toLowerCase() as LineageLayer;
   if (!LAYER_ORDER.includes(layer)) return null;
+
+  const table = typeof raw.table === 'string' ? raw.table.trim() : '';
+  const location = typeof raw.location === 'string' ? raw.location.trim() : '';
+  if (!table || !location) return null;
+
+  const description =
+    typeof raw.description === 'string' && raw.description.trim().length > 0
+      ? raw.description.trim()
+      : typeof raw.detail === 'string' && raw.detail.trim().length > 0
+        ? raw.detail.trim()
+        : '';
+
   return {
     layer,
-    title: String(raw.title ?? LAYER_FALLBACK[layer].title),
-    table: String(raw.table ?? LAYER_FALLBACK[layer].table),
-    location: String(raw.location ?? LAYER_FALLBACK[layer].location),
-    detail: String(raw.description ?? raw.detail ?? LAYER_FALLBACK[layer].detail),
+    title: LAYER_TITLES[layer],
+    table,
+    location,
+    detail: description,
   };
 }
 
+/**
+ * Traduce el payload del gateway de linaje al contrato del drawer.
+ * Devuelve `null` si el payload no contiene ninguna etapa certificable.
+ */
 export function mapGatewayLineage(
   payload: LineageGatewayPayload,
   target: ExplainTarget,
@@ -157,13 +192,24 @@ export function mapGatewayLineage(
   if (mapped.length === 0) return null;
 
   const certification = payload.certification ?? {};
-  const lastSyncIso = typeof certification.last_sync === 'string' && certification.last_sync
-    ? certification.last_sync
-    : options.lastSyncIso;
-  const auditHash =
-    typeof certification.audit_hash === 'string' && certification.audit_hash
-      ? certification.audit_hash
-      : deriveAuditHash(`${metric?.key ?? 'unclassified'}|${payload.table ?? ''}|${lastSyncIso}`);
+  const lastSyncIso =
+    typeof certification.last_sync === 'string' && certification.last_sync
+      ? certification.last_sync
+      : options.lastSyncIso;
+  const hasGatewayAuditHash =
+    typeof certification.audit_hash === 'string' && certification.audit_hash.length > 0;
+  const auditHash = hasGatewayAuditHash
+    ? (certification.audit_hash as string)
+    : deriveAuditHash(`${metric?.key ?? 'unclassified'}|${payload.table ?? ''}|${lastSyncIso}`);
+
+  const qualityPercent =
+    typeof certification.quality_percent === 'number' && Number.isFinite(certification.quality_percent)
+      ? certification.quality_percent
+      : null;
+  const qualitySummary =
+    typeof certification.quality_summary === 'string' && certification.quality_summary.length > 0
+      ? certification.quality_summary
+      : UNREPORTED_QUALITY_SUMMARY;
 
   return {
     metricLabel: metric?.label ?? target.label,
@@ -177,22 +223,15 @@ export function mapGatewayLineage(
         }
       : null,
     stages: mapped,
-    transformation: payload.transformation || metric?.transformation || 'Transformación reportada por OpenMetadata.',
+    transformation:
+      payload.transformation || metric?.transformation || 'Transformación reportada por OpenMetadata.',
     certification: buildCertification(
       lastSyncIso,
       auditHash,
-      certification.audit_hash ? 'gateway' : 'derived-local',
+      hasGatewayAuditHash ? 'gateway' : 'derived-local',
       now,
-      {
-        qualityPercent:
-          typeof certification.quality_percent === 'number' && Number.isFinite(certification.quality_percent)
-            ? certification.quality_percent
-            : undefined,
-        qualitySummary:
-          typeof certification.quality_summary === 'string' && certification.quality_summary
-            ? certification.quality_summary
-            : undefined,
-      },
+      qualityPercent,
+      qualitySummary,
     ),
     provenance: 'gateway',
     requestedAtIso: now.toISOString(),
@@ -206,19 +245,26 @@ export interface ResolveLineageOptions {
   fetchImpl?: typeof fetchTableLineage;
 }
 
+/**
+ * Resuelve el linaje de una cifra.
+ *
+ * HU-FRONT-08: el gateway de linaje es la **única** fuente de certificación.
+ * Si no responde, el resultado se marca como no certificado — nunca como
+ * certificado con datos locales.
+ */
 export async function resolveNumberLineage(
   target: ExplainTarget,
   options: ResolveLineageOptions,
 ): Promise<NumberLineage> {
   const metric = matchCanonicalMetric(target.label);
+  const goldTable = resolveGoldTable(target, metric);
 
-  // Sin métrica certificada ni hint de tabla del agente no se consulta el gateway:
-  // el linaje de una tabla no certificaría la cifra clickeada.
-  if (!metric && !target.goldTableHint) {
-    return buildFallbackLineage(target, metric, options);
+  // Sin métrica certificada ni hint de tabla del agente no se consulta el
+  // gateway: el linaje de una tabla no certificaría la cifra clickeada.
+  if (!goldTable) {
+    return buildUncertifiedLineage(target, metric, options);
   }
 
-  const goldTable = resolveGoldTable(target, metric);
   const fetchImpl = options.fetchImpl ?? fetchTableLineage;
 
   try {
@@ -226,10 +272,11 @@ export async function resolveNumberLineage(
     const fromGateway = mapGatewayLineage(payload, target, metric, options);
     if (fromGateway) return fromGateway;
   } catch {
-    // Gateway de HU-GOV-01 aún no desplegado: se resuelve con el diccionario canónico local.
+    // Gateway de linaje no disponible: se degrada a un resultado explícitamente
+    // NO certificado (sin porcentaje de calidad y sin resumen de OpenMetadata).
   }
 
-  return buildFallbackLineage(target, metric, options);
+  return buildUncertifiedLineage(target, metric, options);
 }
 
 export function findCanonicalMetricByKey(key: string): CanonicalMetricDefinition | null {

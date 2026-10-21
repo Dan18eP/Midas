@@ -4,7 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CopilotChatDrawer, CopilotChatProvider, CopilotChatWidget } from '../components/copilot';
 import { ExplainNumberDrawer, ExplainNumberProvider } from '../components/lineage';
 import { parseFigureValue, extractFigureTokens } from '../components/lineage/parseFigure';
-import { deriveAuditHash, formatRelativeFreshness } from '../components/lineage/resolveLineage';
+import {
+  deriveAuditHash,
+  formatRelativeFreshness,
+  mapGatewayStage,
+  resolveNumberLineage,
+} from '../components/lineage/resolveLineage';
+import { fetchTableLineage } from '../components/lineage/lineageApi';
 
 const fetchMock = vi.fn();
 
@@ -236,7 +242,7 @@ describe('Gateway de linaje y cierre accesible (ST-FRONT-06.3 / ST-FRONT-06.4)',
     expect(screen.getByTestId('explain-lineage-section')).toHaveTextContent('Quality Gate aprobado');
   });
 
-  it('7. Resuelve con el diccionario canónico cuando el gateway de linaje falla', async () => {
+  it('7. Sin gateway de linaje la cifra se declara NO certificada (sin 100% ni OpenMetadata)', async () => {
     fetchMock.mockImplementation((url: string) => {
       if (String(url).includes('/api/v1/lineage/table/')) {
         return jsonResponse({ detail: 'OpenMetadata no disponible' }, false, 500);
@@ -248,10 +254,48 @@ describe('Gateway de linaje y cierre accesible (ST-FRONT-06.3 / ST-FRONT-06.4)',
     fireEvent.click(screen.getAllByTestId('metrics-chip')[0]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('explain-provenance')).toHaveTextContent('HU-GOV-01 aún no está desplegado');
+      expect(screen.getByTestId('explain-provenance')).toHaveTextContent('Sin certificación del gateway');
     });
-    expect(screen.getByTestId('lineage-stage-gold')).toHaveTextContent('gold.fact_ventas');
+    expect(screen.getByTestId('explain-uncertified-certification')).toBeInTheDocument();
+
+    // El drawer NO debe presentar calidad certificada del gateway.
+    const quality = screen.getByTestId('explain-quality');
+    expect(quality).not.toHaveTextContent('100%');
+    expect(quality).not.toHaveTextContent('OpenMetadata');
+    expect(quality).toHaveTextContent('Sin certificación');
+
+    // El hash local se conserva como traza reproducible, no como firma.
     expect(screen.getByTestId('explain-audit-hash')).toHaveTextContent(/^[0-9a-f]{16}$/);
+    expect(screen.getByTestId('lineage-stage-gold')).toHaveTextContent('gold.fact_ventas');
+  });
+
+  it('7b. Un gateway con etapas incompletas NO se rellena con etapas inventadas', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/v1/lineage/table/')) {
+        return jsonResponse(
+          {
+            ...GATEWAY_LINEAGE_PAYLOAD,
+            stages: [
+              GATEWAY_LINEAGE_PAYLOAD.stages[0],
+              // Etapa sin `location`: no es certificable y no debe completarse.
+              { layer: 'bronze', table: 'bronze.pedidos_raw' },
+            ],
+          },
+        );
+      }
+      return jsonResponse(LINEAGE_RESPONSE);
+    });
+    await askAndWaitAssistant('¿Cuáles fueron los ingresos netos?');
+
+    fireEvent.click(screen.getAllByTestId('metrics-chip')[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('lineage-mini-graph')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('lineage-stage-source')).toHaveTextContent('public.pedidos_crm');
+    // La etapa bronze incompleta se descarta: no aparece con valores inventados.
+    expect(screen.queryByTestId('lineage-stage-bronze')).not.toBeInTheDocument();
+    expect(screen.getByTestId('explain-provenance')).toHaveTextContent('gateway de OpenMetadata');
   });
 
   it('8. Cierra con Escape y con clic fuera del panel, y gestiona el foco', async () => {
@@ -284,8 +328,69 @@ describe('Gateway de linaje y cierre accesible (ST-FRONT-06.3 / ST-FRONT-06.4)',
   });
 });
 
-describe('parseFigure · detección y formato de cifras', () => {
-  it('9. Interpreta cifras en formato es-CO, con sufijos y porcentajes', () => {
+describe('resolveLineage · contrato de certificación (HU-FRONT-08)', () => {
+  const options = { lastSyncIso: '2026-10-20T14:02:00.000Z' };
+
+  it('11. Sin tabla Gold no se consulta el gateway y el resultado no está certificado', async () => {
+    const fetchImpl = vi.fn();
+
+    const lineage = await resolveNumberLineage(
+      { sourceMessageId: 'm1', label: 'Indicador no canónico', rawValue: 42 },
+      { ...options, fetchImpl: fetchImpl as unknown as typeof fetchTableLineage },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(lineage.provenance).toBe('uncertified');
+    expect(lineage.certification.qualityPercent).toBeNull();
+    expect(lineage.certification.qualitySummary).not.toContain('OpenMetadata');
+    expect(lineage.certification.auditHashSource).toBe('derived-local');
+  });
+
+  it('12. Un gateway que no devuelve etapas certificables degrada a "no certificado"', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      table: 'gold.fact_ventas',
+      stages: [{ layer: 'gold' }],
+      transformation: 'x',
+      certification: { quality_percent: 100, quality_summary: 'x', last_sync: 'y', audit_hash: 'z' },
+    });
+
+    const lineage = await resolveNumberLineage(
+      { sourceMessageId: 'm2', label: 'Venta Neta', rawValue: 1490, goldTableHint: 'gold.fact_ventas' },
+      { ...options, fetchImpl: fetchImpl as unknown as typeof fetchTableLineage },
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(lineage.provenance).toBe('uncertified');
+    // Sin gateway no hay calidad certificada, aunque el gateway la reportara.
+    expect(lineage.certification.qualityPercent).toBeNull();
+    expect(lineage.certification.qualitySummary).not.toContain('OpenMetadata');
+    // Las etapas provienen del diccionario canónico local (doc canónico 04),
+    // nunca de valores literales inventados en tiempo de ejecución.
+    expect(lineage.stages.map((stage) => stage.table)).toEqual([
+      'public.pedidos_crm',
+      'bronze.pedidos_raw',
+      'silver.pedidos',
+      'gold.fact_ventas',
+    ]);
+  });
+
+  it('13. mapGatewayStage descarta etapas sin tabla o sin ubicación', () => {
+    expect(mapGatewayStage({ layer: 'gold', table: 'gold.fact_ventas' })).toBeNull();
+    expect(mapGatewayStage({ layer: 'gold', location: 's3://x/' })).toBeNull();
+    expect(mapGatewayStage({ layer: 'desconocida', table: 't', location: 'l' })).toBeNull();
+
+    const stage = mapGatewayStage({
+      layer: 'gold',
+      table: 'gold.fact_ventas',
+      location: 's3://midas-gold/fact_ventas/',
+      description: 'Mart dimensional.',
+    });
+    expect(stage?.title).toBe('Gold Mart');
+    expect(stage?.table).toBe('gold.fact_ventas');
+  });
+});
+
+describe('parseFigure · detección y formato de cifras', () => {  it('9. Interpreta cifras en formato es-CO, con sufijos y porcentajes', () => {
     expect(parseFigureValue('1.490')).toBe(1490);
     expect(parseFigureValue('1,490,000')).toBe(1490000);
     expect(parseFigureValue('12.4%')).toBe(12.4);

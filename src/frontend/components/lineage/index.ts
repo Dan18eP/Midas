@@ -15,12 +15,14 @@ export {
   fetchTableLineage,
 } from './lineageApi';
 export {
-  CANONICAL_QUALITY_PERCENT,
-  CANONICAL_QUALITY_SUMMARY,
-  buildFallbackLineage,
+  UNCERTIFIED_QUALITY_SUMMARY,
+  UNREPORTED_QUALITY_SUMMARY,
+  buildUncertifiedLineage,
   deriveAuditHash,
   formatRelativeFreshness,
   mapGatewayLineage,
+  mapGatewayStage,
+  resolveGoldTable,
   resolveNumberLineage,
 } from './resolveLineage';
 export type {

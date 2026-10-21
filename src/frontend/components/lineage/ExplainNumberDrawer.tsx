@@ -208,7 +208,9 @@ export function ExplainNumberDrawer() {
                       Calidad
                     </span>
                     <span className="font-mono font-bold text-emerald-400" data-testid="explain-quality">
-                      {lineage.certification.qualityPercent === null ? 'Unverified' : `${lineage.certification.qualityPercent}%`} · {lineage.certification.qualitySummary}
+                      {lineage.certification.qualityPercent !== null
+                        ? `${lineage.certification.qualityPercent}% · ${lineage.certification.qualitySummary}`
+                        : lineage.certification.qualitySummary}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-950/80 px-2.5 py-2">
@@ -222,7 +224,7 @@ export function ExplainNumberDrawer() {
                       </span>
                       <span className="block text-[10px] text-slate-500">
                         {lineage.certification.freshnessLabel}
-                        {lineage.provenance === 'canonical-fallback' ? ' · referencia: respuesta del agente' : ''}
+                        {lineage.provenance === 'uncertified' ? ' · referencia: respuesta del agente' : ''}
                       </span>
                     </span>
                   </div>
@@ -254,8 +256,19 @@ export function ExplainNumberDrawer() {
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 {lineage.provenance === 'gateway'
                   ? 'Linaje certificado servido por el gateway de OpenMetadata (/api/v1/lineage/table).'
-                  : 'Resolución local con el diccionario canónico: el gateway de linaje de HU-GOV-01 aún no está desplegado.'}
+                  : 'Sin certificación del gateway de linaje de OpenMetadata: se muestra el diccionario canónico local, sin calidad certificada y con hash derivado localmente.'}
               </p>
+
+              {lineage.provenance === 'uncertified' && (
+                <p
+                  className="flex items-start gap-1.5 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-[10px] leading-relaxed text-amber-200/90"
+                  data-testid="explain-uncertified-certification"
+                >
+                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                  Esta cifra no tiene certificación vigente del catálogo. El porcentaje de calidad y la
+                  ausencia de firma OpenMetadata son reales: no se infieren.
+                </p>
+              )}
             </>
           )}
         </div>

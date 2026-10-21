@@ -1,6 +1,14 @@
 /**
- * Midas Canvas — Historical Snapshot Store & Telemetry Replay Service
- * Compliant with HU-FRONT-03 (Time-Travel Replay Scrubber) and backend SSE contracts.
+ * Midas Canvas — Historical Snapshot Store & Telemetry Replay Service.
+ *
+ * HU-FRONT-08 (Desmockitización Total): el store **no fabrica** snapshots en el
+ * flujo productivo. La línea de tiempo se hidrata desde el Gateway FastAPI:
+ *
+ *   - `GET /api/v1/telemetry/history`          → historial real (eventos del Hub)
+ *   - `GET /api/v1/telemetry/scenarios/{id}`   → hitos canónicos T0–T3 del backend
+ *
+ * `createCanonicalSnapshots()` se conserva **exclusivamente como fixture de
+ * pruebas/demo**. Ningún camino productivo lo invoca.
  */
 
 import { NodeStatus } from '@/types/canvas';
@@ -11,9 +19,36 @@ import {
   HistoricalTimelinePoint,
   HistoricalAlert,
 } from '@/types/timeTravel';
+import {
+  fetchTelemetryHistory,
+  fetchTelemetryScenario,
+  type FetchTelemetryHistoryOptions,
+  type FetchTelemetryScenarioOptions,
+  type TelemetryHistoryPayload,
+} from './telemetryHistoryApi';
+
+/** Estado observable de la hidratación del historial. */
+export type TelemetryHistoryStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
 /**
- * Creates a default base snapshot representing healthy normal operation (T0).
+ * Hitos canónicos T0–T3 anclados sobre los eventos que publica el backend en
+ * `GET /api/v1/telemetry/scenarios/{id}`. Los offsets son los canónicos de
+ * `documentation/canonical/05` §3.1 y **no** representan telemetría persistida:
+ * el contenido de los eventos es del backend, el anclaje temporal es de la demo.
+ */
+export const CANONICAL_SCENARIO_META: Record<
+  string,
+  { offsetMs: number; label: string }
+> = {
+  T0: { offsetMs: -24 * 60 * 60 * 1000, label: 'Operación Normal (T-24h)' },
+  T1: { offsetMs: -45 * 60 * 1000, label: 'Incidente F3 Detectado (T-45m)' },
+  T2: { offsetMs: -25 * 60 * 1000, label: 'Guardian Auto-Healing (T-25m)' },
+  T3: { offsetMs: -5 * 60 * 1000, label: 'Recuperado & Publicado (T-5m)' },
+};
+
+/**
+ * Crea el estado base de los nodos para la línea de tiempo canónica.
+ * **Fixture de pruebas/demo**: no se usa en el flujo productivo.
  */
 export function createBaseNodesState(): Record<string, PipelineSnapshotNodeState> {
   return {
@@ -87,6 +122,10 @@ export function createBaseNodesState(): Record<string, PipelineSnapshotNodeState
 /**
  * Builds canonical snapshots anchored along the 24-hour timeline relative to referenceNowMs.
  * Covers: T-24h (T0), T-12h (T0), T-2h (T0 Steady), T-45m (T1 Incident), T-25m (T2 Healing), T-5m (T3 Recovered), T-0m (Live Baseline).
+ *
+ * ⚠️ **FIXTURE DE PRUEBAS / DEMOSTRACIÓN.** Este contenido es sintético y no se
+ * usa en el flujo productivo (HU-FRONT-08). En producción la línea de tiempo se
+ * hidrata con `GET /api/v1/telemetry/history`.
  */
 export function createCanonicalSnapshots(referenceNowMs: number = Date.now()): PipelineSnapshot[] {
   const HOUR = 60 * 60 * 1000;
@@ -137,7 +176,7 @@ export function createCanonicalSnapshots(referenceNowMs: number = Date.now()): P
     timestamp: new Date(t2hMs).toISOString(),
     timestampMs: t2hMs,
     scenarioId: 'T0',
-    stageLabel: 'Operación Estable (T-2h)',
+    stageLabel: 'Operación estable (T-2h)',
     overallStatus: 'HEALTHY',
     recordsProcessed: 6690,
     recordsQuarantined: 0,
@@ -304,12 +343,40 @@ export function createCanonicalSnapshots(referenceNowMs: number = Date.now()): P
   return [snap24h, snap12h, snap2h, snapT1, snapT2, snapT3, snapNow];
 }
 
+function computeOverallStatus(statuses: NodeStatus[]): NodeStatus {
+  if (statuses.includes('ERROR')) return 'ERROR';
+  if (statuses.includes('AUTO_HEALING')) return 'AUTO_HEALING';
+  if (statuses.includes('DEGRADED')) return 'DEGRADED';
+  if (statuses.includes('IN_PROGRESS')) return 'IN_PROGRESS';
+  if (statuses.includes('RUNNING')) return 'RUNNING';
+  if (statuses.length > 0 && statuses.every((status) => status === 'HEALTHY')) return 'HEALTHY';
+  return 'UNKNOWN';
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+interface SnapshotMeta {
+  id: string;
+  stageLabel: string;
+  scenarioId?: string;
+  description?: string;
+}
+
 /**
  * HistoricalSnapshotStore manages the in-memory chronological timeline of snapshots.
+ *
+ * HU-FRONT-08: el store **arranca vacío**. La línea de tiempo real se hidrata con
+ * `hydrateFromHistory()` (eventos del Gateway) y, opcionalmente, con
+ * `hydrateScenarioAnchors()` (hitos T0–T3 publicados por el backend).
  */
 export class HistoricalSnapshotStore {
   private snapshots: PipelineSnapshot[] = [];
   private maxCapacity: number = 500;
+  private historyStatus: TelemetryHistoryStatus = 'idle';
+  private historyError: string | null = null;
+  private listeners: Set<() => void> = new Set();
 
   constructor(initialSnapshots?: PipelineSnapshot[]) {
     if (initialSnapshots && initialSnapshots.length > 0) {
@@ -318,16 +385,105 @@ export class HistoricalSnapshotStore {
   }
 
   /**
-   * Initializes store with canonical 24-hour timeline.
+   * ⚠️ **FIXTURE DE PRUEBAS / DEMOSTRACIÓN.**
+   * Siembra la línea de tiempo canónica sintética T0–T3. El flujo productivo
+   * **no** debe invocar este método: use `hydrateFromHistory()`.
    */
-  public initialize(referenceNowMs: number = Date.now()): void {
+  public seedCanonicalScenarios(referenceNowMs: number = Date.now()): void {
     this.snapshots = createCanonicalSnapshots(referenceNowMs);
+    this.notify();
+  }
+
+  /** Suscripción a los cambios de estado del store (hidratación, errores). */
+  public subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  /** Estado observable de la última hidratación del historial. */
+  public getHistoryStatus(): TelemetryHistoryStatus {
+    return this.historyStatus;
+  }
+
+  /** Último error de hidratación, o `null`. */
+  public getHistoryError(): string | null {
+    return this.historyError;
+  }
+
+  /**
+   * Descarga el historial real del Gateway y reconstruye la línea de tiempo.
+   * No fabricate datos: si el Gateway no responde, el estado pasa a `error` y la
+   * línea de tiempo conserva lo que hubiera (posiblemente nada).
+   */
+  public async hydrateFromHistory(
+    options: FetchTelemetryHistoryOptions = {},
+  ): Promise<number> {
+    this.historyStatus = 'loading';
+    this.historyError = null;
+    this.notify();
+
+    try {
+      const payload = await fetchTelemetryHistory(options);
+      this.replaceWithHistory(payload);
+      this.historyStatus = payload.events.length === 0 ? 'empty' : 'ready';
+      this.historyError = null;
+      this.notify();
+      return payload.events.length;
+    } catch (error) {
+      this.historyStatus = 'error';
+      this.historyError =
+        error instanceof Error ? error.message : 'Error desconocido al cargar el historial.';
+      this.notify();
+      return 0;
+    }
+  }
+
+  /**
+   * Descarga del backend los hitos canónicos T0–T3 y los ancla en la línea de
+   * tiempo. El **contenido** de los eventos es del backend; el anclaje temporal
+   * usa los offsets canónicos de `documentation/canonical/05` §3.1.
+   *
+   * Un fallo individual de un escenario no aborta el resto.
+   */
+  public async hydrateScenarioAnchors(
+    options: FetchTelemetryScenarioOptions & { referenceNowMs?: number } = {},
+  ): Promise<number> {
+    const referenceNowMs = options.referenceNowMs ?? Date.now();
+    let loaded = 0;
+
+    for (const [scenarioId, meta] of Object.entries(CANONICAL_SCENARIO_META)) {
+      try {
+        const payload = await fetchTelemetryScenario(scenarioId, options);
+        if (payload.events.length === 0) continue;
+        const timestampMs = referenceNowMs + meta.offsetMs;
+        const snapshot = this.buildScenarioSnapshot(scenarioId, meta.label, payload.events, timestampMs);
+        this.appendSnapshot(snapshot);
+        loaded += 1;
+      } catch {
+        // Un escenario no disponible no invalida el resto de la línea de tiempo.
+      }
+    }
+
+    if (loaded > 0) this.notify();
+    return loaded;
   }
 
   /**
    * Appends or replaces a snapshot, keeping chronological sorting.
    */
   public addSnapshot(snapshot: PipelineSnapshot): void {
+    this.appendSnapshot(snapshot);
+  }
+
+  private appendSnapshot(snapshot: PipelineSnapshot): void {
     const existingIndex = this.snapshots.findIndex((s) => s.id === snapshot.id);
     if (existingIndex >= 0) {
       this.snapshots[existingIndex] = snapshot;
@@ -409,14 +565,162 @@ export class HistoricalSnapshotStore {
    * mutating or appending to the current snapshot so live data becomes replayable.
    */
   public recordLiveEvent(event: TelemetryEventPayload, timestampMs: number = Date.now()): PipelineSnapshot {
-    const lastSnapshot = this.snapshots.length > 0
-      ? this.snapshots[this.snapshots.length - 1]
-      : null;
+    const lastSnapshot =
+      this.snapshots.length > 0 ? this.snapshots[this.snapshots.length - 1] : null;
 
-    const baseNodesState = lastSnapshot
+    const baseNodesState: Record<string, PipelineSnapshotNodeState> = lastSnapshot
       ? { ...lastSnapshot.nodesState }
       : {};
 
+    const newSnapshot = this.buildEventSnapshot(
+      event,
+      timestampMs,
+      baseNodesState,
+      {
+        id: `live_${event.event_id || timestampMs}`,
+        stageLabel: 'Live Telemetría',
+        description: 'Evento en vivo del Hub de telemetría (SSE).',
+      },
+      lastSnapshot,
+    );
+
+    this.appendSnapshot(newSnapshot);
+    return newSnapshot;
+  }
+
+  /**
+   * Clears all snapshots and resets.
+   */
+  public clear(): void {
+    this.snapshots = [];
+    this.historyStatus = 'idle';
+    this.historyError = null;
+    this.notify();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Construcción de snapshots
+  // ---------------------------------------------------------------------------
+
+  private replaceWithHistory(payload: TelemetryHistoryPayload): void {
+    this.snapshots = [];
+
+    const events = [...payload.events].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+
+    let baseNodesState: Record<string, PipelineSnapshotNodeState> = {};
+
+    for (const event of events) {
+      const parsedTime = new Date(event.timestamp).getTime();
+      const timestampMs = Number.isNaN(parsedTime) ? Date.now() : parsedTime;
+      const snapshot = this.buildEventSnapshot(
+        event,
+        timestampMs,
+        baseNodesState,
+        {
+          id: `hist_${event.event_id}`,
+          stageLabel: 'Historial del Gateway',
+          description: 'Evento del historial de telemetría (GET /api/v1/telemetry/history).',
+        },
+        null,
+      );
+      baseNodesState = snapshot.nodesState;
+      this.appendSnapshot(snapshot);
+    }
+
+    // El resumen consolidado del gateway completa el estado del último snapshot
+    // para los nodos sin evento propio (eventos recortados por `limit`).
+    const last = this.snapshots[this.snapshots.length - 1];
+    if (last) {
+      const nodesState = { ...last.nodesState };
+      for (const [nodeId, summary] of Object.entries(payload.nodes_summary)) {
+        if (nodesState[nodeId]) continue;
+        nodesState[nodeId] = {
+          status: (summary.status as NodeStatus) ?? 'UNKNOWN',
+          recordsIn: summary.records_in ?? 0,
+          recordsOut: summary.records_out ?? 0,
+          latencyMs: summary.latency_ms,
+          alertsCount: 0,
+        };
+      }
+      this.appendSnapshot({ ...last, nodesState });
+    }
+  }
+
+  private buildScenarioSnapshot(
+    scenarioId: string,
+    label: string,
+    events: TelemetryEventPayload[],
+    timestampMs: number,
+  ): PipelineSnapshot {
+    const nodesState: Record<string, PipelineSnapshotNodeState> = {};
+    let recordsProcessed = 0;
+    let recordsQuarantined = 0;
+    let sparkRps: number | undefined;
+    let airflowRps: number | undefined;
+
+    for (const event of events) {
+      const quarantined =
+        typeof event.details?.quarantined_records === 'number'
+          ? event.details.quarantined_records
+          : 0;
+
+      const nodeState: PipelineSnapshotNodeState = {
+        status: event.status,
+        recordsIn: event.records_in,
+        recordsOut: event.records_out,
+        latencyMs: event.latency_ms,
+        quarantinedRecords: quarantined,
+        alertsCount: 0,
+      };
+
+      if (event.node_id === 'guardian_monitor' && event.details) {
+        nodeState.guardianDetails = {
+          playbook_id: event.details.playbook_id as string | undefined,
+          action_taken: event.details.action_taken as string | undefined,
+          quarantined_records: quarantined,
+          message: event.details.message as string | undefined,
+          anomaly_type: event.details.anomaly_type as never,
+        };
+      }
+
+      nodesState[event.node_id] = nodeState;
+      recordsProcessed += event.records_out;
+      recordsQuarantined += quarantined;
+
+      sparkRps = readNumber(event.details?.spark_rps) ?? sparkRps;
+      airflowRps = readNumber(event.details?.airflow_rps) ?? airflowRps;
+    }
+
+    const statuses = Object.values(nodesState).map((node) => node.status);
+
+    return {
+      id: `scenario_${scenarioId}_${timestampMs}`,
+      timestamp: new Date(timestampMs).toISOString(),
+      timestampMs,
+      scenarioId,
+      stageLabel: `Escenario ${scenarioId} · ${label}`,
+      overallStatus: computeOverallStatus(statuses),
+      recordsProcessed,
+      recordsQuarantined,
+      recordsTotal: recordsProcessed + recordsQuarantined,
+      sparkRps,
+      airflowRps,
+      nodesState,
+      activeAlerts: [],
+      description:
+        'Hito del escenario canónico publicado por el Gateway de telemetría. No es telemetría persistida.',
+    };
+  }
+
+  private buildEventSnapshot(
+    event: TelemetryEventPayload,
+    timestampMs: number,
+    baseNodesState: Record<string, PipelineSnapshotNodeState>,
+    meta: SnapshotMeta,
+    lastSnapshot: PipelineSnapshot | null,
+  ): PipelineSnapshot {
     const currentNode = baseNodesState[event.node_id] || {
       status: event.status || 'HEALTHY',
       recordsIn: event.records_in,
@@ -447,78 +751,36 @@ export class HistoricalSnapshotStore {
         action_taken: (event.details.action_taken as string) || currentNode.guardianDetails?.action_taken,
         quarantined_records: quarantined,
         message: (event.details.message as string) || currentNode.guardianDetails?.message,
-        anomaly_type: (event.details.anomaly_type as any) || currentNode.guardianDetails?.anomaly_type,
+        anomaly_type: (event.details.anomaly_type as never) || currentNode.guardianDetails?.anomaly_type,
       };
     }
 
-    baseNodesState[event.node_id] = updatedNode;
+    const nodesState = { ...baseNodesState, [event.node_id]: updatedNode };
 
-    // Compute overall pipeline status
-    const statuses = Object.values(baseNodesState).map((n) => n.status);
-    let overallStatus: NodeStatus = 'HEALTHY';
-    if (statuses.includes('ERROR')) {
-      overallStatus = 'ERROR';
-    } else if (statuses.includes('AUTO_HEALING')) {
-      overallStatus = 'AUTO_HEALING';
-    } else if (statuses.includes('DEGRADED')) {
-      overallStatus = 'DEGRADED';
-    }
-
-    const newSnapshot: PipelineSnapshot = {
-      id: `live_${event.event_id || timestampMs}`,
+    return {
+      id: meta.id,
       timestamp: event.timestamp || new Date(timestampMs).toISOString(),
       timestampMs,
-      stageLabel: 'Live Telemetría',
-      overallStatus,
+      scenarioId: meta.scenarioId,
+      stageLabel: meta.stageLabel,
+      overallStatus: computeOverallStatus(Object.values(nodesState).map((node) => node.status)),
       recordsProcessed: event.records_out || (lastSnapshot?.recordsProcessed ?? 0),
       recordsQuarantined: quarantined ?? (lastSnapshot?.recordsQuarantined ?? 0),
       recordsTotal: (event.records_out || 0) + (quarantined || 0),
-      sparkRps: (event.details?.spark_rps as number) || (event.details?.throughput_rps as number) || lastSnapshot?.sparkRps,
-      airflowRps: (event.details?.airflow_rps as number) || lastSnapshot?.airflowRps,
-      nodesState: baseNodesState,
+      sparkRps:
+        readNumber(event.details?.spark_rps) ??
+        readNumber(event.details?.throughput_rps) ??
+        lastSnapshot?.sparkRps,
+      airflowRps: readNumber(event.details?.airflow_rps) ?? lastSnapshot?.airflowRps,
+      nodesState,
       activeAlerts: lastSnapshot?.activeAlerts || [],
+      description: meta.description,
     };
-
-    this.addSnapshot(newSnapshot);
-    return newSnapshot;
-  }
-
-  /**
-   * Hydrates recent history from the backend buffer (/api/v1/telemetry/buffer) if available.
-   */
-  public async hydrateFromBuffer(apiBaseUrl: string = 'http://localhost:8000'): Promise<number> {
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/telemetry/history?window=24h`, { credentials: 'include' });
-      if (!response.ok) {
-        return 0;
-      }
-      const data = await response.json();
-      if (!data || !Array.isArray(data.events) || data.events.length === 0) {
-        return 0;
-      }
-
-      let count = 0;
-      for (const evt of data.events) {
-        const timeMs = evt.timestamp ? new Date(evt.timestamp).getTime() : Date.now();
-        this.recordLiveEvent(evt, timeMs);
-        count++;
-      }
-      return count;
-    } catch {
-      // Graceful fallback: local store remains initialized with canonical snapshots
-      return 0;
-    }
-  }
-
-  /**
-   * Clears all snapshots and resets.
-   */
-  public clear(): void {
-    this.snapshots = [];
   }
 }
 
 /**
  * Shared singleton instance for time-travel replay operations.
+ * Arranca **vacío**: la línea de tiempo se hidrata desde el Gateway FastAPI.
  */
 export const historicalSnapshotStore = new HistoricalSnapshotStore();

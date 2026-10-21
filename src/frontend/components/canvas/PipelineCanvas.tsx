@@ -12,19 +12,21 @@ import {
   BackgroundVariant,
   Node,
   Edge,
+  MarkerType,
   NodeMouseHandler,
   NodeTypes,
   EdgeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { MidasNodeData } from '@/types/canvas';
+import { MidasNodeData, MidasNodeSubtype, MidasNodeType } from '@/types/canvas';
 import { TelemetryEventPayload } from '@/types/telemetry';
 import { useTelemetryStream } from '@/hooks/useTelemetryStream';
 import { useTimeTravel } from '@/hooks/useTimeTravel';
 import { TimeTravelScrubber } from './TimeTravelScrubber';
 import { TimeTravelMode, PipelineSnapshot } from '@/types/timeTravel';
 import { HistoricalSnapshotStore } from '@/services/historicalTelemetryService';
+import { NEW_GOLD_NODE_EVENT_TYPE } from '@/services/telemetryHistoryApi';
 import { SourceNode } from './nodes/SourceNode';
 import { StageNode } from './nodes/StageNode';
 import { GuardianNode } from './nodes/GuardianNode';
@@ -33,7 +35,7 @@ import { CanvasControls } from './CanvasControls';
 import { NodeInspectionDrawer } from './NodeInspectionDrawer';
 import { TelemetryConnectionBanner } from './TelemetryConnectionBanner';
 import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from './topology/initialTopology';
-import type { ZeroTrustRole } from '@/components/security/ZeroTrustLens';
+import type { SecurityNodePolicy, ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 
 const NODE_TYPES: NodeTypes = {
   source: SourceNode as unknown as React.ComponentType<any>,
@@ -45,12 +47,107 @@ const EDGE_TYPES: EdgeTypes = {
   dataflow: DataFlowEdge as unknown as React.ComponentType<any>,
 };
 
+/**
+ * Alias canónico de identificadores de nodo. El catálogo de identidades del
+ * backend nombra `source_csv` a la fuente tabular; la topología del frontend la
+ * llama `source_excel`. Es la única traducción admitida.
+ */
+const NODE_ID_ALIASES: Record<string, string> = {
+  source_csv: 'source_excel',
+};
+
+const CANONICAL_NODE_IDS = new Set<string>(INITIAL_CANVAS_NODES.map((node) => node.id));
+
+/** Banda inferior donde se ubican los nodos recibidos en caliente. */
+const DYNAMIC_NODE_ORIGIN = { x: 40, y: 620 };
+const DYNAMIC_NODE_STEP = { x: 340, y: 190 };
+
+/**
+ * Padre canónico en la cadena Medallion del que nace un nodo dinámico.
+ * El backend **no** emite eventos de conexión: la arista se deriva.
+ */
+const LAYER_PARENT_BY_SUBTYPE: Partial<Record<MidasNodeSubtype, string>> = {
+  gold: 'silver_cleansing',
+  silver: 'bronze_raw',
+};
+
+function dynamicNodePosition(index: number): { x: number; y: number } {
+  return {
+    x: DYNAMIC_NODE_ORIGIN.x + DYNAMIC_NODE_STEP.x * (index % 3),
+    y: DYNAMIC_NODE_ORIGIN.y + DYNAMIC_NODE_STEP.y * Math.floor(index / 3),
+  };
+}
+
+interface DynamicNodeShape {
+  nodeType: MidasNodeType;
+  subType: MidasNodeSubtype;
+  label: string;
+  catalogTable?: string;
+}
+
+/**
+ * Deduce la forma de un nodo a partir del contrato real del evento.
+ * Devuelve `null` cuando el `node_id` no pertenece a ningún namespace de capa
+ * conocido: en ese caso el evento **no** se dibuja (pero sí queda registrado en
+ * el historial y se propaga a `onTelemetryEvent`).
+ */
+export function inferDynamicNodeShape(
+  nodeId: string,
+  event: TelemetryEventPayload,
+): DynamicNodeShape | null {
+  const outputTable =
+    typeof event.details?.output_table === 'string' && event.details.output_table.length > 0
+      ? event.details.output_table
+      : undefined;
+  const isGoldAnnouncement = event.details?.event_type === NEW_GOLD_NODE_EVENT_TYPE;
+  const normalized = nodeId.toLowerCase();
+  const table = (outputTable ?? nodeId).toLowerCase();
+
+  if (isGoldAnnouncement || table.startsWith('gold.') || normalized.startsWith('gold.')) {
+    return {
+      nodeType: 'stage',
+      subType: 'gold',
+      label: outputTable ?? nodeId,
+      catalogTable: outputTable,
+    };
+  }
+  if (normalized.startsWith('silver')) {
+    return {
+      nodeType: 'stage',
+      subType: 'silver',
+      label: outputTable ?? nodeId,
+      catalogTable: outputTable,
+    };
+  }
+  if (normalized.startsWith('bronze')) {
+    return {
+      nodeType: 'stage',
+      subType: 'bronze',
+      label: outputTable ?? nodeId,
+      catalogTable: outputTable,
+    };
+  }
+  if (normalized.startsWith('guardian')) {
+    return { nodeType: 'guardian', subType: 'guardian', label: outputTable ?? nodeId };
+  }
+  if (normalized.startsWith('source')) {
+    return { nodeType: 'source', subType: 'generic', label: outputTable ?? nodeId };
+  }
+  return null;
+}
+
 export interface PipelineCanvasProps {
   initialNodes?: Node<MidasNodeData>[];
   initialEdges?: Edge[];
   onNodeSelect?: (nodeData: MidasNodeData | null) => void;
   className?: string;
   securityRole?: ZeroTrustRole;
+  /**
+   * Política de acceso por nodo publicada por el catálogo de identidades del
+   * backend (`GET /api/v1/auth/roles`). Cuando está presente es la fuente de
+   * verdad de la atenuación visual.
+   */
+  securityPolicy?: SecurityNodePolicy | null;
   sseUrl?: string;
   autoConnectSSE?: boolean;
   eventSourceFactory?: (url: string) => EventSource;
@@ -89,6 +186,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   onNodeSelect,
   className = '',
   securityRole = 'admin',
+  securityPolicy = null,
   sseUrl,
   autoConnectSSE = true,
   eventSourceFactory,
@@ -102,8 +200,29 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeData, setSelectedNodeData] = useState<MidasNodeData | null>(null);
 
+  /**
+   * HU-FRONT-08: la política de acceso por nodo proviene del catálogo de
+   * identidades del backend. El hardcode local queda como **respaldo declarado**
+   * para cuando el Gateway no está disponible.
+   */
   const isNodeMasked = useCallback(
     (node: Node<MidasNodeData>) => {
+      if (securityPolicy) {
+        const locked = securityPolicy.lockedNodes.map((id) => NODE_ID_ALIASES[id] ?? id);
+        if (locked.includes(node.id)) return true;
+
+        const allowed = securityPolicy.allowedNodes.map((id) => NODE_ID_ALIASES[id] ?? id);
+        if (
+          allowed.length > 0 &&
+          !allowed.includes(node.id) &&
+          CANONICAL_NODE_IDS.has(node.id)
+        ) {
+          return true;
+        }
+        return false;
+      }
+
+      // Respaldo local declarado (identidades sin catálogo disponible).
       const role = securityRole;
       if (role === 'admin') return false;
 
@@ -122,7 +241,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
       return false;
     },
-    [securityRole]
+    [securityRole, securityPolicy]
   );
 
   // Time-Travel Replay Engine (HU-FRONT-03)
@@ -139,6 +258,16 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   const selectedNodeIdRef = useRef<string | null>(null);
   selectedNodeIdRef.current = selectedNodeData?.id || null;
 
+  // HU-FRONT-08: ids de evento ya procesados. El replay por `Last-Event-ID`
+  // puede reenviar eventos: un `event_id` repetido no debe duplicar nodos,
+  // aristas ni métricas.
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const nodesRef = useRef<Node<MidasNodeData>[]>(initialNodes);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
   // Flush batched telemetry updates to React Flow nodes and edges in a single frame
   const flushBatchUpdates = useCallback(() => {
     rafIdRef.current = null;
@@ -154,52 +283,87 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
       latestEventsByNode.set(evt.node_id, evt);
     }
 
-    // Discover real connection and Gold nodes before applying their metrics.
-    setNodes((currentNodes) => {
-      const ids = new Set(currentNodes.map((node) => node.id));
-      const additions: Node<MidasNodeData>[] = [];
-      for (const event of latestEventsByNode.values()) {
-        if (ids.has(event.node_id)) continue;
-        const stage = event.node_id.startsWith('bronze_') ? 'bronze'
-          : event.node_id.startsWith('silver_') ? 'silver' : 'gold';
-        additions.push({
-          id: event.node_id, type: 'stage',
-          position: { x: stage === 'bronze' ? 80 : stage === 'silver' ? 420 : 760,
-                      y: (currentNodes.length + additions.length) * 150 },
-          data: { id: event.node_id, label: event.node_id, subType: stage, nodeType: 'stage',
-                  description: 'Reported by the pipeline telemetry service',
-                  status: event.status, recordsIn: event.records_in,
-                  recordsOut: event.records_out, latencyMs: event.latency_ms,
-                  lastUpdated: event.timestamp },
-        } as Node<MidasNodeData>);
+    // --- HU-FRONT-08: nodos y aristas debutados en caliente -------------------
+    const knownNodeIds = new Set(nodesRef.current.map((node) => node.id));
+    const dynamicNodes: Node<MidasNodeData>[] = [];
+    const dynamicEdges: Edge[] = [];
+    const dynamicOffset = nodesRef.current.filter((node) => !CANONICAL_NODE_IDS.has(node.id)).length;
+
+    for (const [nodeId, evt] of latestEventsByNode) {
+      if (knownNodeIds.has(nodeId)) continue;
+
+      const shape = inferDynamicNodeShape(nodeId, evt);
+      if (!shape) continue;
+
+      dynamicNodes.push({
+        id: nodeId,
+        type: shape.nodeType,
+        position: dynamicNodePosition(dynamicOffset + dynamicNodes.length),
+        data: {
+          id: nodeId,
+          label: shape.label,
+          description: `Nodo recibido en caliente desde el Hub de telemetría (${
+            evt.pipeline_id || 'pipeline'
+          }).`,
+          nodeType: shape.nodeType,
+          subType: shape.subType,
+          status: evt.status ?? 'UNKNOWN',
+          recordsIn: evt.records_in,
+          recordsOut: evt.records_out,
+          latencyMs: evt.latency_ms,
+          lastUpdated: evt.timestamp,
+          ...(shape.catalogTable
+            ? { catalogTable: shape.catalogTable, storagePath: shape.catalogTable }
+            : {}),
+        },
+      });
+      knownNodeIds.add(nodeId);
+
+      // Arista derivada de la cadena Medallion canónica (el backend no emite
+      // eventos de conexión). Sólo si el nodo padre ya está en el grafo.
+      const parent = LAYER_PARENT_BY_SUBTYPE[shape.subType];
+      if (parent && knownNodeIds.has(parent)) {
+        dynamicEdges.push({
+          id: `edge_${parent}_${nodeId}`,
+          source: parent,
+          target: nodeId,
+          type: 'dataflow',
+          animated: true,
+          style:
+            shape.subType === 'gold'
+              ? { stroke: '#B8860B', strokeWidth: 2 }
+              : { stroke: '#3B82F6', strokeWidth: 1.5 },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: shape.subType === 'gold' ? '#B8860B' : '#3B82F6',
+          },
+          data: {
+            label: shape.subType === 'gold' ? 'WAP Promotion' : 'Dataflow',
+            volume: evt.records_out,
+            status: evt.status ?? 'UNKNOWN',
+            ...(shape.subType === 'gold' ? { isWap: true } : {}),
+          },
+        });
       }
-      return [...currentNodes, ...additions];
-    });
-    setEdges((currentEdges) => {
-      const additions: Edge[] = [];
-      for (const event of latestEventsByNode.values()) {
-        if (Array.isArray(event.details?.upstream_nodes)) {
-          for (const upstream of event.details.upstream_nodes) {
-            if (typeof upstream !== 'string') continue;
-            const id = `edge_${upstream}_${event.node_id}`;
-            if (!currentEdges.some((edge) => edge.id === id)) {
-              additions.push({ id, source: upstream, target: event.node_id, type: 'dataflow' });
-            }
-          }
-        }
-        if (!event.node_id.startsWith('silver_')) continue;
-        const source = `bronze_${event.node_id.slice(7)}`;
-        const id = `edge_${source}_${event.node_id}`;
-        if (!currentEdges.some((edge) => edge.id === id)) {
-          additions.push({ id, source, target: event.node_id, type: 'dataflow' });
-        }
+    }
+
+    // Use the actual connection or SQL inputs for managed pipeline edges.
+    for (const [nodeId, event] of latestEventsByNode) {
+      const declared = event.details?.upstream_nodes;
+      const parents = Array.isArray(declared) ? declared.filter((id): id is string => typeof id === 'string')
+        : nodeId.startsWith('silver_') ? [nodeId.replace(/^silver_/, 'bronze_')] : [];
+      for (const parent of parents) {
+        if (!knownNodeIds.has(parent) || !knownNodeIds.has(nodeId)) continue;
+        const id = `edge_${parent}_${nodeId}`;
+        if (dynamicEdges.some((edge) => edge.id === id)) continue;
+        dynamicEdges.push({ id, source: parent, target: nodeId, type: 'dataflow',
+          data: { volume: event.records_out, status: event.status } });
       }
-      return [...currentEdges, ...additions];
-    });
+    }
 
     // 1. Update Nodes immutably
-    setNodes((currentNodes) =>
-      currentNodes.map((node) => {
+    setNodes((currentNodes) => {
+      const updated = currentNodes.map((node) => {
         const evt = latestEventsByNode.get(node.id);
         if (!evt) return node;
 
@@ -238,16 +402,21 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           ...node,
           data: updatedData,
         };
-      })
-    );
+      });
+
+      // Los nodos debutados se AÑADEN: los preexistentes se conservan.
+      return dynamicNodes.length > 0 ? [...updated, ...dynamicNodes] : updated;
+    });
 
     // 2. Update Edges immutably (particle speed / recordsPerSecond & labels)
-    setEdges((currentEdges) =>
-      currentEdges.map((edge) => {
+    setEdges((currentEdges) => {
+      const updated = currentEdges.map((edge) => {
         let updatedEdge = edge;
+        let matched = false;
 
         // PostgreSQL CRM -> Bronze Raw (Airflow)
         if (edge.id === 'edge_postgres_bronze' && latestEventsByNode.has('source_postgres')) {
+          matched = true;
           const evt = latestEventsByNode.get('source_postgres')!;
           const rate = extractRate(evt);
           updatedEdge = {
@@ -263,6 +432,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
         // Excel -> Bronze Raw (Airflow)
         if (edge.id === 'edge_excel_bronze' && latestEventsByNode.has('source_excel')) {
+          matched = true;
           const evt = latestEventsByNode.get('source_excel')!;
           const rate = extractRate(evt);
           updatedEdge = {
@@ -278,6 +448,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
         // API Webhooks -> Bronze Raw (Airflow)
         if (edge.id === 'edge_api_bronze' && latestEventsByNode.has('source_api')) {
+          matched = true;
           const evt = latestEventsByNode.get('source_api')!;
           const rate = extractRate(evt);
           updatedEdge = {
@@ -296,6 +467,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           edge.id === 'edge_bronze_silver' &&
           (latestEventsByNode.has('silver_cleansing') || latestEventsByNode.has('bronze_raw'))
         ) {
+          matched = true;
           const evt =
             latestEventsByNode.get('silver_cleansing') || latestEventsByNode.get('bronze_raw')!;
           const rate = extractRate(evt);
@@ -315,6 +487,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           edge.id === 'edge_silver_gold' &&
           (latestEventsByNode.has('gold_marts') || latestEventsByNode.has('silver_cleansing'))
         ) {
+          matched = true;
           const evt =
             latestEventsByNode.get('gold_marts') || latestEventsByNode.get('silver_cleansing')!;
           const rate = extractRate(evt);
@@ -334,6 +507,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           edge.id === 'edge_silver_guardian' &&
           (latestEventsByNode.has('silver_cleansing') || latestEventsByNode.has('guardian_monitor'))
         ) {
+          matched = true;
           const evt =
             latestEventsByNode.get('guardian_monitor') || latestEventsByNode.get('silver_cleansing')!;
           const qRec =
@@ -353,14 +527,51 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           };
         }
 
+        // Aristas dinámicas (no contempladas por la topología canónica): se
+        // animan con la telemetría real del nodo de destino.
+        if (!matched) {
+          const evt =
+            latestEventsByNode.get(edge.target) ?? latestEventsByNode.get(edge.source);
+          if (evt) {
+            const rate = extractRate(evt);
+            updatedEdge = {
+              ...edge,
+              data: {
+                ...edge.data,
+                volume: evt.records_out,
+                recordsPerSecond: rate,
+                label: `${rate.toLocaleString()} filas/s`,
+              },
+            };
+          }
+        }
+
         return updatedEdge;
-      })
-    );
+      });
+
+      // Las aristas derivadas se AÑADEN (id determinista → idempotente).
+      const existingEdgeIds = new Set(updated.map((edge) => edge.id));
+      const added = dynamicEdges.filter((edge) => !existingEdgeIds.has(edge.id));
+      return added.length > 0 ? [...updated, ...added] : updated;
+    });
   }, [setNodes, setEdges]);
 
   // Handler for each incoming telemetry event: buffers in store & queues for rAF
   const handleIncomingTelemetry = useCallback(
     (event: TelemetryEventPayload) => {
+      // HU-FRONT-08: deduplicación por `event_id`. El replay por `Last-Event-ID`
+      // puede reenviar eventos ya procesados: no deben duplicar nodos ni aristas.
+      if (event.event_id) {
+        if (seenEventIdsRef.current.has(event.event_id)) {
+          return;
+        }
+        seenEventIdsRef.current.add(event.event_id);
+        if (seenEventIdsRef.current.size > 2000) {
+          const recent = Array.from(seenEventIdsRef.current).slice(-1000);
+          seenEventIdsRef.current = new Set(recent);
+        }
+      }
+
       // 1. Background event buffering into history store (AC-02, AC-03)
       timeTravel.recordLiveTelemetry(event);
 
@@ -381,21 +592,6 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   );
 
   // Effect: Apply active historical snapshot to nodes and edges in REPLAY mode (AC-03)
-  useEffect(() => {
-    const latest = timeTravel.availableSnapshots.slice(-1)[0];
-    if (!latest) return;
-    setNodes((current) => {
-      const additions = Object.entries(latest.nodesState).filter(([id]) => !current.some((node) => node.id === id))
-        .map(([id, state], index) => ({
-          id, type: 'stage', position: { x: 80, y: (current.length + index) * 150 },
-          data: { id, label: id, nodeType: 'stage', subType: id.startsWith('bronze_') ? 'bronze' : id.startsWith('silver_') ? 'silver' : 'gold',
-                  description: 'Persisted pipeline telemetry', status: state.status,
-                  recordsIn: state.recordsIn, recordsOut: state.recordsOut, latencyMs: state.latencyMs },
-        } as Node<MidasNodeData>));
-      return additions.length ? [...current, ...additions] : current;
-    });
-  }, [timeTravel.availableSnapshots, setNodes]);
-
   useEffect(() => {
     if (timeTravel.mode !== 'REPLAY' || !timeTravel.activeSnapshot) {
       return;
@@ -514,6 +710,24 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
     prevModeRef.current = timeTravel.mode;
   }, [timeTravel.mode, timeTravel.availableSnapshots, setNodes]);
 
+  const hydratedSnapshotRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (timeTravel.mode !== 'LIVE') return;
+    const latest = timeTravel.availableSnapshots[timeTravel.availableSnapshots.length - 1];
+    if (!latest || latest.id === hydratedSnapshotRef.current) return;
+    hydratedSnapshotRef.current = latest.id;
+    // Restore observed nodes after refreshing the browser.
+    for (const [nodeId, state] of Object.entries(latest.nodesState)) {
+      pendingEventsRef.current.push({ event_id: `history_${latest.id}_${nodeId}`,
+        pipeline_id: 'history', node_id: nodeId, status: state.status,
+        records_in: state.recordsIn, records_out: state.recordsOut,
+        latency_ms: state.latencyMs ?? 0, timestamp: latest.timestamp });
+    }
+    if (pendingEventsRef.current.length && rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(flushBatchUpdates);
+    }
+  }, [timeTravel.availableSnapshots, timeTravel.mode, flushBatchUpdates]);
+
   // Subscribe to SSE stream
   const { connectionStatus, lastEvent, reconnectAttempts, connect } = useTelemetryStream({
     url: sseUrl,
@@ -552,12 +766,15 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
     }
   }, [onNodeSelect]);
 
-  // Restablecer posiciones originales
+  // Restablecer posiciones originales (conservando los nodos dinámicos recibidos)
   const handleResetLayout = useCallback(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
+    setNodes((currentNodes) => {
+      return currentNodes.map((node, index) => ({ ...node,
+        position: initialNodes.find((initial) => initial.id === node.id)?.position ?? dynamicNodePosition(index),
+      }));
+    });
     setSelectedNodeData(null);
-  }, [setNodes, setEdges, initialNodes, initialEdges]);
+  }, [initialNodes, setNodes]);
 
   // Contadores de salud de la topología
   const totalNodes = nodes.length;
@@ -669,6 +886,8 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         relativeOffsetMinutes={timeTravel.relativeOffsetMinutes}
         relativeOffsetLabel={timeTravel.relativeOffsetLabel}
         timelinePoints={timeTravel.timelinePoints}
+        historyStatus={timeTravel.historyStatus}
+        historyError={timeTravel.historyError}
         onPlay={timeTravel.play}
         onPause={timeTravel.pause}
         onTogglePlay={timeTravel.togglePlay}
@@ -690,7 +909,10 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D4AF37]/50 bg-[#FBF8EF] px-2.5 py-0.5 font-mono text-[10px] font-medium text-[#8C6D1F]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#B8860B] animate-pulse" />
-            Simulando sesión bajo perfil: {securityRole === 'rbac' ? 'Gerente Regional Norte' : 'Auditor de Cumplimiento'} · Políticas Ranger activas
+            Perfil de identidad: {securityPolicy?.title ?? (securityRole === 'rbac' ? 'Gerente Regional Norte' : 'Auditor de Cumplimiento')} ·{' '}
+            {securityPolicy
+              ? 'Política declarada por el catálogo de identidades'
+              : 'Sin catálogo de identidades: política local de respaldo'}
           </span>
         </div>
       )}

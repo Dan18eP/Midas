@@ -53,6 +53,24 @@ El Canvas no es una imagen estática; es un grafo interactivo animado que reacci
   - **Ámbar parpadeante:** Detección de filas en cuarentena.
   - **Rojo:** Bloqueo de promoción por error crítico de contrato.
 
+### 2.3. Nodos Dinámicos Debutados por SSE (HU-FRONT-08)
+> **Estado:** Vigente desde el 21 de Octubre de 2026 · **HU:** `HU-FRONT-08` · **Responsable:** Joshua Gonzales
+
+El grafo del Canvas **no es una lista cerrada**. El frontend incorpora al estado del grafo los nodos y aristas que el backend anuncia en caliente, sin recarga de página y sin duplicar entidades.
+
+1. **Contrato de evento (único y canónico).** El Hub de Telemetría emite objetos `TelemetryEvent` (`src/core/telemetry/events.py`). El frontend **no inventa campos**: consume el evento tal cual llega.
+   - `event_id`: identificador único e inmutable del evento. Es la clave de **deduplicación**: un `event_id` repetido (reenvío por `Last-Event-ID`, reconexión o reintento) **nunca** crea un nodo, una arista ni una métrica duplicada.
+   - `node_id`: identificador único del nodo en el grafo.
+   - `details.event_type`: discriminante semántico del evento. El backend publica `NEW_GOLD_NODE_AVAILABLE` (ver `src/agent/tools/dag_generator.py`) para anunciar un mart Gold recién materializado, con `details.output_table` como nombre calificado de la tabla.
+2. **Nodo nuevo.** Ante un evento cuyo `node_id` no existe en el grafo, el Canvas **crea** el nodo y lo **añade** al estado (`append`, nunca `replace`). Los nodos y aristas preexistentes se conservan íntegros, con sus posiciones, selección y viewport.
+   - La capa del nodo se deduce del `node_id` y de `details.output_table`; un nodo Gold se representa con el tipo `stage` y subtipo `gold` reutilizando `StageNode` (sin alterar los nodos personalizados existentes).
+   - La posición del nodo dinámico se calcula de forma **determinista** en una banda inferior del grafo, de modo que nunca solapa la topología canónica.
+3. **Arista derivada.** El backend **no emite** eventos de conexión. La arista de un nodo debutado se **deriva** de la cadena Medallion canónica (`source → bronze → silver → gold`): un nodo Gold nace conectado desde `silver_cleansing` y un nodo Silver desde `bronze_raw`. La arista es de lectura lógica, no de certificación de linaje.
+   - La arista sólo se crea si su nodo padre existe en el grafo. Si el padre aún no ha sido recibido, la conexión queda **pendiente** y se enlaza cuando el padre aparezca (tolerancia a eventos fuera de orden).
+   - El identificador de la arista es determinista (`edge_<origen>_<destino>`), lo que garantiza la **idempotencia**: un evento repetido no duplica la conexión.
+4. **Restablecer layout.** La acción de reinicio de layout restaura la topología canónica **sin eliminar** los nodos y aristas dinámicos ya recibidos.
+5. **Escudo de honestidad.** El Canvas nunca fabrica un nodo a partir de un evento que no cumple el contrato mínimo `TelemetryEvent`. Un `node_id` desconocido **no** se descarta silenciosamente: se incorpora al grafo como nodo con estado `UNKNOWN` y sin métricas inventadas.
+
 ---
 
 ## 3. Funcionalidades Diferenciadoras del Canvas
@@ -64,11 +82,15 @@ Ubicada en la parte superior del Canvas, permite arrastrar un control deslizante
 - **`T2 (Guardian en Acción):`** Se activa el nodo Guardian, mostrando el aislamiento de registros en cuarentena y la preservación de la última versión Gold sana.
 - **`T3 (Recuperado y Publicado):`** Validación completada, aprobación registrada y el pipeline vuelve a verde con el nuevo snapshot publicado.
 
+> **Regla de fuente de verdad (HU-FRONT-08, 21-Oct-2026):** la línea de tiempo **no se fabrica en el frontend**. Los eventos que alimentan el scrubber provienen de `GET /api/v1/telemetry/history` del Gateway de Telemetría. El frontend **no genera snapshots sintéticos** en el flujo productivo: los hitos canónicos T0–T3 se anclan sobre los eventos publicados por el backend en `GET /api/v1/telemetry/scenarios/{id}` y se rotulan como **escenario del backend**, nunca como telemetría persistida. Los estados `vacío`, `cargando` y `error` son de primera clase y se comunican al usuario.
+
 ### 3.2. Simulador Lente Zero-Trust
 Selector en la cabecera con tres identidades de prueba para auditoría de seguridad con **Apache Ranger**:
 - **Vista: Director General** $\rightarrow$ Todos los nodos del Canvas en verde; acceso irrestricto.
 - **Vista: Gerente Regional Norte** $\rightarrow$ Nodos de otras regiones en ámbar con etiqueta flotante: `Row Filter: region = 'NORTE'`.
 - **Vista: Analista Externo** $\rightarrow$ Nodos financieros en rojo con candado: `Acceso Denegado por Política Ranger #402`; nodos permitidos con etiqueta `Column Mask: PII`.
+
+> **Regla de evidencia (HU-FRONT-08, 21-Oct-2026):** las identidades, los nodos permitidos y bloqueados y la política declarada (`ranger_row_filter`, `ranger_column_mask`) provienen de `GET /api/v1/auth/roles`. El frontend **no** inventa porcentajes de visibilidad, correos ni salarios de ejemplo. La Lente distingue tres planos y **sólo** afirma aplicación de enmascaramiento cuando el backend entrega evidencia verificable; en ausencia de evidencia declara explícitamente *"sin evidencia de aplicación"*.
 
 ---
 
@@ -81,6 +103,8 @@ Cada métrica en la narrativa del Copiloto se renderiza como un chip interactivo
   - **Transformación:** Agregación de `silver.pedidos` con filtro `estado = 'ENTREGADO'`.
   - **Calidad:** 100% de reglas cumplidas, con 1.4% de registros excluidos en cuarentena.
   - **Origen:** Archivo `pedidos_20261017.csv` ingerido por Airflow a las 14:02 UTC.
+
+> **Regla de certificación (HU-FRONT-08, 21-Oct-2026):** el árbol de linaje, la fórmula y la certificación del drawer provienen **exclusivamente** de `GET /api/v1/lineage/table/{table}`. Si el gateway no responde, la cifra se muestra **explícitamente no certificada**: sin porcentaje de calidad, sin resumen "100% Contratos Certificados" y sin presentar el hash local derivado como si fuera una firma del catálogo. El frontend **no rellena** con valores literales las etapas incompletas que devuelve el gateway; una etapa sin tabla o ubicación no se muestra.
 
 ### 4.2. Sello de Certificación Ejecutiva
 Cada respuesta analítica concluye con una tarjeta visual compacta de confianza:

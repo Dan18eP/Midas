@@ -1,6 +1,13 @@
 export type LineageLayer = 'source' | 'bronze' | 'silver' | 'gold';
 
-export type LineageProvenance = 'gateway' | 'canonical-fallback';
+/**
+ * Procedencia del linaje resuelto.
+ *
+ * - `gateway`: certificado por `GET /api/v1/lineage/table/{table}`.
+ * - `uncertified`: el gateway no entregó evidencia (HU-FRONT-08). El resultado
+ *   **no** declara porcentaje de calidad ni resumen de certificación.
+ */
+export type LineageProvenance = 'gateway' | 'uncertified';
 
 export interface LineageStageNode {
   layer: LineageLayer;
@@ -18,6 +25,7 @@ export interface LineageFormula {
 }
 
 export interface LineageCertification {
+  /** Porcentaje de calidad certificado; `null` cuando no hay evidencia. */
   qualityPercent: number | null;
   qualitySummary: string;
   lastSyncIso: string;
@@ -60,9 +68,9 @@ export interface LineageGatewayPayload {
   stages?: LineageGatewayStage[];
   transformation?: string;
   certification?: {
-    quality_percent?: number | null;
+    quality_percent?: number;
     quality_summary?: string;
-    last_sync?: string | null;
+    last_sync?: string;
     audit_hash?: string;
   };
 }
