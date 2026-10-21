@@ -156,11 +156,19 @@ flowchart TD
 - **Issue Oficial en GitHub:** [#44](https://github.com/Dan18eP/Midas/issues/44)
 - **Responsable Único:** Dilan Chávez (`dilandcv`)
 - **Story Points:** 5 SP | **Prioridad:** P1 (Mañana)
+- **Documentos de Referencia:**
+  - `documentation/adr/ADR-010-workspace-conversacional-multi-sesion-frontend.md`
+  - `documentation/06_nuevo_backlog_mvp_dorado.md`
+  - `documentation/reviews/auditoria_integral_arquitectura_y_mvp_dorado.md`
 - **Alcance:**
   - Implementar componente `WelcomeHero.tsx` con saludo `"Hola, {usuario}. ¿Qué tienes en mente hoy?"`.
   - Botones de conexión rápida: Excel, CSV, API REST, Base de Datos.
   - Barra lateral colapsable `SessionHistorySidebar.tsx` con historial cronológico (*Hoy*, *Ayer*, *Anteriores*) consumiendo `GET /api/v1/sessions`.
   - Transición fluida entre modo bienvenida y modo canvas activo.
+- **Criterios de Aceptación:**
+  - [ ] Vista de aterrizaje renderiza saludo y 4 accesos rápidos.
+  - [ ] Barra lateral lista sesiones recuperadas del backend.
+  - [ ] Selección de sesión restaura hilo de conversación, grafo y módulos asociados.
 
 ---
 
@@ -168,6 +176,10 @@ flowchart TD
 - **Issue Oficial en GitHub:** [#45](https://github.com/Dan18eP/Midas/issues/45)
 - **Responsable Único:** Joshua Gonzales (`Jgonzalez-2005`)
 - **Story Points:** 4 SP | **Prioridad:** P1 (Mañana)
+- **Documentos de Referencia:**
+  - `documentation/adr/ADR-010-workspace-conversacional-multi-sesion-frontend.md`
+  - `documentation/06_nuevo_backlog_mvp_dorado.md`
+  - `documentation/reviews/auditoria_integral_arquitectura_y_mvp_dorado.md`
 - **Alcance:**
   - `PipelineCanvas.tsx`: Permitir la adición dinámica de nuevos nodos recibidos vía SSE (`NEW_GOLD_NODE_AVAILABLE` o nuevas conexiones) en lugar de limitarse a los 7 nodos fijos.
   - `historicalTelemetryService.ts`: Reemplazar `createCanonicalSnapshots()` por llamadas a `GET /api/v1/telemetry/history`.
