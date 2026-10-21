@@ -180,3 +180,32 @@ export async function registerConnection(
 
   return handleResponse<Record<string, unknown>>(response);
 }
+
+/**
+ * Lista las conexiones de fuentes registradas en el catálogo backend.
+ */
+export async function listSourceConnections(signal?: AbortSignal): Promise<Array<{ connection_id: string; name: string; source_type: string; status: string }>> {
+  const response = await fetch(`${API_BASE}/api/v1/connections`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+  });
+
+  return handleResponse(response);
+}
+
+/**
+ * Dispara la ejecución del pipeline para una fuente de datos en caliente.
+ */
+export async function triggerPipeline(
+  connectionId: string,
+  signal?: AbortSignal
+): Promise<{ run_id: string; status: string; records_cleaned: number; records_quarantined: number; detail: string }> {
+  const response = await fetch(`${API_BASE}/api/v1/pipelines/${encodeURIComponent(connectionId)}/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+  });
+
+  return handleResponse(response);
+}

@@ -17,6 +17,8 @@ volumes:
     name: midas_minio_data
   opensearch_data:
     name: midas_opensearch_data
+  ollama_data:
+    name: midas_ollama_data
 
 services:
   # ----------------------------------------------------------------------------
@@ -420,5 +422,39 @@ services:
     command: scheduler
     environment: *airflow-environment
     volumes: *airflow-volumes
+    networks:
+      - midas-network
+
+  # ----------------------------------------------------------------------------
+  # 6. Inferencia Local Zero-Trust (Ollama con Qwen 2.5 3B)
+  # ----------------------------------------------------------------------------
+  midas-ollama:
+    image: ollama/ollama:latest
+    container_name: midas-ollama
+    restart: unless-stopped
+    profiles: ["ai", "full"]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - midas-network
+
+  # ----------------------------------------------------------------------------
+  # 7. Consola Web & Workspace Conversacional Multi-Sesión (Next.js 14)
+  # ----------------------------------------------------------------------------
+  midas-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    container_name: midas-frontend
+    restart: unless-stopped
+    profiles: ["frontend", "full"]
+    depends_on:
+      - midas-api
+    environment:
+      - NEXT_PUBLIC_API_URL=http://midas-api:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
     networks:
       - midas-network

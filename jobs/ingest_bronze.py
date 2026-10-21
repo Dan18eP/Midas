@@ -34,6 +34,10 @@ def extract(spark: SparkSession, source: dict):
         return spark.read.format("jdbc").options(**props).load()
     if kind == "csv":
         return spark.read.option("header", True).option("inferSchema", True).csv(source["path"])
+    if kind == "excel":
+        import pandas as pd
+        pdf = pd.read_excel(source["path"])
+        return spark.createDataFrame(pdf)
     if kind == "rest_api":
         headers = json.loads(os.environ[source["headers_env"]]) if source.get("headers_env") else {}
         request = urllib.request.Request(source["url"], headers=headers)

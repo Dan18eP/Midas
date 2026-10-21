@@ -100,7 +100,7 @@ def _validate_spec(spec: Any) -> None:
         clean = spec.get("silver")
         if not isinstance(source, dict) or not isinstance(clean, dict):
             raise ValueError("Connection contract needs source and silver sections")
-        if source.get("type") not in {"postgres", "csv", "rest_api"}:
+        if source.get("type") not in {"postgres", "csv", "rest_api", "excel"}:
             raise ValueError("Unsupported governed source type")
         if not source.get("table") and source.get("type") == "postgres":
             raise ValueError("PostgreSQL source needs a table")
@@ -108,8 +108,8 @@ def _validate_spec(spec: Any) -> None:
             for name in (source.get("schema", "public"), source["table"]):
                 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(name)):
                     raise ValueError("PostgreSQL table and schema must be simple identifiers")
-        if not source.get("path") and source.get("type") == "csv":
-            raise ValueError("CSV source needs a path")
+        if not source.get("path") and source.get("type") in {"csv", "excel"}:
+            raise ValueError(f"{source.get('type').upper()} source needs a path")
         if not source.get("url") and source.get("type") == "rest_api":
             raise ValueError("REST source needs a URL")
         if not re.fullmatch(r"silver\.[a-z0-9_]+", str(clean.get("table", ""))):

@@ -1,6 +1,7 @@
-import React, { memo } from 'react';
-import { X, HardDrive, Clock, Activity, Shield, AlertCircle, FileCode, CheckCircle } from 'lucide-react';
+import React, { memo, useState } from 'react';
+import { X, HardDrive, Clock, Activity, Shield, AlertCircle, FileCode, CheckCircle, Play } from 'lucide-react';
 import { MidasNodeData, NODE_STATUS_REGISTRY } from '@/types/canvas';
+import { triggerPipeline } from '@/services/sessionService';
 
 interface NodeInspectionDrawerProps {
   selectedNode: MidasNodeData | null;
@@ -8,9 +9,28 @@ interface NodeInspectionDrawerProps {
 }
 
 export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspectionDrawerProps) => {
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionResult, setExecutionResult] = useState<string | null>(null);
+
   if (!selectedNode) {
     return null;
   }
+
+  const handleExecute = async () => {
+    if (!selectedNode) return;
+    setIsExecuting(true);
+    setExecutionResult(null);
+    try {
+      const rawId = selectedNode.id;
+      const connId = rawId.startsWith('source_') ? rawId.replace('source_', '') : rawId;
+      const res = await triggerPipeline(connId);
+      setExecutionResult(`Procesado (${res.status}): ${res.records_cleaned} limpios, ${res.records_quarantined} en cuarentena.`);
+    } catch (err) {
+      setExecutionResult(`Error: ${err instanceof Error ? err.message : 'Fallo en pipeline'}`);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
 
   const statusConfig = NODE_STATUS_REGISTRY[selectedNode.status] || NODE_STATUS_REGISTRY.UNKNOWN;
 
@@ -38,6 +58,29 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspect
 
       {/* Contenido Scrolleable */}
       <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+        {/* Accion de Ejecucion de Pipeline para Nodos Fuente */}
+        {selectedNode.nodeType === 'source' && (
+          <div className="rounded-xl border border-[#D4AF37]/50 bg-[#FBF8EF] p-3.5 shadow-sm space-y-2">
+            <span className="text-xs font-semibold text-[#8C6D1F] flex items-center gap-1.5">
+              <Play className="h-3.5 w-3.5 text-[#B8860B]" />
+              Orquestación del Flujo
+            </span>
+            <button
+              type="button"
+              onClick={handleExecute}
+              disabled={isExecuting}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-[#B8860B] hover:bg-[#8C6D1F] text-white py-2 px-3 text-xs font-medium transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+            >
+              {isExecuting ? 'Procesando en Lakehouse...' : 'Ejecutar Pipeline Lakehouse'}
+            </button>
+            {executionResult && (
+              <p className="text-[11px] font-mono text-[#4B4639] bg-white p-2 rounded border border-[#E8E4DC]">
+                {executionResult}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Estado Operacional */}
         <div className="rounded-xl border border-[#E8E4DC] bg-[#FFFFFF] p-3.5 shadow-sm">
           <div className="flex items-center justify-between">

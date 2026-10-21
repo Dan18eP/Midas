@@ -13,8 +13,10 @@ from src.api.middleware import CorrelationIdMiddleware
 from src.api.routes.agent import router as agent_router
 from src.api.routes.auth import router as auth_router
 from src.api.routes.connections import router as connections_router
+from src.api.routes.governance import router as governance_router
 from src.api.routes.health import router as health_router
 from src.api.routes.lineage import router as lineage_router
+from src.api.routes.pipelines import router as pipelines_router
 from src.api.routes.query import router as query_router
 from src.api.routes.sessions import router as sessions_router
 from src.api.routes.telemetry import router as telemetry_router
@@ -81,6 +83,8 @@ app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(query_router)
 app.include_router(connections_router)
+app.include_router(pipelines_router)
+app.include_router(governance_router)
 
 
 @app.get("/", include_in_schema=False)

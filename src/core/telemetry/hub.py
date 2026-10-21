@@ -2,8 +2,9 @@
 
 import asyncio
 from collections import deque
+from datetime import datetime
 import logging
-from typing import AsyncGenerator, Deque, List, Optional, Set
+from typing import AsyncGenerator, Deque, Dict, List, Optional, Set
 
 from src.core.telemetry.events import TelemetryEvent
 
@@ -25,6 +26,7 @@ class TelemetryHub:
         self._buffer: Deque[TelemetryEvent] = deque(maxlen=max_buffer_size)
         self._subscribers: Set[asyncio.Queue] = set()
         self._lock = asyncio.Lock()
+        self._last_event_time: Optional[datetime] = None
 
     @property
     def buffer_size(self) -> int:
@@ -36,10 +38,16 @@ class TelemetryHub:
         """Count of active SSE client connections."""
         return len(self._subscribers)
 
+    @property
+    def last_event_time(self) -> Optional[datetime]:
+        """Timestamp of the most recent event published to the hub."""
+        return self._last_event_time
+
     async def publish(self, event: TelemetryEvent) -> None:
         """Publish a telemetry event into the buffer and broadcast to all subscribers."""
         async with self._lock:
             self._buffer.append(event)
+            self._last_event_time = event.timestamp
             dead_subscribers = []
             for queue in self._subscribers:
                 try:
@@ -59,6 +67,7 @@ class TelemetryHub:
 
     def publish_sync(self, event: TelemetryEvent) -> None:
         """Synchronous wrapper for publishing an event into the hub."""
+        self._last_event_time = event.timestamp
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self.publish(event))
@@ -69,6 +78,13 @@ class TelemetryHub:
     def get_buffered_events(self) -> List[TelemetryEvent]:
         """Return a snapshot of all events currently in the buffer."""
         return list(self._buffer)
+
+    def get_snapshot(self) -> Dict[str, TelemetryEvent]:
+        """Return a dictionary mapping each node_id to its most recent TelemetryEvent."""
+        snapshot: Dict[str, TelemetryEvent] = {}
+        for evt in self._buffer:
+            snapshot[evt.node_id] = evt
+        return snapshot
 
     def get_events_after(self, last_event_id: str) -> List[TelemetryEvent]:
         """Return all buffered events recorded chronologically after the given event_id."""
@@ -92,6 +108,7 @@ class TelemetryHub:
     def clear(self) -> None:
         """Clear the event buffer and discard active references."""
         self._buffer.clear()
+        self._last_event_time = None
 
     async def subscribe(
         self,

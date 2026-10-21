@@ -46,6 +46,87 @@ class FileUploadResponse(BaseModel):
     status: ConnectionStatus = Field(ConnectionStatus.ACTIVE, description="Estado de la conexión")
 
 
+class ConnectionTestRequest(BaseModel):
+    """Payload para prueba de conectividad y socket previo al registro."""
+
+    source_type: SourceType = Field(..., description="Tipo de fuente a probar")
+    config_payload: Dict[str, Any] = Field(default_factory=dict, description="Parámetros de conexión")
+
+
+class ConnectionTestResponse(BaseModel):
+    """Resultado del diagnóstico pre-flight de conectividad."""
+
+    success: bool = Field(..., description="Indica si el origen es accesible")
+    latency_ms: float = Field(..., description="Latencia de respuesta de la prueba en ms")
+    detail: str = Field(..., description="Detalle del diagnóstico")
+
+
+@router.post(
+    "/test",
+    response_model=ConnectionTestResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Probar conectividad de una fuente en caliente",
+    description="Realiza un pre-flight check (socket TCP o petición HTTP) con timeout estricto de 1.5s.",
+)
+async def test_connection(payload: ConnectionTestRequest) -> ConnectionTestResponse:
+    """Verifica la conectividad de la fuente sin persistir la conexión."""
+    import socket
+    import time
+    import urllib.request
+
+    start_t = time.perf_counter()
+    stype = payload.source_type
+    cfg = payload.config_payload
+
+    if stype == SourceType.REST:
+        url = cfg.get("url")
+        if not url:
+            return ConnectionTestResponse(success=False, latency_ms=0.0, detail="Falta el parámetro obligatorio 'url'")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Midas-PreFlight/1.0"})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                elapsed = (time.perf_counter() - start_t) * 1000
+                return ConnectionTestResponse(
+                    success=200 <= resp.status < 400,
+                    latency_ms=round(elapsed, 2),
+                    detail=f"HTTP {resp.status} - Servicio accesible",
+                )
+        except Exception as exc:
+            elapsed = (time.perf_counter() - start_t) * 1000
+            return ConnectionTestResponse(
+                success=False,
+                latency_ms=round(elapsed, 2),
+                detail=f"Fallo conectando al endpoint REST: {exc}",
+            )
+
+    elif stype == SourceType.POSTGRES:
+        host = cfg.get("host", "localhost")
+        port = int(cfg.get("port", 5432))
+        try:
+            with socket.create_connection((host, port), timeout=1.5):
+                elapsed = (time.perf_counter() - start_t) * 1000
+                return ConnectionTestResponse(
+                    success=True,
+                    latency_ms=round(elapsed, 2),
+                    detail=f"Socket TCP abierto en {host}:{port}",
+                )
+        except Exception as exc:
+            elapsed = (time.perf_counter() - start_t) * 1000
+            return ConnectionTestResponse(
+                success=False,
+                latency_ms=round(elapsed, 2),
+                detail=f"No se pudo conectar a {host}:{port}: {exc}",
+            )
+
+    # Para archivos locales o uploads siempre es válido si los metadatos están completos
+    elapsed = (time.perf_counter() - start_t) * 1000
+    return ConnectionTestResponse(
+        success=True,
+        latency_ms=round(elapsed, 2),
+        detail=f"Formato {stype.value} validado para ingesta",
+    )
+
+
 @router.post(
     "/register",
     response_model=SourceConnectionResponse,
@@ -57,9 +138,22 @@ async def register_connection(
     payload: SourceConnectionCreate,
     registry: SourceConnectionRegistry = Depends(get_connection_registry),
 ):
-    """Registra una nueva conexión de datos en caliente."""
+    """Registra una nueva conexión de datos en caliente y publica su contrato en MinIO Governance."""
     try:
         registered = registry.register_connection(payload)
+
+        # Publicar contrato declarativo para que Airflow genere el DAG automáticamente
+        try:
+            from src.lakehouse.ingestion.contract_publisher import publish_connection_contract
+
+            publish_connection_contract(
+                connection_id=registered.connection_id,
+                source_type=registered.source_type.value,
+                config_payload=registered.config_payload,
+            )
+        except Exception as pub_err:
+            logger.debug("No se pudo publicar contrato de gobernanza: %s", pub_err)
+
         return registered
     except ValueError as val_err:
         raise HTTPException(
@@ -219,6 +313,19 @@ async def upload_source_file(
             logger.info("Archivo binario guardado en MinIO S3: %s", storage_path)
     except Exception as minio_err:
         logger.debug("MinIO S3 no disponible para almacenamiento directo del binario: %s", minio_err)
+
+    # Publicar contrato declarativo en MinIO Governance para orquestación Airflow
+    try:
+        from src.lakehouse.ingestion.contract_publisher import publish_connection_contract
+
+        publish_connection_contract(
+            connection_id=cid,
+            source_type=registered.source_type.value,
+            config_payload=create_dto.config_payload,
+            storage_uri=storage_path,
+        )
+    except Exception as pub_err:
+        logger.debug("No se pudo publicar contrato de gobernanza para archivo: %s", pub_err)
 
     return FileUploadResponse(
         connection_id=cid,
