@@ -3,6 +3,7 @@ export { CopilotChatDrawer } from './CopilotChatDrawer';
 export { CopilotChatPanel } from './CopilotChatPanel';
 export { CopilotChatWidget } from './CopilotChatWidget';
 export { ChatConversation } from './ChatConversation';
+export { ChatParticleBackground, type ChatParticleBackgroundProps } from './ChatParticleBackground';
 export { ChatMessage } from './ChatMessage';
 export { ChatStatusIndicator } from './ChatStatusIndicator';
 export { EChartsRenderer } from './EChartsRenderer';
