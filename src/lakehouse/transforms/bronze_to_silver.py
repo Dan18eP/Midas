@@ -48,6 +48,7 @@ class BatchTransformResult:
     silver_path: Optional[str] = None
     quarantine_path: Optional[str] = None
     telemetry_event: Optional[Dict[str, Any]] = None
+    pii_report: Optional[Dict[str, Any]] = None
 
     def to_summary_dict(self) -> Dict[str, Any]:
         """Resumen estadístico del lote para logs y telemetría."""
@@ -61,6 +62,7 @@ class BatchTransformResult:
             "processing_ms": self.processing_ms,
             "silver_path": self.silver_path,
             "quarantine_path": self.quarantine_path,
+            "pii_columns": (self.pii_report or {}).get("sensitive_columns", []),
         }
 
 
@@ -82,15 +84,20 @@ class BronzeToSilverTransformer:
         telemetry_publisher: Optional[Callable[[Dict[str, Any]], None]] = None,
         pipeline_id: str = "pipeline_bronze_to_silver",
         node_id: str = "silver_cleansing",
+        pii_shield: Optional[Any] = None,
     ):
         """
         :param minio_client: Instancia opcional de MidasMinioClient para persistencia S3.
         :param telemetry_publisher: Callback para enviar eventos canónicos al TelemetryHub.
         :param pipeline_id: Identificador del pipeline orquestado.
         :param node_id: Identificador canónico del nodo en el Canvas ('silver_cleansing').
+        :param pii_shield: Escudo PII opcional (HU-GOV-02). Si se inyecta, clasifica
+            las columnas sensibles del lote y despacha las etiquetas a Apache Atlas
+            sin bloquear la transformación. Si es None, el comportamiento no cambia.
         """
         self.minio_client = minio_client
         self.telemetry_publisher = telemetry_publisher
+        self.pii_shield = pii_shield
         self.pipeline_id = pipeline_id
         self.node_id = node_id
 
@@ -182,6 +189,21 @@ class BronzeToSilverTransformer:
         silver_path: Optional[str] = None
         quarantine_path: Optional[str] = None
 
+        # 2.1. Escudo PII en caliente (HU-GOV-02). El despacho a Atlas es
+        # asíncrono y cualquier fallo de gobernanza se registra sin interrumpir
+        # el lote: la transformación nunca depende del catálogo.
+        pii_report: Optional[Dict[str, Any]] = None
+        if self.pii_shield is not None:
+            try:
+                shield_result = self.pii_shield.scan_batch(
+                    deduplicated_records,
+                    source_name=source_name,
+                    batch_id=effective_batch_id,
+                )
+                pii_report = shield_result.to_dict()
+            except Exception as exc:  # noqa: BLE001 - la gobernanza nunca tumba el pipeline
+                logger.warning(f"Escudo PII no aplicado al lote {effective_batch_id}: {exc}")
+
         # 3. Persistencia en MinIO S3 (si aplica)
         if persist_to_storage and self.minio_client is not None:
             # Persistir registros limpios en midas-silver
@@ -238,6 +260,7 @@ class BronzeToSilverTransformer:
             silver_path=silver_path,
             quarantine_path=quarantine_path,
             telemetry_event=telemetry_event_dict,
+            pii_report=pii_report,
         )
 
     def _emit_telemetry(
