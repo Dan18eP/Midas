@@ -128,12 +128,17 @@ no se genera ni ejecuta una consulta analítica.
 
 El `ModelRouter` usa Ollama con `qwen2.5:3b` como proveedor primario y acepta
 únicamente los endpoints locales `http://midas-ollama:11434` o
-`http://host.docker.internal:11434`. No configura ni intenta proveedores cloud.
-Ante indisponibilidad, timeout o respuesta inutilizable de Ollama, genera SQL
-con plantillas determinísticas y SQLGlot, limitadas a intenciones analíticas
-precatalogadas (conteo, suma, promedio y filtros categóricos aprobados) y a
-tablas/columnas presentes en el catálogo activo. Si la tabla, métrica o
-intención es ambigua o requiere cruces, falla sin ejecutar una consulta.
+`http://host.docker.internal:11434`; el primero es el valor predeterminado. La
+petición local tiene un timeout de 8 segundos. No configura ni intenta
+proveedores cloud.
+
+Ante indisponibilidad, timeout o SQL inválido de Ollama, genera consultas con
+SQLGlot y plantillas determinísticas. Admite conteos y suma/promedio sobre
+columnas numéricas precertificadas del catálogo activo. Los filtros disponibles
+son `region` (`NORTE`, `SUR`, `CENTRO`), `canal_venta` (`ONLINE`, `TIENDA`,
+`PARTNER`) y `estado` (`CERRADO`, `ABIERTO`), con un filtro por consulta. No
+resuelve consultas agrupadas, por año, cruces ni intenciones ambiguas; en esos
+casos falla sin ejecutar SQL.
 
 Los prompts de Text-to-Gold para Qwen reciben el catálogo permitido, solicitan
 una única consulta Trino sin prosa y recuerdan las reglas de solo lectura. Toda

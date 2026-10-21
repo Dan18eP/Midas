@@ -8,7 +8,19 @@
 
 ## Resultado
 
-El agente usa Ollama con `qwen2.5:3b` en uno de los dos endpoints locales aprobados. Si Ollama no está disponible o devuelve SQL inválido, el router usa plantillas SQLGlot para conteos, sumas, promedios y filtros categóricos permitidos. Las intenciones ambiguas fallan de forma segura. No hay proveedor cloud configurado.
+El agente usa Ollama con `qwen2.5:3b` en uno de los dos endpoints locales aprobados; `http://midas-ollama:11434` es el predeterminado y `http://host.docker.internal:11434` puede configurarse explícitamente. La llamada tiene un timeout de 8 segundos. Si Ollama no responde, excede el timeout o devuelve SQL que no pasa la validación, el router genera un SELECT determinístico con SQLGlot. No existe una ruta de proveedor cloud.
+
+## Tareas realizadas
+
+- [x] Crear `ModelRouter` y conectarlo al `TextToSqlGenerator` usado por defecto en `build_graph`.
+- [x] Restringir el transporte al endpoint Ollama local y fijar el modelo `qwen2.5:3b`.
+- [x] Crear prompts compactos que limitan Qwen a una consulta Trino SELECT, sin prosa y con el catálogo permitido.
+- [x] Implementar fallback para `COUNT(*)`, `SUM` y `AVG` sobre columnas numéricas precertificadas presentes en el catálogo.
+- [x] Implementar un filtro categórico por consulta: región `NORTE/SUR/CENTRO`, canal `ONLINE/TIENDA/PARTNER` o estado `CERRADO/ABIERTO`.
+- [x] Rechazar intenciones ambiguas, consultas agrupadas, por año, cruces y filtros no soportados.
+- [x] Restringir el catálogo del guardrail a `silver` y `gold`; conservar validación de tablas/columnas e inserción de `LIMIT 1000`.
+- [x] Agregar pruebas para proveedor local simulado, fallback offline, SQL inválido, filtros, capas permitidas y latencia.
+- [x] Actualizar arquitectura canónica, bitácora y este registro de entrega.
 
 ## Revisión anti-deriva
 
