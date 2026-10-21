@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.middleware import CorrelationIdMiddleware
 from src.api.routes.agent import router as agent_router
 from src.api.routes.auth import router as auth_router
+from src.api.routes.connections import router as connections_router
 from src.api.routes.health import router as health_router
 from src.api.routes.lineage import router as lineage_router
 from src.api.routes.query import router as query_router
@@ -48,6 +49,7 @@ app = FastAPI(
         "- **Pipeline Observability**: Telemetry ingestion for Bronze, Silver, Gold, and Guardian nodes.\n"
         "- **Data Lineage & Certification**: Medallion 4-layer lineage with KaTeX formulas and SHA-256 audit hashes.\n"
         "- **Conversational Sessions**: ChatGPT-style multi-session history with Qwen 2.5 local inference.\n"
+        "- **Dynamic Source Connections**: Multi-source registration and MinIO isolation.\n"
         "- **Zero-Trust Lens**: Security role switching and Ranger policy simulation."
     ),
     version="1.0.0",
@@ -78,6 +80,7 @@ app.include_router(sessions_router)
 app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(query_router)
+app.include_router(connections_router)
 
 
 @app.get("/", include_in_schema=False)

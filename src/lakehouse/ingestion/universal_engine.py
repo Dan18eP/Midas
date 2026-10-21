@@ -1,16 +1,23 @@
 """
 Midas Lakehouse Ingestion - Universal Ingestion Engine Orchestrator
-Historia de Usuario: HU-LAKE-02 (Universal Ingestion Multi-Fuente)
+Historia de Usuario: HU-LAKE-02 & HU-LAKE-05
 Responsables: Edgar Corzo (Data Eng Lead) & Daniel Echeverría (Backend Lead)
+Documentos Canónicos:
+  - documentation/canonical/03_especificacion_base_de_datos_y_lakehouse.md
+  - documentation/adr/ADR-009-orquestacion-tri-medallon-airflow-y-aislamiento-minio.md
 """
 
+from dataclasses import dataclass, field
 import datetime
+import io
 import json
 import logging
 import time
-import uuid
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
+import uuid
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from src.lakehouse.ingestion.fingerprint import (
     compute_schema_fingerprint,
@@ -33,7 +40,9 @@ class IngestionResult:
     records_count: int
     schema_fingerprint: str
     schema_drift_detected: bool
+    connection_id: Optional[str] = None
     storage_path: Optional[str] = None
+    format: str = "parquet"
     records: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -41,13 +50,16 @@ class IngestionResult:
 class UniversalIngestionEngine:
     """
     Motor orquestador unificado de ingesta multi-fuente para la capa Bronze del Lakehouse Medallón.
-    
+
     Capacidades:
     1. Orquesta la extracción de PostgreSQL, Excel multi-hoja y APIs REST.
     2. Aplica la envoltura canónica Bronze con trazabilidad completa.
     3. Monitorea y detecta Schema Drift comparando fingerprints SHA-256.
-    4. Opcionalmente persiste los lotes en MinIO S3 (midas-bronze).
-    5. Emite eventos canónicos de telemetría hacia el hub de observabilidad.
+    4. Persistencia en formato Parquet inmutable con compresión Snappy.
+    5. Aislamiento estricto de rutas por conexión en MinIO S3 (ADR-009):
+       - Bronze: s3://midas-bronze/sources/<connection_id>/<dataset>/year=%Y/month=%m/day=%d/<batch_id>.parquet
+       - Cuarentena: s3://midas-quarantine/incidents/<connection_id>/<date>/incident_<id>.json
+    6. Emite eventos canónicos de telemetría hacia el hub de observabilidad.
     """
 
     def __init__(
@@ -56,11 +68,6 @@ class UniversalIngestionEngine:
         telemetry_publisher: Optional[Callable[[Dict[str, Any]], None]] = None,
         baseline_fingerprints: Optional[Dict[str, str]] = None,
     ):
-        """
-        :param minio_client: Instancia de MidasMinioClient para persistir en midas-bronze.
-        :param telemetry_publisher: Callback para enviar eventos a FastAPI TelemetryHub.
-        :param baseline_fingerprints: Diccionario opcional de huellas de esquema base {source_origin: sha256_hash}.
-        """
         self.minio_client = minio_client
         self.telemetry_publisher = telemetry_publisher
         self.baselines: Dict[str, str] = baseline_fingerprints or {}
@@ -102,35 +109,113 @@ class UniversalIngestionEngine:
         except Exception as exc:
             logger.warning("Fallo al emitir evento de telemetría: %s", exc)
 
+    def build_bronze_storage_path(
+        self,
+        connection_id: str,
+        dataset: str,
+        batch_id: str,
+        timestamp: Optional[datetime.datetime] = None,
+    ) -> str:
+        """
+        Construye la URI canónica aislada para la capa Bronze en MinIO S3 (ADR-009):
+        s3://midas-bronze/sources/<connection_id>/<dataset>/year=%Y/month=%m/day=%d/<batch_id>.parquet
+        """
+        ts = timestamp or datetime.datetime.now(datetime.timezone.utc)
+        safe_conn = connection_id.replace(":", "_").replace("/", "_").replace("#", "_")
+        safe_dataset = dataset.replace(":", "_").replace("/", "_").replace("\\", "_").replace("#", "_")
+        date_partition = ts.strftime("year=%Y/month=%m/day=%d")
+        return f"sources/{safe_conn}/{safe_dataset}/{date_partition}/{batch_id}.parquet"
+
+    def build_quarantine_storage_path(
+        self,
+        connection_id: str,
+        incident_id: str,
+        timestamp: Optional[datetime.datetime] = None,
+    ) -> str:
+        """
+        Construye la URI canónica aislada para incidentes en Cuarentena (ADR-009):
+        s3://midas-quarantine/incidents/<connection_id>/<date>/incident_<id>.json
+        """
+        ts = timestamp or datetime.datetime.now(datetime.timezone.utc)
+        safe_conn = connection_id.replace(":", "_").replace("/", "_").replace("#", "_")
+        date_str = ts.strftime("%Y-%m-%d")
+        return f"incidents/{safe_conn}/{date_str}/incident_{incident_id}.json"
+
     def _persist_to_bronze_storage(
         self,
         source_type: str,
         source_origin: str,
         batch_id: str,
         records: List[Dict[str, Any]],
+        connection_id: Optional[str] = None,
     ) -> Optional[str]:
-        """Escribe el lote en el bucket S3 'midas-bronze' si MinIO está disponible."""
+        """
+        Escribe el lote en el bucket S3 'midas-bronze' en formato Parquet inmutable
+        con compresión Snappy y particionamiento aislado por connection_id.
+        """
         if self.minio_client is None:
             return None
 
-        # Limpiar caracteres en el path
-        safe_origin = source_origin.replace(":", "_").replace("/", "_").replace("\\", "_").replace("#", "_")
-        date_partition = datetime.datetime.now(datetime.timezone.utc).strftime("year=%Y/month=%m/day=%d")
-        object_key = f"raw/{source_type.lower()}/{safe_origin}/{date_partition}/{batch_id}.json"
+        cid = connection_id or f"conn_{source_type.lower()}_default"
+        object_key = self.build_bronze_storage_path(
+            connection_id=cid,
+            dataset=source_origin,
+            batch_id=batch_id,
+        )
 
         try:
-            json_data = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
+            # Convertir registros a tabla PyArrow
+            arrow_table = pa.Table.from_pylist(records)
+
+            # Escribir Parquet con compresión Snappy en memoria
+            parquet_sink = io.BytesIO()
+            pq.write_table(arrow_table, parquet_sink, compression="snappy")
+            parquet_bytes = parquet_sink.getvalue()
+
             self.minio_client.put_object(
                 bucket="midas-bronze",
                 object_name=object_key,
-                data=json_data,
-                content_type="application/json",
+                data=parquet_bytes,
+                content_type="application/vnd.apache.parquet",
             )
             s3_uri = f"s3://midas-bronze/{object_key}"
-            logger.info("Lote guardado en almacenamiento Bronze: %s", s3_uri)
+            logger.info("Lote Parquet (Snappy) guardado en almacenamiento Bronze aislado: %s", s3_uri)
             return s3_uri
         except Exception as exc:
-            logger.error("Error persistiendo lote en MinIO S3: %s", exc)
+            logger.error("Error persistiendo lote Parquet en MinIO S3: %s", exc)
+            return None
+
+    def persist_to_quarantine(
+        self,
+        connection_id: str,
+        incident_data: Dict[str, Any],
+        incident_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Aísla registros o incidentes defectuosos en el bucket s3://midas-quarantine/.
+        """
+        if self.minio_client is None:
+            return None
+
+        inc_id = incident_id or uuid.uuid4().hex[:8]
+        object_key = self.build_quarantine_storage_path(
+            connection_id=connection_id,
+            incident_id=inc_id,
+        )
+
+        try:
+            json_bytes = json.dumps(incident_data, indent=2, ensure_ascii=False).encode("utf-8")
+            self.minio_client.put_object(
+                bucket="midas-quarantine",
+                object_name=object_key,
+                data=json_bytes,
+                content_type="application/json",
+            )
+            s3_uri = f"s3://midas-quarantine/{object_key}"
+            logger.info("Incidente aislado en almacenamiento de Cuarentena: %s", s3_uri)
+            return s3_uri
+        except Exception as exc:
+            logger.error("Error persistiendo incidente en Cuarentena S3: %s", exc)
             return None
 
     def ingest_from_postgres(
@@ -140,16 +225,22 @@ class UniversalIngestionEngine:
         batch_id: Optional[str] = None,
         batch_size: int = 1000,
         schema_name: str = "public",
+        connection_id: Optional[str] = None,
         persist: bool = True,
     ) -> IngestionResult:
         """
-        Ejecuta la ingesta de una tabla PostgreSQL a la capa Bronze.
+        Ejecuta la ingesta de una tabla PostgreSQL a la capa Bronze en Parquet Snappy.
         """
         bid = batch_id or self.generate_batch_id("batch_pg")
+        cid = connection_id or "conn_pg_crm_default"
         node_id = f"node-postgres-{table_name}"
         origin = f"{schema_name}.{table_name}"
 
-        self._publish_telemetry("INGESTION", node_id, "SYNC_STARTED", "RUNNING", 0, {"table": origin, "batch_id": bid})
+        self._publish_telemetry("INGESTION", node_id, "SYNC_STARTED", "RUNNING", 0, {
+            "table": origin,
+            "batch_id": bid,
+            "connection_id": cid,
+        })
 
         records = connector.extract_batch(
             table_name=table_name,
@@ -168,16 +259,25 @@ class UniversalIngestionEngine:
                 "alert": "SCHEMA_DRIFT_DETECTED",
                 "baseline_fingerprint": baseline,
                 "current_fingerprint": fingerprint,
+                "connection_id": cid,
             })
 
         storage_path = None
         if persist and records:
-            storage_path = self._persist_to_bronze_storage("JDBC_POSTGRES", origin, bid, records)
+            storage_path = self._persist_to_bronze_storage(
+                source_type="JDBC_POSTGRES",
+                source_origin=origin,
+                batch_id=bid,
+                records=records,
+                connection_id=cid,
+            )
 
         self._publish_telemetry("INGESTION", node_id, "ROWS_PROCESSED", "SUCCESS", len(records), {
             "batch_id": bid,
             "origin": origin,
+            "connection_id": cid,
             "storage_path": storage_path,
+            "format": "parquet",
         })
 
         return IngestionResult(
@@ -187,7 +287,9 @@ class UniversalIngestionEngine:
             records_count=len(records),
             schema_fingerprint=fingerprint,
             schema_drift_detected=drift,
+            connection_id=cid,
             storage_path=storage_path,
+            format="parquet",
             records=records,
         )
 
@@ -197,16 +299,22 @@ class UniversalIngestionEngine:
         sheet_name: str,
         batch_id: Optional[str] = None,
         header_row_override: Optional[int] = None,
+        connection_id: Optional[str] = None,
         persist: bool = True,
     ) -> IngestionResult:
         """
-        Ejecuta la ingesta de una hoja de cálculo Excel a la capa Bronze.
+        Ejecuta la ingesta de una hoja de cálculo Excel a la capa Bronze en Parquet Snappy.
         """
         bid = batch_id or self.generate_batch_id("batch_excel")
+        cid = connection_id or "conn_excel_budget_default"
         node_id = f"node-excel-{sheet_name}"
         origin = f"{connector.source_name}#{sheet_name}"
 
-        self._publish_telemetry("INGESTION", node_id, "SYNC_STARTED", "RUNNING", 0, {"sheet": origin, "batch_id": bid})
+        self._publish_telemetry("INGESTION", node_id, "SYNC_STARTED", "RUNNING", 0, {
+            "sheet": origin,
+            "batch_id": bid,
+            "connection_id": cid,
+        })
 
         records = connector.extract_sheet(
             sheet_name=sheet_name,
@@ -224,16 +332,25 @@ class UniversalIngestionEngine:
                 "alert": "SCHEMA_DRIFT_DETECTED",
                 "baseline_fingerprint": baseline,
                 "current_fingerprint": fingerprint,
+                "connection_id": cid,
             })
 
         storage_path = None
         if persist and records:
-            storage_path = self._persist_to_bronze_storage("EXCEL_SPREADSHEET", origin, bid, records)
+            storage_path = self._persist_to_bronze_storage(
+                source_type="EXCEL_SPREADSHEET",
+                source_origin=origin,
+                batch_id=bid,
+                records=records,
+                connection_id=cid,
+            )
 
         self._publish_telemetry("INGESTION", node_id, "ROWS_PROCESSED", "SUCCESS", len(records), {
             "batch_id": bid,
             "origin": origin,
+            "connection_id": cid,
             "storage_path": storage_path,
+            "format": "parquet",
         })
 
         return IngestionResult(
@@ -243,7 +360,9 @@ class UniversalIngestionEngine:
             records_count=len(records),
             schema_fingerprint=fingerprint,
             schema_drift_detected=drift,
+            connection_id=cid,
             storage_path=storage_path,
+            format="parquet",
             records=records,
         )
 
@@ -253,16 +372,22 @@ class UniversalIngestionEngine:
         endpoint: str,
         batch_id: Optional[str] = None,
         max_records: Optional[int] = None,
+        connection_id: Optional[str] = None,
         persist: bool = True,
     ) -> IngestionResult:
         """
-        Ejecuta la ingesta desde un endpoint de API REST paginada a la capa Bronze.
+        Ejecuta la ingesta desde un endpoint de API REST paginada a la capa Bronze en Parquet Snappy.
         """
         bid = batch_id or self.generate_batch_id("batch_rest")
+        cid = connection_id or "conn_rest_crm_default"
         node_id = "node-rest-api"
         origin = f"{connector.base_url}/{endpoint.lstrip('/')}"
 
-        self._publish_telemetry("INGESTION", node_id, "SYNC_STARTED", "RUNNING", 0, {"endpoint": origin, "batch_id": bid})
+        self._publish_telemetry("INGESTION", node_id, "SYNC_STARTED", "RUNNING", 0, {
+            "endpoint": origin,
+            "batch_id": bid,
+            "connection_id": cid,
+        })
 
         records = connector.extract_cursor_paginated(
             endpoint=endpoint,
@@ -280,16 +405,25 @@ class UniversalIngestionEngine:
                 "alert": "SCHEMA_DRIFT_DETECTED",
                 "baseline_fingerprint": baseline,
                 "current_fingerprint": fingerprint,
+                "connection_id": cid,
             })
 
         storage_path = None
         if persist and records:
-            storage_path = self._persist_to_bronze_storage("REST_API_CRM", origin, bid, records)
+            storage_path = self._persist_to_bronze_storage(
+                source_type="REST_API_CRM",
+                source_origin=origin,
+                batch_id=bid,
+                records=records,
+                connection_id=cid,
+            )
 
         self._publish_telemetry("INGESTION", node_id, "ROWS_PROCESSED", "SUCCESS", len(records), {
             "batch_id": bid,
             "origin": origin,
+            "connection_id": cid,
             "storage_path": storage_path,
+            "format": "parquet",
         })
 
         return IngestionResult(
@@ -299,6 +433,8 @@ class UniversalIngestionEngine:
             records_count=len(records),
             schema_fingerprint=fingerprint,
             schema_drift_detected=drift,
+            connection_id=cid,
             storage_path=storage_path,
+            format="parquet",
             records=records,
         )
