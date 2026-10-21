@@ -230,33 +230,33 @@ export function QuickConnectionModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="quick-connection-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[#1C1E21]/45 backdrop-blur-sm p-4 overflow-y-auto"
     >
-      <div className="relative w-full max-w-2xl rounded-xl border border-slate-700/60 bg-slate-900 text-slate-100 shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-2xl rounded-2xl border border-[#E8E4DC] bg-[#FFFFFF] text-[#1C1E21] shadow-[0_24px_70px_rgba(40,30,10,0.18)] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/90 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-[#F0EDE7] bg-[#FAFAFA] px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-amber-500/10 p-2 text-amber-500 border border-amber-500/20">
+            <div className="rounded-lg bg-[#FBF8EF] p-2 text-[#B8860B] border border-[#D4AF37]/40">
               {selectedType === 'excel' && <FileSpreadsheet className="h-5 w-5" />}
               {selectedType === 'csv' && <FileText className="h-5 w-5" />}
               {selectedType === 'rest' && <Radio className="h-5 w-5" />}
               {selectedType === 'database' && <Database className="h-5 w-5" />}
             </div>
             <div>
-              <h2 id="quick-connection-title" className="text-base font-semibold tracking-tight text-white">
+              <h2 id="quick-connection-title" className="font-serif text-base font-semibold tracking-tight text-[#1C1E21]">
                 {selectedType === 'excel' && 'Cargar Hoja de Cálculo Excel (.xlsx)'}
                 {selectedType === 'csv' && 'Conectar Archivo CSV Delimitado'}
                 {selectedType === 'rest' && 'Configurar Endpoint API REST / Webhook'}
                 {selectedType === 'database' && 'Conectar Base de Datos Relacional'}
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[#787164]">
                 Ingesta directa y catalogación en la capa Bronze del Lakehouse
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+            className="rounded-lg p-1.5 text-[#787164] hover:bg-[#F7F7F5] hover:text-[#1C1E21] transition-colors"
             aria-label="Cerrar modal"
           >
             <X className="h-5 w-5" />
@@ -264,14 +264,14 @@ export function QuickConnectionModal({
         </div>
 
         {/* Source Selector Tabs */}
-        <div className="flex border-b border-slate-800 bg-slate-950/40 px-6 pt-2 gap-2">
+        <div className="flex border-b border-[#F0EDE7] bg-[#FFFFFF] px-6 pt-2 gap-2">
           <button
             type="button"
             onClick={() => setSelectedType('excel')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'excel'
-                ? 'border-amber-500 text-amber-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-[#D4AF37] text-[#8C6D1F]'
+                : 'border-transparent text-[#787164] hover:text-[#1C1E21]'
             }`}
           >
             <FileSpreadsheet className="h-3.5 w-3.5" />
@@ -282,8 +282,8 @@ export function QuickConnectionModal({
             onClick={() => setSelectedType('csv')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'csv'
-                ? 'border-amber-500 text-amber-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-[#D4AF37] text-[#8C6D1F]'
+                : 'border-transparent text-[#787164] hover:text-[#1C1E21]'
             }`}
           >
             <FileText className="h-3.5 w-3.5" />
@@ -294,8 +294,8 @@ export function QuickConnectionModal({
             onClick={() => setSelectedType('rest')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'rest'
-                ? 'border-amber-500 text-amber-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-[#D4AF37] text-[#8C6D1F]'
+                : 'border-transparent text-[#787164] hover:text-[#1C1E21]'
             }`}
           >
             <Radio className="h-3.5 w-3.5" />
@@ -306,8 +306,8 @@ export function QuickConnectionModal({
             onClick={() => setSelectedType('database')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'database'
-                ? 'border-amber-500 text-amber-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-[#D4AF37] text-[#8C6D1F]'
+                : 'border-transparent text-[#787164] hover:text-[#1C1E21]'
             }`}
           >
             <Database className="h-3.5 w-3.5" />
@@ -318,8 +318,8 @@ export function QuickConnectionModal({
         {/* Content Body */}
         <div className="p-6 space-y-4">
           {error && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-950/40 p-3 text-xs text-red-300">
-              <AlertCircle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-[#ECCFC5] bg-[#FFF8F5] p-3 text-xs text-[#A8422B]">
+              <AlertCircle className="h-4 w-4 shrink-0 text-[#A8422B] mt-0.5" />
               <span>{error}</span>
             </div>
           )}
@@ -331,13 +331,13 @@ export function QuickConnectionModal({
                 <div>
                   <div
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 hover:border-amber-500/60 bg-slate-950/50 p-8 cursor-pointer transition-colors"
+                    className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#E8E4DC] hover:border-[#D4AF37]/60 bg-[#FAFAFA] p-8 cursor-pointer transition-colors"
                   >
-                    <UploadCloud className="h-10 w-10 text-slate-400 mb-3" />
-                    <p className="text-sm font-medium text-slate-200">
+                    <UploadCloud className="h-10 w-10 text-[#A0988A] mb-3" />
+                    <p className="text-sm font-medium text-[#1C1E21]">
                       {file ? file.name : 'Arrastra o haz clic para seleccionar archivo'}
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-[#787164] mt-1">
                       {selectedType === 'excel'
                         ? 'Soporta archivos .xlsx y .xls (máximo 50MB)'
                         : 'Soporta archivos .csv con detección automática de delimitador'}
@@ -352,11 +352,11 @@ export function QuickConnectionModal({
                   </div>
 
                   {file && (
-                    <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-800/60 p-3 border border-slate-700/60 text-xs">
-                      <div className="flex items-center gap-2 text-slate-200">
-                        <Table className="h-4 w-4 text-amber-500" />
+                    <div className="mt-4 flex items-center justify-between rounded-lg bg-[#F7F7F5] p-3 border border-[#E8E4DC] text-xs">
+                      <div className="flex items-center gap-2 text-[#1C1E21]">
+                        <Table className="h-4 w-4 text-[#B8860B]" />
                         <span className="font-mono font-medium">{file.name}</span>
-                        <span className="text-slate-400">
+                        <span className="text-[#787164]">
                           ({(file.size / 1024).toFixed(1)} KB)
                         </span>
                       </div>
@@ -364,7 +364,7 @@ export function QuickConnectionModal({
                         type="button"
                         onClick={handleFileUpload}
                         disabled={isUploading}
-                        className="flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 font-medium text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition-colors"
+                        className="flex items-center gap-1.5 rounded-md bg-[#D4AF37] px-3 py-1.5 font-medium text-white hover:bg-[#B8860B] disabled:opacity-50 transition-colors"
                       >
                         {isUploading ? (
                           <>
@@ -384,25 +384,25 @@ export function QuickConnectionModal({
               ) : (
                 /* Inspection Result View */
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 p-3 text-xs text-emerald-300">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                  <div className="flex items-center gap-2 rounded-lg bg-[#4D7C0F]/10 border border-[#4D7C0F]/25 p-3 text-xs text-[#4D7C0F]">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[#4D7C0F]" />
                     <span>
                       Esquema validado exitosamente. Archivo almacenado en{' '}
-                      <code className="font-mono text-emerald-200">{uploadResult.storage_uri}</code>
+                      <code className="font-mono text-[#3F6212]">{uploadResult.storage_uri}</code>
                     </span>
                   </div>
 
                   {uploadResult.sheets && uploadResult.sheets.length > 0 && (
-                    <div className="rounded-lg bg-slate-950/60 p-3 border border-slate-800">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-2">
-                        <Layers className="h-3.5 w-3.5 text-amber-500" />
+                    <div className="rounded-lg bg-[#FAFAFA] p-3 border border-[#E8E4DC]">
+                      <div className="flex items-center gap-1.5 text-xs text-[#787164] mb-2">
+                        <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
                         <span className="font-medium">Hojas Detectadas:</span>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {uploadResult.sheets.map((sheet) => (
                           <span
                             key={sheet}
-                            className="rounded bg-slate-800 px-2 py-0.5 text-xs font-mono text-slate-200"
+                            className="rounded bg-[#F7F7F5] border border-[#E8E4DC] px-2 py-0.5 text-xs font-mono text-[#4B4639]"
                           >
                             {sheet}
                           </span>
@@ -411,15 +411,15 @@ export function QuickConnectionModal({
                     </div>
                   )}
 
-                  <div className="rounded-lg bg-slate-950/60 p-3 border border-slate-800">
-                    <div className="text-xs text-slate-400 mb-2 font-medium">
+                  <div className="rounded-lg bg-[#FAFAFA] p-3 border border-[#E8E4DC]">
+                    <div className="text-xs text-[#787164] mb-2 font-medium">
                       Columnas ({uploadResult.detected_columns.length}):
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {uploadResult.detected_columns.map((col) => (
                         <span
                           key={col}
-                          className="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[11px] font-mono text-amber-300"
+                          className="rounded bg-[#FBF8EF] border border-[#D4AF37]/30 px-2 py-0.5 text-[11px] font-mono text-[#8C6D1F]"
                         >
                           {col}
                         </span>
@@ -428,22 +428,22 @@ export function QuickConnectionModal({
                   </div>
 
                   {uploadResult.sample_rows && uploadResult.sample_rows.length > 0 && (
-                    <div className="overflow-x-auto rounded-lg border border-slate-800">
-                      <table className="w-full text-left text-xs text-slate-300">
-                        <thead className="bg-slate-800/80 font-mono text-[11px] uppercase text-slate-400">
+                    <div className="overflow-x-auto rounded-lg border border-[#E8E4DC]">
+                      <table className="w-full text-left text-xs text-[#4B4639]">
+                        <thead className="bg-[#F7F7F5] font-mono text-[11px] uppercase text-[#787164]">
                           <tr>
                             {uploadResult.detected_columns.slice(0, 5).map((col) => (
-                              <th key={col} className="px-3 py-2 border-b border-slate-700">
+                              <th key={col} className="px-3 py-2 border-b border-[#E8E4DC]">
                                 {col}
                               </th>
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800">
+                        <tbody className="divide-y divide-[#E8E4DC]">
                           {uploadResult.sample_rows.slice(0, 3).map((row, idx) => (
-                            <tr key={idx} className="hover:bg-slate-800/30">
+                            <tr key={idx} className="hover:bg-[#FBF8EF]/60">
                               {uploadResult.detected_columns.slice(0, 5).map((col) => (
-                                <td key={col} className="px-3 py-1.5 font-mono text-slate-300">
+                                <td key={col} className="px-3 py-1.5 font-mono text-[#4B4639]">
                                   {String(row[col] ?? '')}
                                 </td>
                               ))}
@@ -462,33 +462,33 @@ export function QuickConnectionModal({
           {selectedType === 'rest' && (
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 mb-1">Nombre Descriptivo</label>
+                <label className="block text-[#787164] mb-1">Nombre Descriptivo</label>
                 <input
                   type="text"
                   placeholder="ej. Helpdesk Tickets API"
                   value={restName}
                   onChange={(e) => setRestName(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                  className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">URL del Endpoint</label>
+                <label className="block text-[#787164] mb-1">URL del Endpoint</label>
                 <input
                   type="url"
                   placeholder="https://api.empresa.com/v1/tickets"
                   value={restUrl}
                   onChange={(e) => setRestUrl(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-slate-100 focus:border-amber-500 focus:outline-none"
+                  className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 font-mono text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Bearer Token / Authorization Header (Opcional)</label>
+                <label className="block text-[#787164] mb-1">Bearer Token / Authorization Header (Opcional)</label>
                 <input
                   type="password"
                   placeholder="eyJhbGciOiJIUzI1Ni..."
                   value={restToken}
                   onChange={(e) => setRestToken(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-slate-100 focus:border-amber-500 focus:outline-none"
+                  className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 font-mono text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                 />
               </div>
             </div>
@@ -499,78 +499,78 @@ export function QuickConnectionModal({
             <div className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Motor de Base de Datos</label>
+                  <label className="block text-[#787164] mb-1">Motor de Base de Datos</label>
                   <select
                     value={dbEngine}
                     onChange={(e) => setDbEngine(e.target.value as 'POSTGRES' | 'MYSQL')}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   >
                     <option value="POSTGRES">PostgreSQL</option>
                     <option value="MYSQL">MySQL</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Nombre de Conexión</label>
+                  <label className="block text-[#787164] mb-1">Nombre de Conexión</label>
                   <input
                     type="text"
                     placeholder="ej. crm_operaciones"
                     value={dbName}
                     onChange={(e) => setDbName(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-slate-400 mb-1">Host</label>
+                  <label className="block text-[#787164] mb-1">Host</label>
                   <input
                     type="text"
                     value={dbHost}
                     onChange={(e) => setDbHost(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 font-mono text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Puerto</label>
+                  <label className="block text-[#787164] mb-1">Puerto</label>
                   <input
                     type="number"
                     value={dbPort}
                     onChange={(e) => setDbPort(Number(e.target.value))}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 font-mono text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Base de Datos</label>
+                  <label className="block text-[#787164] mb-1">Base de Datos</label>
                   <input
                     type="text"
                     placeholder="midas_lake"
                     value={dbDatabase}
                     onChange={(e) => setDbDatabase(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Usuario</label>
+                  <label className="block text-[#787164] mb-1">Usuario</label>
                   <input
                     type="text"
                     placeholder="postgres"
                     value={dbUser}
                     onChange={(e) => setDbUser(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Contraseña</label>
+                  <label className="block text-[#787164] mb-1">Contraseña</label>
                   <input
                     type="password"
                     placeholder="••••••••"
                     value={dbPassword}
                     onChange={(e) => setDbPassword(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2 text-[#1C1E21] placeholder-[#A0988A] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 focus:outline-none transition-colors"
                   />
                 </div>
               </div>
@@ -579,11 +579,11 @@ export function QuickConnectionModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-slate-800 bg-slate-950 px-6 py-4">
+        <div className="flex items-center justify-between border-t border-[#F0EDE7] bg-[#FAFAFA] px-6 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition-colors"
+            className="rounded-lg px-4 py-2 text-xs font-medium text-[#787164] hover:text-[#1C1E21] hover:bg-[#F7F7F5] transition-colors"
           >
             Cancelar
           </button>
@@ -593,7 +593,7 @@ export function QuickConnectionModal({
               type="button"
               onClick={uploadResult ? handleConfirmAddToCanvas : handleRegisterGeneric}
               disabled={isUploading}
-              className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 active:scale-95 disabled:opacity-50 transition-all shadow-md"
+              className="flex items-center gap-2 rounded-lg bg-[#D4AF37] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B8860B] active:scale-95 disabled:opacity-50 transition-all shadow-xs"
             >
               {isUploading ? (
                 <>
