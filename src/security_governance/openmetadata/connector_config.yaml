@@ -1,0 +1,97 @@
+# ==============================================================================
+# Midas - Declaración Canónica de Conectores de Catálogo y Linaje
+# Historia de Usuario: HU-GOV-01 (OpenMetadata Ingesta & Linaje Automatizado)
+# Responsable: Sebastian Castiblanco (Governance Lead)
+# ==============================================================================
+# Este archivo es la única fuente de verdad para:
+#   - ST-GOV-01.2: qué servicios y esquemas se catalogan en OpenMetadata.
+#   - ST-GOV-01.3: qué aristas de linaje se registran entre capas Medallón.
+# El extractor (`lineage_extractor.py`) lo lee y no infiere nada que no esté
+# declarado aquí, conforme a la política Cero Code Drift.
+# ==============================================================================
+
+version: 1
+
+# ------------------------------------------------------------------------------
+# Servicios de base de datos publicados en el catálogo central
+# ------------------------------------------------------------------------------
+connectors:
+  - name: midas_lakehouse_iceberg
+    service_type: Trino
+    display_name: Midas Lakehouse (Iceberg sobre MinIO)
+    description: >-
+      Tablas transaccionales Apache Iceberg v2 de las capas Bronze, Silver y
+      Gold, expuestas mediante el motor de consultas federadas Trino.
+    connection:
+      host_port: midas-trino:8080
+      catalog: iceberg
+      username_env: TRINO_USER
+      username_default: trino_admin
+    schemas:
+      - name: bronze
+        layer: bronze
+        description: Zona de aterrizaje cruda con envoltura de ingesta y fingerprint de esquema.
+      - name: silver
+        layer: silver
+        description: Datos normalizados, deduplicados y validados por el Quality Gate.
+      - name: gold
+        layer: gold
+        description: Marts dimensionales de consumo analítico y métricas certificadas.
+
+  - name: midas_operational_postgres
+    service_type: Postgres
+    display_name: Midas Operacional (PostgreSQL)
+    description: >-
+      Base de datos relacional operacional que actúa como fuente cruda del
+      motor de ingesta universal.
+    connection:
+      host_port: midas-postgres:5432
+      database: midas_operational
+      username_env: POSTGRES_USER
+      username_default: midas_admin
+    schemas:
+      - name: public
+        layer: source
+        description: Tablas transaccionales de origen (clientes, pedidos, ordenes_detalle).
+
+# ------------------------------------------------------------------------------
+# Topología de linaje: fuente -> bronze -> silver -> gold
+# ------------------------------------------------------------------------------
+# Cada pipeline declara las transformaciones PySpark que conectan dos capas.
+# `from` y `to` son nombres calificados relativos (schema.tabla); el extractor
+# los resuelve al FQN completo de OpenMetadata usando el servicio indicado.
+# ------------------------------------------------------------------------------
+lineage:
+  pipelines:
+    - name: universal_ingestion_source_to_bronze
+      description: Motor de Ingesta Universal multi-fuente (JDBC, Excel, REST) hacia la zona cruda.
+      job: src/lakehouse/ingestion/
+      edges:
+        - from: {service: midas_operational_postgres, table: public.clientes}
+          to: {service: midas_lakehouse_iceberg, table: bronze.clientes}
+        - from: {service: midas_operational_postgres, table: public.pedidos}
+          to: {service: midas_lakehouse_iceberg, table: bronze.pedidos}
+        - from: {service: midas_operational_postgres, table: public.ordenes_detalle}
+          to: {service: midas_lakehouse_iceberg, table: bronze.ordenes_detalle}
+
+    - name: pyspark_bronze_to_silver
+      description: Inferencia de esquemas, normalización de montos, deduplicación y Quality Gate.
+      job: jobs/bronze_to_silver.py
+      edges:
+        - from: {service: midas_lakehouse_iceberg, table: bronze.clientes}
+          to: {service: midas_lakehouse_iceberg, table: silver.clientes}
+        - from: {service: midas_lakehouse_iceberg, table: bronze.pedidos}
+          to: {service: midas_lakehouse_iceberg, table: silver.pedidos}
+        - from: {service: midas_lakehouse_iceberg, table: bronze.ordenes_detalle}
+          to: {service: midas_lakehouse_iceberg, table: silver.ordenes_detalle}
+
+    - name: pyspark_silver_to_gold
+      description: Modelado dimensional y materialización de marts de hechos certificados.
+      job: jobs/materialize_gold.py
+      edges:
+        - from: {service: midas_lakehouse_iceberg, table: silver.pedidos}
+          to: {service: midas_lakehouse_iceberg, table: gold.fact_ventas_diarias}
+        - from: {service: midas_lakehouse_iceberg, table: silver.ordenes_detalle}
+          to: {service: midas_lakehouse_iceberg, table: gold.fact_ventas_diarias}
+        - from: {service: midas_lakehouse_iceberg, table: silver.clientes}
+          to: {service: midas_lakehouse_iceberg, table: gold.dim_clientes}
