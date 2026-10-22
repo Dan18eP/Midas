@@ -22,7 +22,10 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspect
     setExecutionResult(null);
     try {
       const rawId = selectedNode.id;
-      const connId = rawId.startsWith('source_') ? rawId.replace('source_', '') : rawId;
+      const connId =
+        (selectedNode.details as Record<string, any> | undefined)?.connectionId ||
+        selectedNode.connectionId ||
+        (rawId.startsWith('source_') ? rawId.replace('source_', '') : rawId);
       const res = await triggerPipeline(connId);
       setExecutionResult(`Procesado (${res.status}): ${res.records_cleaned} limpios, ${res.records_quarantined} en cuarentena.`);
     } catch (err) {

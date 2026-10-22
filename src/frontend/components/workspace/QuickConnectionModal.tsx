@@ -137,6 +137,15 @@ export function QuickConnectionModal({
       const sourceName =
         uploadResult?.name || restName || dbName || (file ? file.name : 'Nueva Fuente');
       const nodeId = `source_${Date.now()}`;
+      const effectiveConnectionId =
+        uploadResult?.connection_id ||
+        (selectedType === 'database'
+          ? 'conn_pg_crm_default'
+          : selectedType === 'excel'
+            ? 'conn_excel_budget_default'
+            : selectedType === 'rest'
+              ? 'conn_rest_crm_default'
+              : undefined);
 
       const newNode: Node<MidasNodeData> = {
         id: nodeId,
@@ -144,6 +153,7 @@ export function QuickConnectionModal({
         position: { x: 80, y: 150 },
         data: {
           id: nodeId,
+          connectionId: effectiveConnectionId,
           label: sourceName,
           description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze`,
           nodeType: 'source',
@@ -161,6 +171,7 @@ export function QuickConnectionModal({
           latencyMs: 14,
           lastUpdated: new Date().toISOString(),
           details: {
+            connectionId: effectiveConnectionId,
             engine:
               selectedType === 'excel'
                 ? 'Apache POI / openpyxl'

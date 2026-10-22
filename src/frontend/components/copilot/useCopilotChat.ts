@@ -60,6 +60,7 @@ export interface CopilotChatController {
   startNewChat: () => void;
   loadSessionMessages: (messages: CopilotMessage[], newThreadId: string) => void;
   setThreadId: (id: string) => void;
+  setOnTurnComplete?: (callback: (threadId: string) => void) => void;
 }
 
 export function useCopilotChat(options?: { activeRole?: string }): CopilotChatController {
@@ -81,6 +82,11 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
 
   const phaseTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const wasOpenRef = useRef(false);
+  const onTurnCompleteRef = useRef<((threadId: string) => void) | null>(null);
+
+  const setOnTurnComplete = useCallback((callback: (threadId: string) => void) => {
+    onTurnCompleteRef.current = callback;
+  }, []);
 
   const clearPhaseTimers = useCallback(() => {
     phaseTimers.current.forEach((timer) => clearTimeout(timer));
@@ -143,6 +149,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         appendMessage(assistantMessage);
         setSuggestions(payload.suggestions && payload.suggestions.length > 0 ? payload.suggestions : DEFAULT_SUGGESTIONS);
         setStatus('idle');
+        onTurnCompleteRef.current?.(threadId);
       } catch (cause) {
         if ((cause as Error)?.name === 'AbortError') return;
         clearPhaseTimers();
@@ -237,6 +244,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       startNewChat,
       loadSessionMessages,
       setThreadId,
+      setOnTurnComplete,
     }),
     [
       messages,
@@ -257,6 +265,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       startNewChat,
       loadSessionMessages,
       setThreadId,
+      setOnTurnComplete,
     ],
   );
 }

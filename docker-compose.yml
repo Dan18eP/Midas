@@ -92,7 +92,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - sed 's#/usr/bin/mc#mc#g' /init_buckets.sh > /tmp/init_buckets.sh && exec /bin/sh /tmp/init_buckets.sh
+      - sed 's#/usr/bin/mc#mc#g' /init_buckets.sh | tr -d '\r' > /tmp/init_buckets.sh && exec /bin/sh /tmp/init_buckets.sh
     volumes:
       - ./docker/minio/init_buckets.sh:/init_buckets.sh:ro
     environment:
