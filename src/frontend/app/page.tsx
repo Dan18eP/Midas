@@ -30,7 +30,7 @@ import {
   buildSecurityNodePolicy,
   type ZeroTrustRole,
 } from '@/components/security/ZeroTrustLens';
-import { fetchSecurityRoles, type SecurityRoleDefinition } from '@/services/securityRolesApi';
+import { fetchSecurityRoles, setActiveUserRole, type SecurityRoleDefinition } from '@/services/securityRolesApi';
 import { useTelemetryHistory } from '@/hooks/useTelemetryHistory';
 import { SessionProvider, useSession } from '@/context/SessionContext';
 import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySidebar';
@@ -60,6 +60,12 @@ function MidasConsoleWorkspace() {
   // HU-FRONT-08: las identidades reales provienen del catálogo del backend.
   const [roleDefinitions, setRoleDefinitions] = useState<SecurityRoleDefinition[]>([]);
   const [hasConnectedData, setHasConnectedData] = useState(false);
+
+  // Sincronización del rol activo con el middleware backend (X-User-Role)
+  useEffect(() => {
+    const backendRoleId = ZERO_TRUST_ROLE_IDS[selectedRole] || 'director_general';
+    setActiveUserRole(backendRoleId);
+  }, [selectedRole]);
 
   useEffect(() => {
     const controller = new AbortController();
