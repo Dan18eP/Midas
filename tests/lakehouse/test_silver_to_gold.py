@@ -438,3 +438,39 @@ def test_end_to_end_iceberg_v2_gold_marts_persistence(tmp_path):
     snapshots = acid_mgr.get_snapshot_history("gold.fct_ventas_diarias")
     assert len(snapshots) >= 1
     assert snapshots[0]["snapshot_id"] != -1
+
+
+def test_parse_date_components_resilience():
+    """Valida que parse_date_components no lance excepciones con años aislados o formatos variados."""
+    transformer = SilverToGoldTransformer()
+
+    # Año aislado en cadena
+    fecha, anio, mes, dia = transformer.parse_date_components("2026")
+    assert fecha == "2026-01-01"
+    assert anio == 2026
+    assert mes == 1
+    assert dia == 1
+
+    # Año numérico
+    fecha, anio, mes, dia = transformer.parse_date_components(2026)
+    assert fecha == "2026-01-01"
+    assert anio == 2026
+
+    # Float
+    fecha, anio, mes, dia = transformer.parse_date_components(2026.0)
+    assert fecha == "2026-01-01"
+    assert anio == 2026
+
+    # None fallback
+    fecha, anio, mes, dia = transformer.parse_date_components(None)
+    assert anio >= 2020
+
+    # Dataset con año y mes en registros
+    records = [
+        {"pedido_id": "P1", "monto": 100.0, "fecha": "2026", "mes": 5, "estado": "ENTREGADO"},
+    ]
+    res = transformer.transform_and_aggregate_sales(records)
+    assert res.fct_ventas_count == 1
+    assert res.fct_ventas_records[0]["anio"] == 2026
+    assert res.fct_ventas_records[0]["mes"] == 5
+

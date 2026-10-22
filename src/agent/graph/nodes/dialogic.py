@@ -1,4 +1,4 @@
-﻿"""Prepara preguntas y sugerencias para guiar al usuario."""
+"""Prepara preguntas y sugerencias para guiar al usuario."""
 
 from collections.abc import Callable
 from typing import Any
@@ -16,25 +16,42 @@ DEMO_SOURCES = [
 
 
 def _generate_suggestions(sources: list[dict[str, Any]]) -> list[str]:
-    """Genera sugerencias dinámicas basadas en las fuentes conectadas."""
+    """Genera sugerencias dinámicas basadas en las fuentes y tablas conectadas."""
     if not sources:
-        return []
+        return [
+            "¿Cuáles son las ventas totales de 2026?",
+            "Comparar presupuesto corporativo con ingresos reales",
+            "Materializar este reporte como tabla Gold diaria",
+        ]
     suggestions = []
     for source in sources:
-        name = source.get("name", "")
         tables = source.get("tables", [])
-        table_names = [t.get("table", t) if isinstance(t, dict) else t for t in tables]
-        if any("transac" in str(t).lower() or "venta" in str(t).lower() for t in table_names):
-            suggestions.append(f"Explorar transacciones y ventas de {name}.")
-        elif any("presupuesto" in str(t).lower() or "meta" in str(t).lower() for t in table_names):
-            suggestions.append(f"Comparar ingresos reales con metas de {name}.")
-        elif any("ticket" in str(t).lower() or "soporte" in str(t).lower() for t in table_names):
-            suggestions.append(f"Revisar tiempos de respuesta y satisfacción de {name}.")
-        elif any("cliente" in str(t).lower() for t in table_names):
-            suggestions.append(f"Analizar segmentación de clientes en {name}.")
-        else:
-            suggestions.append(f"Explorar datos de {name}.")
-    return suggestions[:3]
+        table_names = [t.get("table", t) if isinstance(t, dict) else str(t) for t in tables]
+        for t in table_names:
+            t_low = str(t).lower()
+            if "transac" in t_low or "venta" in t_low:
+                suggestions.append("¿Cuáles son las ventas totales por región en 2026?")
+            elif "presupuesto" in t_low or "meta" in t_low or "costo" in t_low:
+                suggestions.append("Comparar presupuesto corporativo con ingresos de 2026")
+            elif "ticket" in t_low or "csat" in t_low:
+                suggestions.append("Consultar satisfacción de soporte y tickets")
+            elif "cliente" in t_low:
+                suggestions.append("Ver clientes con mayores compras")
+
+    seen = set()
+    unique = [s for s in suggestions if not (s in seen or seen.add(s))]
+    fallback_pool = [
+        "¿Cuáles son las ventas totales de 2026?",
+        "Comparar presupuesto corporativo con ingresos de 2026",
+        "Materializar este reporte como tabla Gold diaria",
+    ]
+    for fb in fallback_pool:
+        if len(unique) >= 3:
+            break
+        if fb not in seen:
+            seen.add(fb)
+            unique.append(fb)
+    return unique[:3]
 
 
 def make_introspector(
@@ -74,14 +91,28 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
     suggestions = _generate_suggestions(sources)
 
     if state.get("intent") == "discovery":
-        source_lines = [
-            f"- {source.get('kind', 'Fuente')}: {source.get('name', '')}"
-            for source in sources
-        ]
-        response = "Puedo ayudarte a explorar estas fuentes:\n"
+        source_lines = []
+        for source in sources:
+            name = source.get("name", "")
+            kind = source.get("kind", "Fuente")
+            tables = source.get("tables", [])
+            tbl_strs = []
+            for t in tables:
+                if isinstance(t, dict):
+                    tbl_name = t.get("table") or t.get("name")
+                    if tbl_name:
+                        tbl_strs.append(str(tbl_name))
+                elif isinstance(t, str):
+                    tbl_strs.append(t)
+            if tbl_strs:
+                source_lines.append(f"- **{kind}** (`{name}`): {', '.join(tbl_strs[:3])}")
+            else:
+                source_lines.append(f"- **{kind}**: `{name}`")
+
+        response = "Los datos disponibles en la plataforma corresponden a las siguientes fuentes analíticas:\n\n"
         response += "\n".join(source_lines)
         if suggestions:
-            response += "\n\n¿Con cuál empezamos? También puedes elegir:\n"
+            response += "\n\n¿Con cuál te gustaría empezar? También puedes seleccionar:\n"
             response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
         return {
             "suggestions": suggestions,

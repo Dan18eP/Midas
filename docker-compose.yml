@@ -350,6 +350,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       TRINO_HOST: ${TRINO_HOST:-midas-trino}
       TRINO_PORT: ${TRINO_INTERNAL_PORT:-8080}
+      ICEBERG_REST_URI: ${ICEBERG_REST_URI:-http://midas-iceberg-catalog:8181}
       # HU-GOV-01: gateway de linaje contra el catalogo central. Sin token el
       # cliente degrada al linaje canonico sin romper el drawer del frontend.
       OPENMETADATA_URL: ${OPENMETADATA_URL:-http://midas-openmetadata:8585}
@@ -361,6 +362,9 @@ services:
       RANGER_URL: ${RANGER_URL:-http://midas-ranger:6080}
       RANGER_LOCAL_ENFORCEMENT: ${RANGER_LOCAL_ENFORCEMENT:-true}
       RANGER_TRINO_PLUGIN_ENABLED: ${RANGER_TRINO_PLUGIN_ENABLED:-false}
+      # Motor LLM Gemini para analitica avanzada, graficos y Gold Marts
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -459,7 +463,7 @@ services:
     container_name: midas-ollama
     mem_limit: 2048m
     restart: unless-stopped
-    profiles: ["ai", "full"]
+    profiles: ["ollama-optional"]
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:

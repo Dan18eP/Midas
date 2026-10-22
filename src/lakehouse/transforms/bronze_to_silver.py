@@ -137,10 +137,39 @@ class BronzeToSilverTransformer:
         effective_batch_id = batch_id or self.generate_batch_id(prefix=f"silver_{source_name}")
         total_read = len(records)
 
-        pk_cols = primary_key_fields or ["transaccion_id", "id_orden", "id_registro", "pedido_id", "cliente_id", "_raw_id"]
-        amt_cols = amount_fields or ["monto", "precio_unitario", "total_neto", "total_amount", "monto_bruto", "valor"]
-        dt_cols = date_fields or ["fecha_transaccion", "fecha_pedido", "fecha_creacion", "fecha_actualizacion", "_ingested_at"]
-        dedup_cols = dedup_key_fields or [pk_cols[0]]
+        pk_cols = primary_key_fields or [
+            "transaccion_id",
+            "id_orden",
+            "id_registro",
+            "pedido_id",
+            "cliente_id",
+            "id",
+            "codigo",
+            "codigo_consultoria",
+            "_raw_id",
+        ]
+        amt_cols = amount_fields or [
+            "monto",
+            "precio_unitario",
+            "total_neto",
+            "total_amount",
+            "monto_bruto",
+            "valor",
+            "valor_servicio",
+            "precio",
+            "importe",
+            "total",
+        ]
+        dt_cols = date_fields or [
+            "fecha_transaccion",
+            "fecha_pedido",
+            "fecha_creacion",
+            "fecha_actualizacion",
+            "fecha",
+            "timestamp",
+            "created_at",
+            "_ingested_at",
+        ]
         ts_dedup = dedup_timestamp_field or dt_cols[0]
 
         valid_candidate_records: List[Dict[str, Any]] = []
@@ -176,9 +205,21 @@ class BronzeToSilverTransformer:
                 quarantined_records.append(qg_res.quarantine_record)
 
         # 2. Deduplicación determinística sobre registros válidos
+        if dedup_key_fields:
+            resolved_dedup_cols = dedup_key_fields
+        elif valid_candidate_records:
+            first_rec = valid_candidate_records[0]
+            actual_pk = next(
+                (col for col in pk_cols if col in first_rec and first_rec[col] is not None and str(first_rec[col]).strip() and col != "_raw_id"),
+                None,
+            )
+            resolved_dedup_cols = [actual_pk] if actual_pk else ["_raw_id"]
+        else:
+            resolved_dedup_cols = [pk_cols[0]]
+
         deduplicated_records, duplicates_dropped = deduplicate_records_deterministic(
             records=valid_candidate_records,
-            key_fields=dedup_cols,
+            key_fields=resolved_dedup_cols,
             timestamp_field=ts_dedup,
         )
 

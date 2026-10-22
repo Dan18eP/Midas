@@ -1,8 +1,9 @@
-"""Enruta SQL entre Ollama local y plantillas SQLGlot sin servicios cloud."""
+"""Enruta SQL a Gemini Cloud API (u Ollama local) con fallback deterministico SQLGlot."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from collections.abc import Mapping, Sequence
@@ -12,6 +13,8 @@ from urllib.request import Request, urlopen
 import sqlglot
 from sqlglot import exp
 from src.agent.guardrails.query_guardrail import validate_query
+
+logger = logging.getLogger("midas.agent.models.model_router")
 
 
 _ALLOWED_ENDPOINTS = {
@@ -34,23 +37,32 @@ _SUPPORTED_NUMERIC_COLUMNS = {
 
 
 class ModelRouter:
-    """Usa Ollama en local y cae a consultas analíticas precertificadas."""
+    """Enruta SQL a Gemini Cloud API (u Ollama local) con fallback deterministico SQLGlot."""
 
     def __init__(
         self,
         *,
         base_url: str | None = None,
         timeout: float = 8.0,
+        api_key: str | None = None,
+        model: str | None = None,
     ) -> None:
+        self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        self._gemini_model = model or os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
         env_endpoint = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_HOST")
         endpoint = (base_url or env_endpoint or _DEFAULT_ENDPOINT).rstrip("/")
-        if endpoint not in _ALLOWED_ENDPOINTS:
+        if endpoint not in _ALLOWED_ENDPOINTS and not self._api_key:
             raise ValueError("Ollama debe usar uno de los endpoints locales aprobados.")
         self._base_url = endpoint
         self._timeout = timeout
 
     def __call__(self, system_prompt: str, question: str) -> str:
         """Mantiene compatibilidad con el generador inyectable existente."""
+        if self._api_key:
+            try:
+                return self._call_gemini(system_prompt, question)
+            except Exception as exc:
+                logger.debug("Gemini llamada directa fallo, cayendo a Ollama/deterministico: %s", exc)
         return self._call_ollama(system_prompt, question)
 
     def generate_sql(
@@ -59,12 +71,64 @@ class ModelRouter:
         catalog: Sequence[Mapping[str, object]],
         system_prompt: str,
     ) -> str:
-        """Usa el modelo local o genera un SELECT determinístico de respaldo."""
+        """Usa Gemini (u Ollama) o genera un SELECT deterministico de respaldo."""
+        if self._api_key:
+            try:
+                candidate = self._call_gemini(system_prompt, question)
+                candidate = _clean_sql_output(candidate)
+                return validate_query(candidate, catalog)
+            except Exception as exc:
+                logger.warning("Fallo al generar SQL con Gemini: %s. Intentando respaldo...", exc)
+
         try:
             candidate = self._call_ollama(system_prompt, question)
+            candidate = _clean_sql_output(candidate)
             return validate_query(candidate, catalog)
-        except (OSError, TimeoutError, ValueError, KeyError, HTTPException):
+        except (OSError, TimeoutError, ValueError, KeyError, HTTPException, Exception):
             return deterministic_sql(question, catalog)
+
+    def _call_gemini(self, system_prompt: str, question: str) -> str:
+        import time
+        from google import genai
+        client = genai.Client(api_key=self._api_key)
+        prompt = (
+            f"{system_prompt}\n\n"
+            f"Pregunta del usuario: {question}\n\n"
+            f"Responde EXCLUSIVAMENTE con la sentencia SQL ejecutable en Trino (sin explicaciones ni bloques markdown adicionales):"
+        )
+        candidates = [
+            self._gemini_model,
+            "gemini-3.8-flash",
+            "gemini-3.8-flash-lite",
+            "gemini-3.7-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-flash-latest",
+        ]
+        seen: set[str] = set()
+        unique_candidates = [c for c in candidates if c and not (c in seen or seen.add(c))]
+        last_err: Exception | None = None
+        for mod in unique_candidates:
+            for attempt in range(2):
+                try:
+                    resp = client.models.generate_content(
+                        model=mod,
+                        contents=prompt,
+                    )
+                    if resp.text and resp.text.strip():
+                        return resp.text.strip()
+                except Exception as exc:
+                    last_err = exc
+                    if "503" in str(exc) or "UNAVAILABLE" in str(exc):
+                        time.sleep(0.8)
+                        continue
+                    break
+        if last_err is not None:
+            raise last_err
+        raise ValueError("Gemini devolvió una respuesta vacía.")
 
     def _call_ollama(self, system_prompt: str, question: str) -> str:
         body = json.dumps(
@@ -90,6 +154,21 @@ class ModelRouter:
         return result.strip()
 
 
+def _clean_sql_output(candidate: str) -> str:
+    """Extrae el SQL puro de posibles bloques markdown o texto explicativo."""
+    cleaned = candidate.strip()
+    code_match = re.search(r"```(?:sql)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    if code_match:
+        cleaned = code_match.group(1).strip()
+    else:
+        select_match = re.search(r"(?:WITH|SELECT)\b[\s\S]+", cleaned, re.IGNORECASE)
+        if select_match:
+            cleaned = select_match.group(0).strip()
+    if ";" in cleaned:
+        cleaned = cleaned.split(";", 1)[0].strip()
+    return cleaned
+
+
 def deterministic_sql(
     question: str,
     catalog: Sequence[Mapping[str, object]],
@@ -102,11 +181,11 @@ def deterministic_sql(
         " en enero", " en febrero", " en marzo", " en abril", " en mayo", " en junio",
         " en julio", " en agosto", " en septiembre", " en octubre", " en noviembre", " en diciembre",
     )
-    if any(word in f" {normalized_question} " for word in unsupported_detail) or re.search(
-        r"\b(?:19|20)\d{2}\b", normalized_question
-    ):
+    if any(word in f" {normalized_question} " for word in unsupported_detail):
         # Multi-table and grouped requests need a model or a dedicated template.
         raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
+    year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
+    year_val = year_match.group(1) if year_match else None
     tables = _allowed_tables(catalog)
     table = next(
         (entry for entry in tables if entry[0].casefold() in normalized_question),
@@ -149,6 +228,13 @@ def deterministic_sql(
         query = query.where(
             exp.EQ(this=exp.column(column), expression=exp.Literal.string(value))
         )
+    if year_val:
+        if "anio" in columns:
+            query = query.where(exp.EQ(this=exp.column("anio"), expression=exp.Literal.number(int(year_val))))
+        elif "año" in columns:
+            query = query.where(exp.EQ(this=exp.column("año"), expression=exp.Literal.number(int(year_val))))
+        elif "fecha" in columns:
+            query = query.where(exp.Like(this=exp.column("fecha"), expression=exp.Literal.string(f"{year_val}%")))
     return validate_query(query.sql(dialect="trino"), catalog)
 
 
