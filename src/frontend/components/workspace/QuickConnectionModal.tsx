@@ -97,6 +97,13 @@ export function QuickConnectionModal({
 
   if (!isOpen) return null;
 
+  const handleSelectTab = (type: QuickSourceType) => {
+    setSelectedType(type);
+    setError(null);
+    setTestResult(null);
+    setIsTesting(false);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
@@ -324,7 +331,7 @@ export function QuickConnectionModal({
         <div className="flex border-b border-[#F0EDE7] bg-[#FFFFFF] px-6 pt-2 gap-2">
           <button
             type="button"
-            onClick={() => setSelectedType('excel')}
+            onClick={() => handleSelectTab('excel')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'excel'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -336,7 +343,7 @@ export function QuickConnectionModal({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedType('csv')}
+            onClick={() => handleSelectTab('csv')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'csv'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -348,7 +355,7 @@ export function QuickConnectionModal({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedType('rest')}
+            onClick={() => handleSelectTab('rest')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'rest'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -360,7 +367,7 @@ export function QuickConnectionModal({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedType('database')}
+            onClick={() => handleSelectTab('database')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'database'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
