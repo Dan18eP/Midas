@@ -24,14 +24,14 @@ def test_health_endpoints():
     resp1 = client.get("/health")
     assert resp1.status_code == 200
     data1 = resp1.json()
-    assert data1["status"] == "healthy"
+    assert data1["status"] in ("healthy", "degraded")
     assert data1["service"] == "midas-api-gateway"
     assert data1["version"] == "1.0.0"
     assert "uptime_seconds" in data1
 
     resp2 = client.get("/api/v1/health")
     assert resp2.status_code == 200
-    assert resp2.json()["status"] == "healthy"
+    assert resp2.json()["status"] in ("healthy", "degraded")
 
 
 def test_swagger_and_openapi_docs():

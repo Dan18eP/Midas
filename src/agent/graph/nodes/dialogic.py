@@ -1,4 +1,4 @@
-"""Prepara preguntas y sugerencias para guiar al usuario."""
+﻿"""Prepara preguntas y sugerencias para guiar al usuario."""
 
 from collections.abc import Callable
 from typing import Any
@@ -14,11 +14,27 @@ DEMO_SOURCES = [
     {"name": "helpdesk_tickets_live", "kind": "API REST", "tables": ["tickets", "satisfacción CSAT"]},
 ]
 
-SUGGESTIONS = [
-    "Explorar clientes y transacciones del CRM.",
-    "Comparar ingresos reales con las metas del presupuesto.",
-    "Revisar tiempos de respuesta y satisfacción de soporte.",
-]
+
+def _generate_suggestions(sources: list[dict[str, Any]]) -> list[str]:
+    """Genera sugerencias dinámicas basadas en las fuentes conectadas."""
+    if not sources:
+        return []
+    suggestions = []
+    for source in sources:
+        name = source.get("name", "")
+        tables = source.get("tables", [])
+        table_names = [t.get("table", t) if isinstance(t, dict) else t for t in tables]
+        if any("transac" in str(t).lower() or "venta" in str(t).lower() for t in table_names):
+            suggestions.append(f"Explorar transacciones y ventas de {name}.")
+        elif any("presupuesto" in str(t).lower() or "meta" in str(t).lower() for t in table_names):
+            suggestions.append(f"Comparar ingresos reales con metas de {name}.")
+        elif any("ticket" in str(t).lower() or "soporte" in str(t).lower() for t in table_names):
+            suggestions.append(f"Revisar tiempos de respuesta y satisfacción de {name}.")
+        elif any("cliente" in str(t).lower() for t in table_names):
+            suggestions.append(f"Analizar segmentación de clientes en {name}.")
+        else:
+            suggestions.append(f"Explorar datos de {name}.")
+    return suggestions[:3]
 
 
 def make_introspector(
@@ -54,17 +70,19 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
             "messages": [AIMessage(content=question)],
         }
 
-    suggestions = list(SUGGESTIONS)
+    sources = state.get("sources", DEMO_SOURCES)
+    suggestions = _generate_suggestions(sources)
+
     if state.get("intent") == "discovery":
-        sources = state.get("sources", DEMO_SOURCES)
         source_lines = [
-            f"- {source['kind']}: {source['name']}"
+            f"- {source.get('kind', 'Fuente')}: {source.get('name', '')}"
             for source in sources
         ]
         response = "Puedo ayudarte a explorar estas fuentes:\n"
         response += "\n".join(source_lines)
-        response += "\n\n¿Con cuál empezamos? También puedes elegir:\n"
-        response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
+        if suggestions:
+            response += "\n\n¿Con cuál empezamos? También puedes elegir:\n"
+            response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
         return {
             "suggestions": suggestions,
             "response": response,
