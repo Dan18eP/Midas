@@ -158,6 +158,12 @@ services:
       - ./docker/trino/etc:/etc/trino:ro
     networks:
       - midas-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8080/v1/info || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
 
   # ----------------------------------------------------------------------------
   # 3.2. Cómputo Distribuido: Apache Spark 3.5 Master & Worker (Squad 1 - Daniel Echeverría)
@@ -342,6 +348,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-midas_minio_admin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
+      TRINO_HOST: ${TRINO_HOST:-midas-trino}
+      TRINO_PORT: ${TRINO_INTERNAL_PORT:-8080}
       # HU-GOV-01: gateway de linaje contra el catalogo central. Sin token el
       # cliente degrada al linaje canonico sin romper el drawer del frontend.
       OPENMETADATA_URL: ${OPENMETADATA_URL:-http://midas-openmetadata:8585}
