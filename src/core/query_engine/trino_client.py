@@ -250,6 +250,10 @@ class TrinoClient:
         # PolicyEnforcementError y la consulta no llega a Trino.
         policy_decision = apply_policies(safe_sql, user_role)
         safe_sql = policy_decision.effective_sql
+        import re
+        safe_sql = re.sub(r"\byear\s*\(\s*([a-zA-Z_]+)\s*\)", r"year(TRY_CAST(\1 AS DATE))", safe_sql, flags=re.IGNORECASE)
+        safe_sql = re.sub(r"\bmonth\s*\(\s*([a-zA-Z_]+)\s*\)", r"month(TRY_CAST(\1 AS DATE))", safe_sql, flags=re.IGNORECASE)
+        safe_sql = re.sub(r"\b(fecha|fecha_orden|timestamp|created_at)\s+LIKE\s+", r"CAST(\1 AS VARCHAR) LIKE ", safe_sql, flags=re.IGNORECASE)
 
         cost_est = await self.estimate_query_cost(safe_sql, target_catalog, target_schema)
 
@@ -385,10 +389,11 @@ class TrinoClient:
         safe_sql = enforce_limit_and_read_only(sql, default_limit=self.max_limit, max_limit=self.max_limit)
         policy_decision = apply_policies(safe_sql, user_role)
         effective_sql = policy_decision.effective_sql
-        # Normalizar funciones de fecha incompatibles en Trino para columnas VARCHAR
+        # Normalizar funciones de fecha incompatibles en Trino para columnas VARCHAR o TIMESTAMP
         import re
-        effective_sql = re.sub(r"\byear\s*\(\s*fecha\s*\)", "year(TRY_CAST(fecha AS DATE))", effective_sql, flags=re.IGNORECASE)
-        effective_sql = re.sub(r"\bmonth\s*\(\s*fecha\s*\)", "month(TRY_CAST(fecha AS DATE))", effective_sql, flags=re.IGNORECASE)
+        effective_sql = re.sub(r"\byear\s*\(\s*([a-zA-Z_]+)\s*\)", r"year(TRY_CAST(\1 AS DATE))", effective_sql, flags=re.IGNORECASE)
+        effective_sql = re.sub(r"\bmonth\s*\(\s*([a-zA-Z_]+)\s*\)", r"month(TRY_CAST(\1 AS DATE))", effective_sql, flags=re.IGNORECASE)
+        effective_sql = re.sub(r"\b(fecha|fecha_orden|timestamp|created_at)\s+LIKE\s+", r"CAST(\1 AS VARCHAR) LIKE ", effective_sql, flags=re.IGNORECASE)
         cost_est = QueryCostEstimate(
             estimated_rows=1000,
             estimated_cpu_cost=1.0,
