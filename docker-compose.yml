@@ -454,6 +454,7 @@ services:
       - midas-api
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - INTERNAL_API_URL=${INTERNAL_API_URL:-http://midas-api:8000}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:
