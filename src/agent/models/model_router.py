@@ -88,6 +88,7 @@ class ModelRouter:
             return deterministic_sql(question, catalog)
 
     def _call_gemini(self, system_prompt: str, question: str) -> str:
+        import time
         from google import genai
         client = genai.Client(api_key=self._api_key)
         prompt = (
@@ -99,22 +100,29 @@ class ModelRouter:
             self._gemini_model,
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
             "gemini-flash-latest",
         ]
         seen: set[str] = set()
         unique_candidates = [c for c in candidates if c and not (c in seen or seen.add(c))]
         last_err: Exception | None = None
         for mod in unique_candidates:
-            try:
-                resp = client.models.generate_content(
-                    model=mod,
-                    contents=prompt,
-                )
-                if resp.text and resp.text.strip():
-                    return resp.text.strip()
-            except Exception as exc:
-                last_err = exc
-                continue
+            for attempt in range(2):
+                try:
+                    resp = client.models.generate_content(
+                        model=mod,
+                        contents=prompt,
+                    )
+                    if resp.text and resp.text.strip():
+                        return resp.text.strip()
+                except Exception as exc:
+                    last_err = exc
+                    if "503" in str(exc) or "UNAVAILABLE" in str(exc):
+                        time.sleep(0.8)
+                        continue
+                    break
         if last_err is not None:
             raise last_err
         raise ValueError("Gemini devolvió una respuesta vacía.")
@@ -170,11 +178,11 @@ def deterministic_sql(
         " en enero", " en febrero", " en marzo", " en abril", " en mayo", " en junio",
         " en julio", " en agosto", " en septiembre", " en octubre", " en noviembre", " en diciembre",
     )
-    if any(word in f" {normalized_question} " for word in unsupported_detail) or re.search(
-        r"\b(?:19|20)\d{2}\b", normalized_question
-    ):
+    if any(word in f" {normalized_question} " for word in unsupported_detail):
         # Multi-table and grouped requests need a model or a dedicated template.
         raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
+    year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
+    year_val = year_match.group(1) if year_match else None
     tables = _allowed_tables(catalog)
     table = next(
         (entry for entry in tables if entry[0].casefold() in normalized_question),
@@ -217,6 +225,13 @@ def deterministic_sql(
         query = query.where(
             exp.EQ(this=exp.column(column), expression=exp.Literal.string(value))
         )
+    if year_val:
+        if "anio" in columns:
+            query = query.where(exp.EQ(this=exp.column("anio"), expression=exp.Literal.number(int(year_val))))
+        elif "año" in columns:
+            query = query.where(exp.EQ(this=exp.column("año"), expression=exp.Literal.number(int(year_val))))
+        elif "fecha" in columns:
+            query = query.where(exp.Like(this=exp.column("fecha"), expression=exp.Literal.string(f"{year_val}%")))
     return validate_query(query.sql(dialect="trino"), catalog)
 
 

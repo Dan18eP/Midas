@@ -350,6 +350,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       TRINO_HOST: ${TRINO_HOST:-midas-trino}
       TRINO_PORT: ${TRINO_INTERNAL_PORT:-8080}
+      ICEBERG_REST_URI: ${ICEBERG_REST_URI:-http://midas-iceberg-catalog:8181}
       # HU-GOV-01: gateway de linaje contra el catalogo central. Sin token el
       # cliente degrada al linaje canonico sin romper el drawer del frontend.
       OPENMETADATA_URL: ${OPENMETADATA_URL:-http://midas-openmetadata:8585}

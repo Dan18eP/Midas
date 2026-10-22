@@ -1,4 +1,4 @@
-﻿"""Prepara preguntas y sugerencias para guiar al usuario."""
+"""Prepara preguntas y sugerencias para guiar al usuario."""
 
 from collections.abc import Callable
 from typing import Any
@@ -74,14 +74,28 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
     suggestions = _generate_suggestions(sources)
 
     if state.get("intent") == "discovery":
-        source_lines = [
-            f"- {source.get('kind', 'Fuente')}: {source.get('name', '')}"
-            for source in sources
-        ]
-        response = "Puedo ayudarte a explorar estas fuentes:\n"
+        source_lines = []
+        for source in sources:
+            name = source.get("name", "")
+            kind = source.get("kind", "Fuente")
+            tables = source.get("tables", [])
+            tbl_strs = []
+            for t in tables:
+                if isinstance(t, dict):
+                    tbl_name = t.get("table") or t.get("name")
+                    if tbl_name:
+                        tbl_strs.append(str(tbl_name))
+                elif isinstance(t, str):
+                    tbl_strs.append(t)
+            if tbl_strs:
+                source_lines.append(f"- **{kind}** (`{name}`): {', '.join(tbl_strs[:3])}")
+            else:
+                source_lines.append(f"- **{kind}**: `{name}`")
+
+        response = "Los datos disponibles en la plataforma corresponden a las siguientes fuentes analíticas:\n\n"
         response += "\n".join(source_lines)
         if suggestions:
-            response += "\n\n¿Con cuál empezamos? También puedes elegir:\n"
+            response += "\n\n¿Con cuál te gustaría empezar? También puedes seleccionar:\n"
             response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
         return {
             "suggestions": suggestions,

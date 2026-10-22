@@ -9,10 +9,11 @@ Documentos Canónicos:
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import json
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import uuid
@@ -150,19 +151,61 @@ class SilverToGoldTransformer:
     def parse_date_components(self, date_val: Any) -> Tuple[str, int, int, int]:
         """
         Extrae fecha canónica (YYYY-MM-DD), anio, mes, dia de diversos formatos temporales.
+        Maneja con total resiliencia años aislados (ej. '2026', 2026), marcas ISO y fechas estándar.
         """
+        dt: Optional[datetime] = None
         if isinstance(date_val, datetime):
             dt = date_val
+        elif isinstance(date_val, date):
+            dt = datetime(date_val.year, date_val.month, date_val.day)
+        elif isinstance(date_val, (int, float)):
+            val_num = int(date_val)
+            if 1900 <= val_num <= 2100:
+                dt = datetime(val_num, 1, 1)
+            elif val_num > 1e11:
+                dt = datetime.fromtimestamp(val_num / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+            elif val_num > 1e8:
+                dt = datetime.fromtimestamp(val_num, tz=timezone.utc).replace(tzinfo=None)
         elif isinstance(date_val, str):
             clean_str = date_val.strip().replace("Z", "+00:00")
             if "T" in clean_str:
-                dt = datetime.fromisoformat(clean_str)
-            else:
-                # Asumir YYYY-MM-DD
-                dt = datetime.strptime(clean_str[:10], "%Y-%m-%d")
-        else:
-            # Fallback a fecha actual
-            dt = datetime.utcnow()
+                try:
+                    dt = datetime.fromisoformat(clean_str).replace(tzinfo=None)
+                except Exception:
+                    pass
+            if dt is None:
+                # Comprobar si es un año de 4 dígitos (ej: "2026")
+                if clean_str.isdigit() and len(clean_str) == 4:
+                    year_val = int(clean_str)
+                    if 1900 <= year_val <= 2100:
+                        dt = datetime(year_val, 1, 1)
+                elif re.match(r"^\d{4}-\d{1,2}$", clean_str):
+                    parts = clean_str.split("-")
+                    dt = datetime(int(parts[0]), int(parts[1]), 1)
+                elif re.match(r"^\d{4}/\d{1,2}$", clean_str):
+                    parts = clean_str.split("/")
+                    dt = datetime(int(parts[0]), int(parts[1]), 1)
+                else:
+                    patterns = [
+                        "%Y-%m-%d",
+                        "%d/%m/%Y",
+                        "%m/%d/%Y",
+                        "%Y/%m/%d",
+                        "%d-%m-%Y",
+                        "%m-%d-%Y",
+                        "%Y-%m-%d %H:%M:%S",
+                        "%d/%m/%Y %H:%M:%S",
+                    ]
+                    for pat in patterns:
+                        try:
+                            dt = datetime.strptime(clean_str[:19], pat)
+                            break
+                        except Exception:
+                            continue
+
+        if dt is None:
+            # Fallback seguro a fecha actual sin romper la ejecucion
+            dt = datetime.now(timezone.utc).replace(tzinfo=None)
 
         fecha_str = dt.strftime("%Y-%m-%d")
         return fecha_str, dt.year, dt.month, dt.day
@@ -322,6 +365,15 @@ class SilverToGoldTransformer:
         for rec in silver_records:
             date_field = rec.get("fecha_transaccion") or rec.get("fecha_pedido") or rec.get("fecha")
             fecha_str, anio, mes, dia = self.parse_date_components(date_field)
+            if rec.get("mes") is not None:
+                try:
+                    m_val = int(rec["mes"])
+                    if 1 <= m_val <= 12:
+                        mes = m_val
+                        dia = int(rec.get("dia", dia)) if str(rec.get("dia", "")).isdigit() else dia
+                        fecha_str = f"{anio:04d}-{mes:02d}-{dia:02d}"
+                except Exception:
+                    pass
 
             tienda_id = str(rec.get("tienda_id", "TND-DIGITAL"))
             if tienda_id in dim_map:
@@ -385,14 +437,35 @@ class SilverToGoldTransformer:
                     # Materializar Dimensión
                     dim_dicts = [d.to_dict() for d in dim_records]
                     dim_arrow = pa.Table.from_pylist(dim_dicts, schema=get_dim_tiendas_arrow_schema())
+                    try:
+                        self.acid_manager.catalog.load_table("gold.dim_tiendas_regiones")
+                    except Exception:
+                        try:
+                            self.acid_manager.create_table_v2("gold.dim_tiendas_regiones", get_dim_tiendas_iceberg_schema())
+                        except Exception as c_err:
+                            logger.debug("Omitiendo creacion explicita de dim_tiendas_regiones: %s", c_err)
                     self.acid_manager.append_data("gold.dim_tiendas_regiones", dim_arrow)
                     dim_path = "s3://midas-gold/gold.db/dim_tiendas_regiones"
 
                     # Materializar Hechos en fct_ventas_diarias y fact_ventas para compatibilidad total
                     fct_dicts = [f.to_dict() for f in fct_records]
                     fct_arrow = pa.Table.from_pylist(fct_dicts, schema=get_fct_ventas_arrow_schema())
+                    try:
+                        self.acid_manager.catalog.load_table("gold.fct_ventas_diarias")
+                    except Exception:
+                        try:
+                            self.acid_manager.create_table_v2("gold.fct_ventas_diarias", get_fct_ventas_iceberg_schema())
+                        except Exception as c_err:
+                            logger.debug("Omitiendo creacion explicita de fct_ventas_diarias: %s", c_err)
                     self.acid_manager.append_data("gold.fct_ventas_diarias", fct_arrow)
                     try:
+                        try:
+                            self.acid_manager.catalog.load_table("gold.fact_ventas")
+                        except Exception:
+                            try:
+                                self.acid_manager.create_table_v2("gold.fact_ventas", get_fct_ventas_iceberg_schema())
+                            except Exception as c_err:
+                                logger.debug("Omitiendo creacion explicita de fact_ventas: %s", c_err)
                         self.acid_manager.append_data("gold.fact_ventas", fct_arrow)
                     except Exception:
                         pass

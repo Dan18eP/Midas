@@ -36,6 +36,13 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Midas API Gateway and Telemetry Hub...")
     # Initialize global hub singleton
     get_telemetry_hub()
+    # Initialize Trino Iceberg schemas if Trino is available
+    try:
+        from src.core.query_engine.trino_client import TrinoClient
+        trino_cli = TrinoClient()
+        trino_cli.ensure_iceberg_schemas()
+    except Exception as exc:
+        logger.debug("Omitiendo precreacion de esquemas Trino en arranque: %s", exc)
     yield
     logger.info("Shutting down Midas API Gateway...")
 

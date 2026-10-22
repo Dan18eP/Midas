@@ -338,6 +338,8 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
     try:
         from src.core.session.store import get_session_store
         session_store = get_session_store()
+        if not session_store.get_session(thread_id):
+            session_store.create_session(session_id=thread_id, title="Conversación con Copiloto")
         session_store.add_message(session_id=thread_id, sender="user", content=user_message)
         session_metadata = {
             "intent": intent,

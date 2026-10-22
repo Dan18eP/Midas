@@ -53,7 +53,7 @@ class MidasIcebergCatalogClient:
         s3_access_key: Optional[str] = None,
         s3_secret_key: Optional[str] = None,
     ):
-        self.catalog_uri = catalog_uri or os.getenv("ICEBERG_REST_URI", "http://localhost:8181")
+        self.catalog_uri = catalog_uri or os.getenv("ICEBERG_REST_URI") or os.getenv("ICEBERG_CATALOG_URL", "http://localhost:8181")
         self.warehouse = warehouse or os.getenv("ICEBERG_WAREHOUSE", "s3://midas-bronze/")
         self.s3_endpoint = s3_endpoint or os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
         self.s3_access_key = s3_access_key or os.getenv("MINIO_ROOT_USER", "midas_minio_admin")

@@ -35,7 +35,14 @@ def normalize_date(value):
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
-        for pattern in ("%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d-%m-%Y %H:%M:%S", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
+        if text.isdigit() and len(text) == 4:
+            try:
+                y = int(text)
+                if 1900 <= y <= 2100:
+                    return datetime(y, 1, 1, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+        for pattern in ("%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d-%m-%Y %H:%M:%S", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y-%m", "%Y"):
             try:
                 return datetime.strptime(text, pattern).replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             except ValueError:

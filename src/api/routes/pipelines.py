@@ -233,10 +233,16 @@ async def trigger_pipeline(
             if "estado" in rec and str(rec.get("estado", "")).upper() in ("FINALIZADO", "COMPLETADO", "CERRADO", "EN PROCESO", "ACTIVO"):
                 rec["estado"] = "ENTREGADO"
             if "fecha" not in rec and "fecha_transaccion" not in rec and "fecha_pedido" not in rec:
-                for alt_dt in ("ao", "ano", "año", "mes", "fecha_creacion", "created_at"):
+                for alt_dt in ("ao", "ano", "año", "fecha_creacion", "created_at"):
                     if alt_dt in rec and rec[alt_dt]:
-                        rec["fecha"] = str(rec[alt_dt])
+                        val_year = str(rec[alt_dt]).strip()
+                        if val_year.isdigit() and len(val_year) == 4 and "mes" in rec and str(rec.get("mes", "")).isdigit():
+                            rec["fecha"] = f"{val_year}-{int(rec['mes']):02d}-01"
+                        else:
+                            rec["fecha"] = val_year
                         break
+                if "fecha" not in rec and "mes" in rec and str(rec.get("mes", "")).isdigit():
+                    rec["fecha"] = f"2026-{int(rec['mes']):02d}-01"
 
         gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
         gold_result = gold_transformer.transform_and_aggregate_sales(
