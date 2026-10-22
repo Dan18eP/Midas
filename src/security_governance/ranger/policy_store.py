@@ -33,6 +33,39 @@ DEFAULT_MASK_EXPRESSIONS = {
     MASK_TYPE_NULL: "CAST(NULL AS VARCHAR)",
 }
 
+# Mapeo de arquetipos universales a identidades declaradas en políticas nativas
+ROLE_ALIASES: Dict[str, str] = {
+    "data_owner": "director_general",
+    "admin": "director_general",
+    "restricted_operator": "gerente_norte",
+    "scoped_operator": "gerente_norte",
+    "compliance_auditor": "analista_externo",
+    "auditor": "analista_externo",
+}
+
+_dynamic_row_filters: Dict[str, RowFilterRule] = {}
+
+
+def canonicalize_role(role: Optional[str]) -> str:
+    """Mapea arquetipos universales a identidades declaradas o devuelve el rol normalizado."""
+    if not role:
+        return "director_general"
+    clean = str(role).strip().lower()
+    return ROLE_ALIASES.get(clean, clean)
+
+
+def register_dynamic_row_filter(role: str, filter_expr: str, tables: Optional[Sequence[str]] = None) -> None:
+    """Permite a la API registrar reglas de filtrado por fila para roles creados en caliente."""
+    clean = canonicalize_role(role)
+    _dynamic_row_filters[clean] = RowFilterRule(
+        role=clean,
+        filter_expr=filter_expr,
+        catalogs=["*"],
+        schemas=["*"],
+        tables=list(tables) if tables else ["*"],
+    )
+
+
 
 class PolicyError(ValueError):
     """Política mal formada o incoherente."""
@@ -130,6 +163,7 @@ def clear_cache() -> None:
     """Invalida el caché de políticas (útil en pruebas)."""
     load_masking_policy.cache_clear()
     load_row_filter_policy.cache_clear()
+    _dynamic_row_filters.clear()
 
 
 def _policy_roles(item: Dict[str, Any]) -> List[str]:
@@ -165,20 +199,15 @@ def _rule_from_policy(policy: Dict[str, Any], role: str, tag: str) -> Optional[M
 
 
 def resolve_masking_rule(role: str, category: Optional[str] = None) -> Optional[MaskingRule]:
-    """Enmascaramiento que corresponde al rol para una categoría de PII.
-
-    La expresión depende del tipo de dato: la sustitución parcial de un correo
-    conserva el dominio y, aplicada a un teléfono, no casaría y lo dejaría en
-    claro. Por eso se resuelve primero la política de la etiqueta específica y
-    solo si no existe se cae a la general `PII_CONFIDENCIAL`.
-    """
+    """Enmascaramiento que corresponde al rol para una categoría de PII."""
+    clean_role = canonicalize_role(role)
     wanted = category_tag(category)
 
     for tag in (wanted, FALLBACK_TAG):
         for policy in _masking_policies():
             if tag not in _policy_tags(policy):
                 continue
-            rule = _rule_from_policy(policy, role, tag)
+            rule = _rule_from_policy(policy, clean_role, tag)
             if rule is not None:
                 return rule
     return None
@@ -186,6 +215,10 @@ def resolve_masking_rule(role: str, category: Optional[str] = None) -> Optional[
 
 def resolve_row_filter_rule(role: str) -> Optional[RowFilterRule]:
     """Filtro de filas que corresponde al rol, o `None` si no hay regla."""
+    clean_role = canonicalize_role(role)
+    if clean_role in _dynamic_row_filters:
+        return _dynamic_row_filters[clean_role]
+
     policy = load_row_filter_policy()
     if not policy.get("isEnabled", True):
         return None
@@ -196,11 +229,11 @@ def resolve_row_filter_rule(role: str) -> Optional[RowFilterRule]:
     tables = [str(v) for v in resources.get("table", {}).get("values", ["*"])]
 
     for item in policy.get("rowFilterPolicyItems", []):
-        if role not in _policy_roles(item):
+        if clean_role not in _policy_roles(item):
             continue
         filter_info = item.get("rowFilterInfo", {}) or {}
         return RowFilterRule(
-            role=role,
+            role=clean_role,
             filter_expr=str(filter_info.get("filterExpr", "")),
             catalogs=catalogs,
             schemas=schemas,

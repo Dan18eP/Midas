@@ -23,3 +23,4 @@ class AgentState(TypedDict, total=False):
     query_rows: list[dict[str, Any]]
     storytelling_result: dict[str, Any] | None
     response: str
+    user_role: str
