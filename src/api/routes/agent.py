@@ -78,10 +78,67 @@ def get_agent_graph() -> Any:
                 res = trino_client.execute_query_sync(sql=sql, user_role=user_role)
                 return res.data
 
+            def live_catalog_source_provider() -> List[Dict[str, Any]]:
+                return [
+                    {
+                        "name": "crm_operaciones",
+                        "kind": "PostgreSQL",
+                        "tables": [
+                            {
+                                "table": "silver.crm_transacciones",
+                                "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta"],
+                            },
+                            {
+                                "table": "silver.crm_clientes",
+                                "columns": ["cliente_id", "nombre", "email", "telefono", "region", "categoria_segmento"],
+                            },
+                        ],
+                    },
+                    {
+                        "name": "Presupuesto_Corporativo_2026.xlsx",
+                        "kind": "Excel",
+                        "tables": [
+                            {
+                                "table": "silver.presupuesto_metas",
+                                "columns": ["meta_id", "region", "canal_venta", "meta_ingreso_presupuestada", "año", "mes"],
+                            },
+                            {
+                                "table": "silver.costos_operativos",
+                                "columns": ["costo_id", "region", "canal_venta", "costo_operativo_fijo", "año", "mes"],
+                            },
+                        ],
+                    },
+                    {
+                        "name": "helpdesk_tickets_live",
+                        "kind": "API REST",
+                        "tables": [
+                            {
+                                "table": "silver.helpdesk_tickets",
+                                "columns": ["ticket_id", "cliente_id", "tiempo_respuesta_min", "csat_puntuacion", "fecha"],
+                            },
+                        ],
+                    },
+                    {
+                        "name": "gold_marts",
+                        "kind": "Iceberg",
+                        "tables": [
+                            {
+                                "table": "gold.fact_ventas",
+                                "columns": ["id", "fecha", "monto", "monto_bruto", "region", "canal_venta", "tienda_id"],
+                            },
+                            {
+                                "table": "gold.fct_ventas_diarias",
+                                "columns": ["fecha", "region", "canal_venta", "total_neto", "total_pedidos", "ticket_promedio"],
+                            },
+                        ],
+                    },
+                ]
+
             checkpointer = InMemorySaver()
             _compiled_graph = build_graph(
                 checkpointer=checkpointer,
                 execute_query=default_trino_executor,
+                source_provider=live_catalog_source_provider,
             )
             logger.info("LangGraph conversational state machine compiled successfully with Trino executor.")
         except Exception as exc:

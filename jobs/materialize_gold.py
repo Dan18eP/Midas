@@ -1,4 +1,4 @@
-"""Audit a Gold result in a staging table before publishing it to Iceberg."""
+"""Audit a Gold result in a staging table before publishing it to Iceberg using pure PySpark."""
 
 import argparse
 import json
@@ -10,13 +10,27 @@ from pyspark.sql import SparkSession
 
 
 def publish(spec: dict, status: str, count: int = 0, detail: str = "") -> None:
-    event = {"pipeline_id": spec["pipeline_id"], "node_id": spec["output_table"],
-             "status": status, "records_in": count, "records_out": count,
-             "details": {"event_type": "NEW_GOLD_NODE_AVAILABLE" if status == "HEALTHY" else "GOLD_MATERIALIZATION",
-                         "message": detail}}
-    request = urllib.request.Request(os.getenv("MIDAS_TELEMETRY_PUBLISH_URL", "http://midas-api:8000/api/v1/telemetry/publish"),
-                                     data=json.dumps(event).encode(), headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(request, timeout=10):
+    event = {
+        "pipeline_id": spec["pipeline_id"],
+        "node_id": spec["output_table"],
+        "status": status,
+        "records_in": count,
+        "records_out": count,
+        "details": {
+            "event_type": "NEW_GOLD_NODE_AVAILABLE" if status == "HEALTHY" else "GOLD_MATERIALIZATION",
+            "message": detail,
+        },
+    }
+    request = urllib.request.Request(
+        os.getenv("MIDAS_TELEMETRY_PUBLISH_URL", "http://midas-api:8000/api/v1/telemetry/publish"),
+        data=json.dumps(event).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10):
+            pass
+    except Exception:
         pass
 
 
@@ -30,8 +44,12 @@ def main() -> None:
     if args.spec_json:
         spec = json.loads(args.spec_json)
     elif args.sql and args.output_table:
-        spec = {"pipeline_id": "gold_manual", "transform_sql": args.sql,
-                "output_table": args.output_table, "quality_policies": args.quality_policies.split(",")}
+        spec = {
+            "pipeline_id": "gold_manual",
+            "transform_sql": args.sql,
+            "output_table": args.output_table,
+            "quality_policies": args.quality_policies.split(","),
+        }
     else:
         parser.error("--spec-json or both --sql and --output-table are required")
 
@@ -40,7 +58,22 @@ def main() -> None:
     policies = set(spec["quality_policies"])
     if not policies or policies - {"row_count_gt_zero"}:
         raise ValueError("Unsupported Gold quality policy")
-    spark = SparkSession.builder.appName(f"midas-{output_table}").getOrCreate()
+
+    spark = (
+        SparkSession.builder.appName(f"midas-{output_table}")
+        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+        .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
+        .config("spark.sql.catalog.iceberg.type", "hadoop")
+        .config("spark.sql.catalog.iceberg.warehouse", os.getenv("ICEBERG_WAREHOUSE", "s3a://midas-lakehouse/iceberg"))
+        .config("spark.hadoop.fs.s3a.endpoint", os.getenv("MINIO_ENDPOINT", "http://minio:9000"))
+        .config("spark.hadoop.fs.s3a.access.key", os.getenv("MINIO_ROOT_USER", "midas_admin"))
+        .config("spark.hadoop.fs.s3a.secret.key", os.getenv("MINIO_ROOT_PASSWORD", "midas_storage_2026"))
+        .config("spark.hadoop.fs.s3a.path.style.access", "true")
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+        .config("spark.sql.shuffle.partitions", "4")
+        .getOrCreate()
+    )
+
     spec["pipeline_id"] = pipeline_id
     stage_table = f"{output_table}_wap_{uuid.uuid4().hex[:8]}"
     count = 0
@@ -58,7 +91,10 @@ def main() -> None:
         publish(spec, "ERROR", count, str(exc)[:500])
         raise
     finally:
-        spark.sql(f"DROP TABLE IF EXISTS {stage_table}")
+        try:
+            spark.sql(f"DROP TABLE IF EXISTS {stage_table}")
+        except Exception:
+            pass
         spark.stop()
 
 

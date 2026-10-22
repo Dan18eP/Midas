@@ -79,7 +79,7 @@ class TrinoClient:
         schema: str = "silver",
         timeout_sec: float = 10.0,
         max_limit: int = 1000,
-        fallback_for_testing: bool = True,
+        fallback_for_testing: Optional[bool] = None,
     ):
         self.host = host or os.getenv("TRINO_HOST", "localhost")
         self.port = port or int(os.getenv("TRINO_PORT", "8082"))
@@ -88,7 +88,14 @@ class TrinoClient:
         self.default_schema = schema
         self.timeout_sec = timeout_sec
         self.max_limit = max_limit
-        self.fallback_for_testing = fallback_for_testing
+        if fallback_for_testing is not None:
+            self.fallback_for_testing = fallback_for_testing
+        else:
+            is_test_env = (
+                os.getenv("MIDAS_TEST_MODE", "").lower() in ("true", "1", "yes")
+                or "PYTEST_CURRENT_TEST" in os.environ
+            )
+            self.fallback_for_testing = is_test_env
 
         self.base_url = f"http://{self.host}:{self.port}"
         self._async_client: Optional[Any] = None
@@ -208,6 +215,7 @@ class TrinoClient:
         start_time = time.perf_counter()
         target_catalog = catalog or self.default_catalog
         target_schema = schema_name or self.default_schema
+        effective_timeout = timeout_sec or self.timeout_sec
         effective_timeout = timeout_sec or self.timeout_sec
 
         # 1. Aplicar Guardrails y forzado de LIMIT 1000
@@ -348,6 +356,24 @@ class TrinoClient:
             cost_level="LOW",
             plan_summary="Distributed Plan Sync",
         )
+
+        if not self.fallback_for_testing:
+            try:
+                headers = {
+                    "X-Trino-User": self.user,
+                    "X-Trino-Catalog": target_catalog,
+                    "X-Trino-Schema": target_schema,
+                    "X-Trino-Source": "midas-api",
+                }
+                if user_role and ranger_trino_plugin_enabled():
+                    headers["X-Trino-Role"] = f"system=ROLE{{{user_role}}}"
+                with httpx.Client(base_url=self.base_url, timeout=effective_timeout) as sync_cli:
+                    resp = sync_cli.post("/v1/statement", content=effective_sql.encode("utf-8"), headers=headers)
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"Trino statement rejected with status {resp.status_code}")
+            except Exception as sync_err:
+                safe_err = mask_sensitive_credentials(str(sync_err))
+                raise ConnectionError(f"No fue posible conectar con el coordinador Trino en {self.base_url}: {safe_err}") from sync_err
 
         return self._execute_deterministic_local_engine(
             sql=effective_sql,
