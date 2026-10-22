@@ -78,7 +78,19 @@ def make_introspector(
 def proactive_suggest(state: AgentState) -> dict[str, object]:
     """Ofrece opciones o pregunta lo que falta para continuar."""
     if state.get("needs_clarification"):
-        question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026?"
+        years = state.get("available_years") or []
+        if years:
+            options = ", ".join(str(year) for year in years)
+            question = (
+                "¿De qué año quieres consultar las ventas? "
+                f"Años disponibles en tus datos: {options}. "
+                'También puedes escribir "todos".'
+            )
+        else:
+            question = (
+                "¿De qué año quieres consultar las ventas? "
+                'Indica el año presente en tus datos o escribe "todos".'
+            )
         return {
             "clarification": question,
             "response": question,
@@ -123,3 +135,38 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
         }
 
     return {"suggestions": suggestions}
+
+
+def make_proactive_suggest(
+    year_provider: Callable[[], list[int]] | None = None,
+) -> Callable[[AgentState], dict[str, object]]:
+    """Inyecta los años reales del catálogo antes de pedir una aclaración."""
+
+    def node(state: AgentState) -> dict[str, object]:
+        if year_provider is not None and state.get("needs_clarification"):
+            enriched = dict(state)
+            enriched["available_years"] = _available_years(year_provider)
+            return proactive_suggest(enriched)
+        return proactive_suggest(state)
+
+    return node
+
+
+def _available_years(year_provider: Callable[[], list[int]] | None) -> list[int]:
+    """Obtiene años reales del catálogo, descartando valores fuera de rango."""
+    if year_provider is None:
+        return []
+    try:
+        raw_years = year_provider()
+    except Exception:
+        return []
+    years = set()
+    for value in raw_years or []:
+        try:
+            year = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 1900 <= year <= 2100:
+            years.add(year)
+    return sorted(years)
+

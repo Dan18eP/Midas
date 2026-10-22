@@ -35,6 +35,15 @@ def route_intent(state: AgentState) -> dict[str, object]:
                 "pending_intent": "",
                 "pending_query": "",
             }
+        if re.search(r"\b(todos|todas|general|sin\s+filtro|todo\s+el\s+hist[oó]rico)\b", message, re.IGNORECASE):
+            query = state.get("pending_query", "").strip()
+            return {
+                "intent": "analytics",
+                "needs_clarification": False,
+                "user_message": query,
+                "pending_intent": "",
+                "pending_query": "",
+            }
         return {"intent": "analytics", "needs_clarification": True}
 
     if _DISCOVERY.search(message):

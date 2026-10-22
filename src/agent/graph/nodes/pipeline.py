@@ -62,7 +62,15 @@ def make_analytic_nodes(
                 rows = execute_query(sql)
             return {"query_rows": rows, "query_error": ""}
         except Exception as exc:  # La conversación continúa sin mostrar datos internos.
-            return {"query_error": f"No pude ejecutar la consulta con Trino: {exc}"}
+            detail = str(exc).lower()
+            if "does not exist" in detail or "not found" in detail or "no existe" in detail:
+                return {
+                    "query_error": (
+                        "No encontré datos reales para esa consulta en el catálogo. "
+                        "Verifica que la tabla exista y que el pipeline haya materializado la capa Gold."
+                    )
+                }
+            return {"query_error": "No pude ejecutar la consulta con Trino."}
 
     def synthesize(state: AgentState) -> dict[str, object]:
         error = state.get("query_error", "")

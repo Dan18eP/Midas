@@ -27,14 +27,15 @@ def test_agent_greeting_triggers_proactive_discovery():
     assert data["intent"] == "discovery"
     assert "thread_id" in data
     assert len(data["suggestions"]) == 3
-    # Check that response mentions canonical sources
-    assert "crm_operaciones" in data["response"]
-    assert "Presupuesto_Corporativo_2026.xlsx" in data["response"]
-    assert "helpdesk_tickets_live" in data["response"]
+    # Check that response lists the real connected source families
+    response_text = data["response"].lower()
+    assert "postgres" in response_text
+    assert "excel" in response_text
+    assert "rest" in response_text
 
 
 def test_agent_sales_query_requests_clarification():
-    """Verify query without year flags needs_clarification and asks for 2024/2025/2026."""
+    """Verify query without year asks for a real available year, never hardcoded ones."""
     payload = {
         "thread_id": "test_session_clarify_01",
         "message": "Quiero consultar las ventas",
@@ -44,7 +45,8 @@ def test_agent_sales_query_requests_clarification():
 
     data = response.json()
     assert data["needs_clarification"] is True
-    assert "2024, 2025 o 2026" in data["response"]
+    assert "¿De qué año" in data["response"]
+    assert "2024, 2025 o 2026" not in data["response"]
 
 
 def test_agent_empty_message_validation():

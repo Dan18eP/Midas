@@ -52,10 +52,13 @@ def test_gemini_router_invokes_gemini_when_key_present(monkeypatch):
     assert calls[0][0] == "gemini-3.1-flash-lite"
 
 
-def test_gemini_router_falls_back_to_ast_on_gemini_error(monkeypatch):
+def test_router_prefers_deterministic_sql_over_gemini_for_supported_questions(monkeypatch):
+    calls = []
+
     class FakeModels:
         def generate_content(self, model, contents):
-            raise RuntimeError("Gemini 503 Service Unavailable")
+            calls.append(model)
+            raise AssertionError("Gemini no debe invocarse para una intención soportada")
 
     class FakeClient:
         def __init__(self, api_key):
@@ -70,3 +73,5 @@ def test_gemini_router_falls_back_to_ast_on_gemini_error(monkeypatch):
 
     sql = generator("¿Cuántos registros hay de ventas?", CATALOG)
     assert "COUNT(*)" in sql
+    assert "gold.fact_ventas" in sql
+    assert calls == []

@@ -33,6 +33,30 @@ def test_category_rows_use_horizontal_bars():
     assert option["yAxis"]["inverse"] is True
 
 
+def test_grouped_gold_region_rows_use_bar_chart():
+    option = build_echarts_option([
+        {"region_id": "REG-NORTE", "venta_neta": 4200000.0},
+        {"region_id": "REG-SUR", "venta_neta": 3100000.0},
+        {"region_id": "REG-CENTRO", "venta_neta": 2800000.0},
+    ])
+
+    assert option["series"][0]["type"] == "bar"
+    assert option["yAxis"]["type"] == "category"
+    assert len(option["series"][0]["data"]) == 3
+
+
+def test_grouped_gold_month_rows_use_line_chart():
+    option = build_echarts_option([
+        {"mes": 1, "venta_neta": 120000.0},
+        {"mes": 2, "venta_neta": 150000.0},
+        {"mes": 3, "venta_neta": 110000.0},
+    ])
+
+    assert option["series"][0]["type"] == "line"
+    assert option["xAxis"]["type"] == "category"
+    assert len(option["series"][0]["data"]) == 3
+
+
 def test_two_numeric_columns_use_scatter_chart():
     option = build_echarts_option([
         {"gasto": 10, "ingresos": 20},
