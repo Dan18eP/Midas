@@ -80,9 +80,9 @@ def make_analytic_nodes(
                 response += "\n\n> **Gobernanza Activa:** Columnas identificadas con datos sensibles (PII) fueron enmascaradas bajo la directiva de privacidad."
 
         suggestions = [
-            "Materializar este reporte como tabla Gold diaria",
-            "Ver desglose por canal de venta",
-            "Comparar con presupuesto corporativo",
+            "Definir dimensiones y métricas para convertir este reporte en tabla Gold",
+            "Modificar filtros o agrupaciones de la consulta",
+            "Consultar fuentes y tablas conectadas",
         ]
         return {
             "response": response,

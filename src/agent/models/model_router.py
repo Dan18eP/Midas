@@ -48,7 +48,7 @@ class ModelRouter:
         model: str | None = None,
     ) -> None:
         self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self._gemini_model = model or os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
+        self._gemini_model = model or os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
         env_endpoint = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_HOST")
         endpoint = (base_url or env_endpoint or _DEFAULT_ENDPOINT).rstrip("/")
         if endpoint not in _ALLOWED_ENDPOINTS and not self._api_key:
@@ -97,9 +97,9 @@ class ModelRouter:
             f"Responde EXCLUSIVAMENTE con la sentencia SQL ejecutable en Trino (sin explicaciones ni bloques markdown adicionales):"
         )
         candidates = [
-            self._gemini_model,
             "gemini-3.8-flash",
             "gemini-3.8-flash-lite",
+            self._gemini_model,
             "gemini-3.7-flash",
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",

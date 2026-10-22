@@ -16,42 +16,41 @@ DEMO_SOURCES = [
 
 
 def _generate_suggestions(sources: list[dict[str, Any]]) -> list[str]:
-    """Genera sugerencias dinámicas basadas en las fuentes y tablas conectadas."""
+    """Genera sugerencias dinámicas basadas en los datos reales de las fuentes conectadas."""
     if not sources:
         return [
-            "¿Cuáles son las ventas totales de 2026?",
-            "Comparar presupuesto corporativo con ingresos reales",
-            "Materializar este reporte como tabla Gold diaria",
+            "Consultar fuentes y tablas conectadas",
+            "Definir dimensiones y métricas para reporte",
+            "Personalizar tabla Gold",
         ]
     suggestions = []
     for source in sources:
+        s_name = source.get("name", "Datos")
         tables = source.get("tables", [])
-        table_names = [t.get("table", t) if isinstance(t, dict) else str(t) for t in tables]
-        for t in table_names:
-            t_low = str(t).lower()
-            if "transac" in t_low or "venta" in t_low:
-                suggestions.append("¿Cuáles son las ventas totales por región en 2026?")
-            elif "presupuesto" in t_low or "meta" in t_low or "costo" in t_low:
-                suggestions.append("Comparar presupuesto corporativo con ingresos de 2026")
-            elif "ticket" in t_low or "csat" in t_low:
-                suggestions.append("Consultar satisfacción de soporte y tickets")
-            elif "cliente" in t_low:
-                suggestions.append("Ver clientes con mayores compras")
+        for t in tables:
+            t_name = t.get("table") or t.get("name") if isinstance(t, dict) else str(t)
+            cols = t.get("columns", []) if isinstance(t, dict) else []
+
+            # Identificar columnas numéricas y categóricas reales
+            num_cols = [c for c in cols if any(k in str(c).lower() for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "horas", "unitprice", "quantity", "stock", "neto"))]
+            cat_cols = [c for c in cols if any(k in str(c).lower() for k in ("region", "ciudad", "área", "area", "proveedor", "producto", "categoria", "supplier", "warehouse", "cliente", "canal", "name"))]
+
+            if num_cols and cat_cols:
+                suggestions.append(f"Consultar {num_cols[0]} por {cat_cols[0]} en {s_name}")
+            elif cat_cols:
+                suggestions.append(f"Ver resumen por {cat_cols[0]} en {s_name}")
+            elif num_cols:
+                suggestions.append(f"Calcular total de {num_cols[0]} en {s_name}")
+            elif t_name:
+                clean_t = str(t_name).split(".")[-1]
+                suggestions.append(f"Explorar registros de {clean_t}")
+
+    # Ofrecer al usuario definir su tabla Gold personalizada
+    suggestions.append("Definir dimensiones y métricas para tabla Gold personalizada")
 
     seen = set()
     unique = [s for s in suggestions if not (s in seen or seen.add(s))]
-    fallback_pool = [
-        "¿Cuáles son las ventas totales de 2026?",
-        "Comparar presupuesto corporativo con ingresos de 2026",
-        "Materializar este reporte como tabla Gold diaria",
-    ]
-    for fb in fallback_pool:
-        if len(unique) >= 3:
-            break
-        if fb not in seen:
-            seen.add(fb)
-            unique.append(fb)
-    return unique[:3]
+    return unique[:4]
 
 
 def make_introspector(
@@ -109,11 +108,14 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
             else:
                 source_lines.append(f"- **{kind}**: `{name}`")
 
-        response = "Los datos disponibles en la plataforma corresponden a las siguientes fuentes analíticas:\n\n"
-        response += "\n".join(source_lines)
+        response = (
+            "Estas son las fuentes y conjuntos de datos reales conectados en tu sesión:\n\n"
+            + "\n".join(source_lines)
+            + "\n\n¿Qué dimensiones y métricas te gustaría explorar? "
+            "Tú tienes el control total para decidir qué analizar o qué consolidar en tu capa Gold:\n"
+        )
         if suggestions:
-            response += "\n\n¿Con cuál te gustaría empezar? También puedes seleccionar:\n"
-            response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
+            response += "\n" + "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
         return {
             "suggestions": suggestions,
             "response": response,
