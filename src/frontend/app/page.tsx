@@ -182,12 +182,17 @@ function MidasConsoleWorkspace() {
         // Título preliminar tomado del prompt
         const sessionTitle = promptText.length > 45 ? `${promptText.slice(0, 42)}...` : promptText;
         currentSessionId = await createAndSelectSession(sessionTitle);
+        // La sesión recién creada ya es la conversación activa: evitar que el
+        // efecto de restauración reinicie el chat mientras el primer turno viaja.
+        lastLoadedSessionIdRef.current = currentSessionId;
       }
 
       setWorkspaceMode('active');
-      copilotChat.setThreadId(currentSessionId);
       copilotChat.openDrawer();
-      await copilotChat.send(promptText);
+      // El primer turno debe viajar con el hilo recién creado; de lo contrario el
+      // backend registra una segunda sesión ("Conversación con Copiloto") y el
+      // historial muestra dos entradas para una sola conversación.
+      await copilotChat.send(promptText, currentSessionId);
     } catch (err) {
       console.error('Error al procesar prompt de bienvenida:', err);
     }
