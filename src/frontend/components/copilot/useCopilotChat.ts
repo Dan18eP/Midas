@@ -58,9 +58,10 @@ export interface CopilotChatController {
   startNewChat: () => void;
   loadSessionMessages: (messages: CopilotMessage[], newThreadId: string) => void;
   setThreadId: (id: string) => void;
+  setOnTurnComplete?: (cb: (threadId: string) => void) => void;
 }
 
-export function useCopilotChat(): CopilotChatController {
+export function useCopilotChat(options?: { onTurnComplete?: (threadId: string) => void }): CopilotChatController {
   const [messages, setMessages] = useState<CopilotMessage[]>(() => [createWelcomeMessage()]);
   const [status, setStatus] = useState<CopilotAgentStatus>('idle');
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
@@ -71,6 +72,12 @@ export function useCopilotChat(): CopilotChatController {
 
   const phaseTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const wasOpenRef = useRef(false);
+  const onTurnCompleteRef = useRef(options?.onTurnComplete);
+  onTurnCompleteRef.current = options?.onTurnComplete;
+
+  const setOnTurnComplete = useCallback((cb: (threadId: string) => void) => {
+    onTurnCompleteRef.current = cb;
+  }, []);
 
   const clearPhaseTimers = useCallback(() => {
     phaseTimers.current.forEach((timer) => clearTimeout(timer));
@@ -129,6 +136,7 @@ export function useCopilotChat(): CopilotChatController {
         appendMessage(assistantMessage);
         setSuggestions(payload.suggestions && payload.suggestions.length > 0 ? payload.suggestions : DEFAULT_SUGGESTIONS);
         setStatus('idle');
+        onTurnCompleteRef.current?.(threadId);
       } catch (cause) {
         if ((cause as Error)?.name === 'AbortError') return;
         clearPhaseTimers();
@@ -221,6 +229,7 @@ export function useCopilotChat(): CopilotChatController {
       startNewChat,
       loadSessionMessages,
       setThreadId,
+      setOnTurnComplete,
     }),
     [
       messages,
@@ -239,6 +248,7 @@ export function useCopilotChat(): CopilotChatController {
       startNewChat,
       loadSessionMessages,
       setThreadId,
+      setOnTurnComplete,
     ],
   );
 }

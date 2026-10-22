@@ -6,10 +6,14 @@ import {
   TelemetryEventPayload,
   UseTelemetryStreamOptions,
   UseTelemetryStreamReturn,
+  extractTelemetryRate,
 } from '@/types/telemetry';
 
 const DEFAULT_SSE_URL =
-  process.env.NEXT_PUBLIC_SSE_URL || '/api/v1/telemetry/stream';
+  process.env.NEXT_PUBLIC_SSE_URL ||
+  (process.env.NEXT_PUBLIC_MOCK_SSE === 'true'
+    ? '/api/v1/telemetry/stream'
+    : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/telemetry/stream`);
 const DEFAULT_INITIAL_BACKOFF = 1000;
 const DEFAULT_MAX_BACKOFF = 15000;
 const DEFAULT_BACKOFF_MULTIPLIER = 1.5;
@@ -30,34 +34,6 @@ function isValidTelemetryEvent(data: unknown): data is TelemetryEventPayload {
     typeof obj.records_in === 'number' &&
     typeof obj.records_out === 'number'
   );
-}
-
-/**
- * Calculates effective records-per-second from event metadata.
- */
-function extractRateFromEvent(event: TelemetryEventPayload): number {
-  const details = event.details;
-  if (details) {
-    if (typeof details.throughput_rps === 'number' && details.throughput_rps >= 0) {
-      return details.throughput_rps;
-    }
-    if (typeof details.records_per_second === 'number' && details.records_per_second >= 0) {
-      return details.records_per_second;
-    }
-    if (typeof details.spark_rps === 'number' && details.spark_rps >= 0) {
-      return details.spark_rps;
-    }
-    if (typeof details.airflow_rps === 'number' && details.airflow_rps >= 0) {
-      return details.airflow_rps;
-    }
-  }
-
-  // Fallback calculation: records_out / (latency_ms / 1000)
-  if (event.latency_ms > 0 && event.records_out > 0) {
-    return Math.round((event.records_out / event.latency_ms) * 1000);
-  }
-
-  return event.records_out;
 }
 
 export function useTelemetryStream(
@@ -175,7 +151,7 @@ export function useTelemetryStream(
           }));
 
           // Calculate Spark vs Airflow throughput
-          const rate = extractRateFromEvent(parsed);
+          const rate = extractTelemetryRate(parsed);
           const nodeId = parsed.node_id;
 
           // Airflow sources: source_postgres, source_excel, source_api

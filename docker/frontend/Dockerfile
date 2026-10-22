@@ -10,6 +10,12 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/frontend ./
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_SSE_URL=http://localhost:8000/api/v1/telemetry/stream
+ARG NEXT_PUBLIC_MOCK_SSE=false
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_SSE_URL=$NEXT_PUBLIC_SSE_URL
+ENV NEXT_PUBLIC_MOCK_SSE=$NEXT_PUBLIC_MOCK_SSE
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN mkdir -p public && npm run build
 

@@ -116,11 +116,12 @@ export function QuickConnectionModal({
     }
   };
 
-  const handleConfirmAddToCanvas = async () => {
+  const handleConfirmAddToCanvas = async (registeredConnId?: string) => {
     try {
       const sourceName =
         uploadResult?.name || restName || dbName || (file ? file.name : 'Nueva Fuente');
       const nodeId = `source_${Date.now()}`;
+      const effectiveConnectionId = registeredConnId || uploadResult?.connection_id;
 
       const newNode: Node<MidasNodeData> = {
         id: nodeId,
@@ -128,6 +129,7 @@ export function QuickConnectionModal({
         position: { x: 80, y: 150 },
         data: {
           id: nodeId,
+          connectionId: effectiveConnectionId,
           label: sourceName,
           description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze`,
           nodeType: 'source',
@@ -145,6 +147,7 @@ export function QuickConnectionModal({
           latencyMs: 14,
           lastUpdated: new Date().toISOString(),
           details: {
+            connectionId: effectiveConnectionId,
             engine:
               selectedType === 'excel'
                 ? 'Apache POI / openpyxl'
@@ -187,13 +190,14 @@ export function QuickConnectionModal({
     setIsUploading(true);
     setError(null);
     try {
+      let regResult: Record<string, unknown> | null = null;
       if (selectedType === 'rest') {
         if (!restName || !restUrl) {
           setError('Nombre y URL del endpoint son requeridos.');
           setIsUploading(false);
           return;
         }
-        await registerConnection({
+        regResult = await registerConnection({
           name: restName,
           source_type: 'REST_API',
           url: restUrl,
@@ -205,7 +209,7 @@ export function QuickConnectionModal({
           setIsUploading(false);
           return;
         }
-        await registerConnection({
+        regResult = await registerConnection({
           name: dbName,
           source_type: dbEngine,
           host: dbHost,
@@ -216,7 +220,8 @@ export function QuickConnectionModal({
         });
       }
 
-      await handleConfirmAddToCanvas();
+      const registeredConnId = (regResult?.connection_id as string) || undefined;
+      await handleConfirmAddToCanvas(registeredConnId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error al registrar conexión.';
       setError(msg);
@@ -591,7 +596,7 @@ export function QuickConnectionModal({
           {uploadResult || selectedType === 'rest' || selectedType === 'database' ? (
             <button
               type="button"
-              onClick={uploadResult ? handleConfirmAddToCanvas : handleRegisterGeneric}
+              onClick={() => (uploadResult ? handleConfirmAddToCanvas() : handleRegisterGeneric())}
               disabled={isUploading}
               className="flex items-center gap-2 rounded-lg bg-[#D4AF37] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B8860B] active:scale-95 disabled:opacity-50 transition-all shadow-xs"
             >

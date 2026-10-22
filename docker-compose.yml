@@ -447,6 +447,10 @@ services:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SSE_URL: ${NEXT_PUBLIC_SSE_URL:-http://localhost:8000/api/v1/telemetry/stream}
+        NEXT_PUBLIC_MOCK_SSE: ${NEXT_PUBLIC_MOCK_SSE:-false}
     container_name: midas-frontend
     restart: unless-stopped
     profiles: ["frontend", "full"]
@@ -454,6 +458,8 @@ services:
       - midas-api
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_SSE_URL=${NEXT_PUBLIC_SSE_URL:-http://localhost:8000/api/v1/telemetry/stream}
+      - NEXT_PUBLIC_MOCK_SSE=${NEXT_PUBLIC_MOCK_SSE:-false}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:

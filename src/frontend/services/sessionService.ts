@@ -18,9 +18,19 @@ import type {
   RegisterConnectionDTO,
   TopologyStateDTO,
 } from '@/types/session';
+import { getActiveUserRole, USER_ROLE_HEADER } from './securityRolesApi';
 
 const DEFAULT_API_BASE = 'http://localhost:8000';
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
+
+function defaultHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const role = getActiveUserRole();
+  return {
+    'Content-Type': 'application/json',
+    ...(role ? { [USER_ROLE_HEADER]: role } : {}),
+    ...extra,
+  };
+}
 
 export class SessionServiceError extends Error {
   status?: number;
@@ -64,7 +74,7 @@ export async function listSessions(
 
   const response = await fetch(`${API_BASE}/api/v1/sessions?${params.toString()}`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     signal,
   });
 
@@ -80,7 +90,7 @@ export async function createSession(
 ): Promise<ChatSessionSummary> {
   const response = await fetch(`${API_BASE}/api/v1/sessions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     body: JSON.stringify(payload || {}),
     signal,
   });
@@ -97,7 +107,7 @@ export async function getSessionDetail(
 ): Promise<ChatSessionDetail> {
   const response = await fetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     signal,
   });
 
@@ -116,7 +126,7 @@ export async function updateSessionTopology(
     `${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}/topology`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: defaultHeaders(),
       body: JSON.stringify({ topology_state: topologyState }),
       signal,
     }
@@ -134,7 +144,7 @@ export async function deleteSession(
 ): Promise<{ status: string; session_id: string }> {
   const response = await fetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     signal,
   });
 
@@ -155,8 +165,12 @@ export async function uploadDataFile(
   if (name) formData.append('name', name);
   if (sourceType) formData.append('source_type', sourceType);
 
+  const role = getActiveUserRole();
+  const headers: Record<string, string> = role ? { [USER_ROLE_HEADER]: role } : {};
+
   const response = await fetch(`${API_BASE}/api/v1/connections/upload`, {
     method: 'POST',
+    headers,
     body: formData,
     signal,
   });
@@ -173,7 +187,7 @@ export async function registerConnection(
 ): Promise<Record<string, unknown>> {
   const response = await fetch(`${API_BASE}/api/v1/connections/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     body: JSON.stringify(payload),
     signal,
   });
@@ -187,7 +201,7 @@ export async function registerConnection(
 export async function listSourceConnections(signal?: AbortSignal): Promise<Array<{ connection_id: string; name: string; source_type: string; status: string }>> {
   const response = await fetch(`${API_BASE}/api/v1/connections`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     signal,
   });
 
@@ -203,7 +217,7 @@ export async function triggerPipeline(
 ): Promise<{ run_id: string; status: string; records_cleaned: number; records_quarantined: number; detail: string }> {
   const response = await fetch(`${API_BASE}/api/v1/pipelines/${encodeURIComponent(connectionId)}/trigger`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: defaultHeaders(),
     signal,
   });
 

@@ -1,4 +1,5 @@
 import type { LineageGatewayPayload } from './types';
+import { getActiveUserRole, USER_ROLE_HEADER } from '@/services/securityRolesApi';
 
 const DEFAULT_API_BASE = 'http://localhost:8000';
 
@@ -41,9 +42,17 @@ export async function fetchTableLineage(
 
   let response: Response;
   try {
+    const role = getActiveUserRole();
     response = await fetch(
       `${LINEAGE_API_BASE}${LINEAGE_TABLE_PATH}/${encodeURIComponent(table)}`,
-      { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal },
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...(role ? { [USER_ROLE_HEADER]: role } : {}),
+        },
+        signal: controller.signal,
+      },
     );
   } catch (cause) {
     if (options.signal?.aborted) throw cause;

@@ -20,6 +20,22 @@ export const SECURITY_ROLES_TIMEOUT_MS = 2500;
 /** Cabecera que el Gateway lee para resolver el rol efectivo (ver src/api/middleware.py). */
 export const USER_ROLE_HEADER = 'X-User-Role';
 
+let currentActiveRole: string = 'director_general';
+
+/**
+ * Actualiza el rol de usuario activo para propagación transparente mediante X-User-Role.
+ */
+export function setActiveUserRole(role: string): void {
+  currentActiveRole = role;
+}
+
+/**
+ * Obtiene el rol de usuario activo para inyección en encabezados HTTP.
+ */
+export function getActiveUserRole(): string {
+  return currentActiveRole;
+}
+
 export class SecurityRolesError extends Error {
   status?: number;
 

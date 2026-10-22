@@ -69,6 +69,8 @@ export function ChatParticleBackground({
     let animationFrameId: number | null = null;
     let width = 0;
     let height = 0;
+    let cachedLeft = 0;
+    let cachedTop = 0;
 
     // Control de interacción del cursor
     const mouse = {
@@ -111,6 +113,8 @@ export function ChatParticleBackground({
 
     const updateDimensions = () => {
       const rect = container.getBoundingClientRect();
+      cachedLeft = rect.left;
+      cachedTop = rect.top;
       const parentRect = container.parentElement?.getBoundingClientRect();
 
       const newWidth = Math.floor(rect.width || parentRect?.width || container.clientWidth || 0);
@@ -267,10 +271,15 @@ export function ChatParticleBackground({
     render();
 
     // Eventos de cursor
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMouseEnter = () => {
       const rect = container.getBoundingClientRect();
-      mouse.x = e.clientX - rect.left;
-      mouse.y = e.clientY - rect.top;
+      cachedLeft = rect.left;
+      cachedTop = rect.top;
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      mouse.x = e.clientX - cachedLeft;
+      mouse.y = e.clientY - cachedTop;
     };
 
     const handleMouseLeave = () => {
@@ -313,6 +322,7 @@ export function ChatParticleBackground({
     };
 
     // Capturar mouse tanto en el contenedor como a nivel de ventana para mayor fluidez
+    container.addEventListener('mouseenter', handleMouseEnter, { passive: true });
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
     container.addEventListener('mouseleave', handleMouseLeave, { passive: true });
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -326,6 +336,7 @@ export function ChatParticleBackground({
         resizeObserver.disconnect();
       }
       window.removeEventListener('resize', handleWindowResize);
+      container.removeEventListener('mouseenter', handleMouseEnter);
       window.removeEventListener('mousemove', handleMouseMove);
       container.removeEventListener('mouseleave', handleMouseLeave);
       document.removeEventListener('visibilitychange', handleVisibilityChange);

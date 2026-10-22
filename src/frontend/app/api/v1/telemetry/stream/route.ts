@@ -80,6 +80,39 @@ const CANONICAL_FLOW: ScenarioEvent[] = [
 ];
 
 export async function GET(req: NextRequest) {
+  const isMockEnabled = process.env.NEXT_PUBLIC_MOCK_SSE === 'true';
+
+  // Si no se solicita explícitamente el mock con NEXT_PUBLIC_MOCK_SSE=true,
+  // se delega la transmisión al Gateway canónico FastAPI (src/api/routes/telemetry.py).
+  if (!isMockEnabled) {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const upstreamUrl = `${backendUrl}/api/v1/telemetry/stream${req.nextUrl.search}`;
+    try {
+      const upstreamRes = await fetch(upstreamUrl, {
+        headers: {
+          Accept: 'text/event-stream',
+          ...(req.headers.get('last-event-id') ? { 'last-event-id': req.headers.get('last-event-id')! } : {}),
+          ...(req.headers.get('x-user-role') ? { 'x-user-role': req.headers.get('x-user-role')! } : {}),
+        },
+      });
+
+      if (!upstreamRes.ok || !upstreamRes.body) {
+        return new Response('Backend telemetry stream unavailable', { status: upstreamRes.status || 502 });
+      }
+
+      return new Response(upstreamRes.body, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    } catch {
+      return new Response('Backend telemetry gateway unreachable', { status: 502 });
+    }
+  }
+
   const encoder = new TextEncoder();
   const searchParams = req.nextUrl.searchParams;
   const lastEventId = searchParams.get('last_event_id') || req.headers.get('last-event-id');

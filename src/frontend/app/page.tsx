@@ -30,7 +30,7 @@ import {
   buildSecurityNodePolicy,
   type ZeroTrustRole,
 } from '@/components/security/ZeroTrustLens';
-import { fetchSecurityRoles, type SecurityRoleDefinition } from '@/services/securityRolesApi';
+import { fetchSecurityRoles, setActiveUserRole, type SecurityRoleDefinition } from '@/services/securityRolesApi';
 import { useTelemetryHistory } from '@/hooks/useTelemetryHistory';
 import { SessionProvider, useSession } from '@/context/SessionContext';
 import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySidebar';
@@ -58,6 +58,12 @@ function MidasConsoleWorkspace() {
 
   // HU-FRONT-08: las identidades reales provienen del catálogo del backend.
   const [roleDefinitions, setRoleDefinitions] = useState<SecurityRoleDefinition[]>([]);
+
+  // Sincronización del rol activo con el middleware backend (X-User-Role)
+  useEffect(() => {
+    const backendRoleId = ZERO_TRUST_ROLE_IDS[selectedRole] || 'director_general';
+    setActiveUserRole(backendRoleId);
+  }, [selectedRole]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -98,10 +104,19 @@ function MidasConsoleWorkspace() {
     activeTopology,
     createAndSelectSession,
     setWorkspaceMode,
+    saveTopology,
+    fetchSessions,
   } = useSession();
 
   const copilotChat = useCopilotChatContext();
   const lastLoadedSessionIdRef = useRef<string | null>(null);
+
+  // Sincronizar el panel lateral de sesiones al finalizar una interacción en el Copiloto
+  useEffect(() => {
+    copilotChat.setOnTurnComplete?.(() => {
+      fetchSessions();
+    });
+  }, [copilotChat, fetchSessions]);
 
   // Restauración Integral de Contexto al seleccionar una sesión histórica (CA-04)
   useEffect(() => {
@@ -231,6 +246,7 @@ function MidasConsoleWorkspace() {
                 securityPolicy={securityPolicy}
                 initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
                 initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
+                onTopologyChange={activeSessionId ? saveTopology : undefined}
               />
             </section>
           )}

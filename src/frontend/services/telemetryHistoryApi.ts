@@ -11,6 +11,7 @@
 
 import type { NodeStatus } from '@/types/canvas';
 import type { TelemetryEventPayload } from '@/types/telemetry';
+import { getActiveUserRole, USER_ROLE_HEADER } from './securityRolesApi';
 
 const DEFAULT_API_BASE = 'http://localhost:8000';
 
@@ -176,10 +177,14 @@ async function requestJson(
   options.signal?.addEventListener('abort', onExternalAbort);
 
   let response: Response;
+  const role = getActiveUserRole();
   try {
     response = await fetchImpl(url, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        ...(role ? { [USER_ROLE_HEADER]: role } : {}),
+      },
       signal: controller.signal,
     });
   } catch (cause) {

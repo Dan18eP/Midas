@@ -22,7 +22,18 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspect
     setExecutionResult(null);
     try {
       const rawId = selectedNode.id;
-      const connId = rawId.startsWith('source_') ? rawId.replace('source_', '') : rawId;
+      const connId =
+        (selectedNode.details?.connectionId as string) ||
+        selectedNode.connectionId ||
+        (rawId === 'source_postgres' || rawId === 'postgres'
+          ? 'conn_pg_crm_default'
+          : rawId === 'source_excel' || rawId === 'excel'
+          ? 'conn_excel_budget_default'
+          : rawId === 'source_api' || rawId === 'api' || rawId === 'source_rest_crm'
+          ? 'conn_rest_crm_default'
+          : rawId.startsWith('source_')
+          ? rawId.replace('source_', '')
+          : rawId);
       const res = await triggerPipeline(connId);
       setExecutionResult(`Procesado (${res.status}): ${res.records_cleaned} limpios, ${res.records_quarantined} en cuarentena.`);
     } catch (err) {

@@ -281,7 +281,7 @@ describe('EChartsRenderer · Visualización dinámica, tabla de datos y exportac
     });
 
     fireEvent.click(screen.getByTestId('echarts-export-png'));
-    expect(getDataURL).toHaveBeenCalledWith({ type: 'png', pixelRatio: 2, backgroundColor: '#0B0F17' });
+    expect(getDataURL).toHaveBeenCalledWith({ type: 'png', pixelRatio: 2, backgroundColor: '#FFFFFF' });
     expect(anchorClick).toHaveBeenCalled();
 
     anchorClick.mockRestore();

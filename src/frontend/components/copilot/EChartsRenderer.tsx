@@ -62,7 +62,7 @@ export function EChartsRenderer({
   const exportPng = () => {
     const instance = chartRef.current?.getEchartsInstance();
     if (!instance) return;
-    const dataUrl = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0B0F17' });
+    const dataUrl = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#FFFFFF' });
     if (!dataUrl) return;
     const link = document.createElement('a');
     link.href = dataUrl;

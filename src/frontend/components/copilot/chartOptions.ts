@@ -1,11 +1,11 @@
 import type { CopilotChartTable, EChartsOption } from './types';
 
-const AXIS_TEXT = '#94A3B8';
-const SPLIT_LINE = 'rgba(148, 163, 184, 0.12)';
-const TITLE_TEXT = '#E2E8F0';
+const AXIS_TEXT = '#6B6557';
+const SPLIT_LINE = '#E8E4DC';
+const TITLE_TEXT = '#1C1E21';
 const TOOLTIP_CSS =
-  'border-radius:12px;border:1px solid #1F2937;background:rgba(15,23,42,0.96);' +
-  'box-shadow:0 12px 32px rgba(2,6,23,0.55);padding:8px 12px;color:#E2E8F0;font-size:12px;';
+  'border-radius:10px;border:1px solid #E8E4DC;background:rgba(255,255,255,0.96);' +
+  'box-shadow:0 8px 24px rgba(40,30,10,0.10);padding:8px 12px;color:#1C1E21;font-size:12px;';
 
 const numberFormatter = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 });
 
@@ -109,7 +109,7 @@ function ensureGridAndTooltip(option: EChartsOption): void {
 
 function ensureDarkTheme(option: EChartsOption): void {
   const textStyle = (option.textStyle as Record<string, unknown> | undefined) ?? {};
-  option.textStyle = { color: '#CBD5E1', fontFamily: 'inherit', ...textStyle };
+  option.textStyle = { color: '#1C1E21', fontFamily: 'inherit', ...textStyle };
 
   const title = (option.title as Record<string, unknown> | undefined) ?? {};
   if (option.title !== undefined) {

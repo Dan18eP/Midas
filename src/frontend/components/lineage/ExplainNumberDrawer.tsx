@@ -77,7 +77,7 @@ export function ExplainNumberDrawer() {
     >
       <div
         onClick={close}
-        className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 ${
+        className={`absolute inset-0 bg-[#1C1E21]/20 backdrop-blur-xs transition-opacity duration-300 ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
       />
@@ -89,26 +89,26 @@ export function ExplainNumberDrawer() {
         aria-labelledby="explain-drawer-title"
         tabIndex={-1}
         data-testid="explain-number-drawer"
-        className={`absolute right-0 top-0 flex h-full w-full flex-col border-l border-slate-800 bg-[#0B0F17] shadow-[0_0_60px_rgba(2,6,23,0.9)] transition-all duration-300 sm:w-[460px] lg:w-[520px] ${
+        className={`absolute right-0 top-0 flex h-full w-full flex-col border-l border-[#E8E4DC] bg-[#FFFFFF] text-[#1C1E21] shadow-2xl transition-all duration-300 sm:w-[460px] lg:w-[520px] ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <header className="flex items-start justify-between gap-3 border-b border-slate-800 bg-slate-950/90 px-4 py-3">
+        <header className="flex items-start justify-between gap-3 border-b border-[#E8E4DC] bg-[#FAFAFA] px-4 py-3">
           <div className="flex min-w-0 items-start gap-2.5">
-            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-amber-500">
-              <DatabaseZap className="h-4 w-4 text-white" />
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#D4AF37]/50 bg-[#FBF8EF] text-[#B8860B] shadow-2xs">
+              <DatabaseZap className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <h2 id="explain-drawer-title" className="truncate text-xs font-bold text-slate-100">
+              <h2 id="explain-drawer-title" className="truncate text-xs font-bold text-[#1C1E21]">
                 Explícame esta cifra
               </h2>
               {activeTarget ? (
                 <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="truncate text-[11px] text-slate-400">{activeTarget.label}</span>
-                  <span className="font-mono text-sm font-black text-amber-300">{lineage?.displayValue ?? activeTarget.label}</span>
+                  <span className="truncate text-[11px] text-[#787164]">{activeTarget.label}</span>
+                  <span className="font-mono text-sm font-black text-[#B8860B]">{lineage?.displayValue ?? activeTarget.label}</span>
                 </div>
               ) : (
-                <span className="mt-0.5 block text-[11px] text-slate-500">Seleccione una cifra del Copiloto</span>
+                <span className="mt-0.5 block text-[11px] text-[#787164]">Seleccione una cifra del Copiloto</span>
               )}
             </div>
           </div>
@@ -118,7 +118,7 @@ export function ExplainNumberDrawer() {
             title="Cerrar (Escape)"
             aria-label="Cerrar Explícame esta cifra"
             data-testid="explain-close"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/70 text-slate-400 transition hover:text-rose-300"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] text-[#6B6557] transition hover:bg-[#F7F7F5] hover:text-[#1C1E21]"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -127,10 +127,10 @@ export function ExplainNumberDrawer() {
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
           {loading && (
             <div
-              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-3 text-xs text-slate-400"
+              className="flex items-center gap-2 rounded-xl border border-[#E8E4DC] bg-[#FAFAFA] px-3.5 py-3 text-xs text-[#4B4639]"
               data-testid="explain-loading"
             >
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#B8860B]" />
               Resolviendo linaje y certificación de la cifra...
             </div>
           )}
@@ -139,31 +139,31 @@ export function ExplainNumberDrawer() {
             <>
               {/* 1. Fórmula matemática canónica (KaTeX) */}
               <section
-                className="rounded-xl border border-slate-800/80 bg-slate-900/60 p-3.5"
+                className="rounded-xl border border-[#E8E4DC] bg-[#FAFAFA] p-3.5"
                 data-testid="explain-formula-section"
               >
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                  <Calculator className="h-4 w-4 text-amber-400" />
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-[#1C1E21]">
+                  <Calculator className="h-4 w-4 text-[#B8860B]" />
                   Fórmula canónica aplicada
                 </span>
                 {lineage.formula ? (
                   <>
-                    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-3.5">
+                    <div className="mt-3 rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-3.5 text-[#1C1E21]">
                       <LatexFormula latex={lineage.formula.latex} />
                     </div>
-                    <p className="mt-2 font-mono text-[10px] text-slate-500">{lineage.formula.plain}</p>
-                    <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">{lineage.formula.description}</p>
-                    <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-indigo-700/40 bg-indigo-950/40 px-2 py-0.5 text-[9px] font-mono uppercase tracking-wider text-indigo-300">
+                    <p className="mt-2 font-mono text-[10px] text-[#787164]">{lineage.formula.plain}</p>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-[#4B4639]">{lineage.formula.description}</p>
+                    <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/50 bg-[#FBF8EF] px-2 py-0.5 text-[9px] font-mono uppercase tracking-wider text-[#8C6D1F]">
                       <BadgeCheck className="h-2.5 w-2.5" />
                       Diccionario Semántico Inmutable
                     </span>
                   </>
                 ) : (
                   <p
-                    className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-amber-300/90"
+                    className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-[#8C6D1F]"
                     data-testid="explain-uncertified-note"
                   >
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#B8860B]" />
                     Esta cifra no está registrada en el Diccionario Semántico Inmutable del doc canónico 04, por lo
                     que no existe una fórmula certificada que mostrarla. El gateway de linaje de OpenMetadata
                     (HU-GOV-01) completará esta trazabilidad.
@@ -173,21 +173,21 @@ export function ExplainNumberDrawer() {
 
               {/* 2. Árbol de linaje visual */}
               <section
-                className="rounded-xl border border-slate-800/80 bg-slate-900/60 p-3.5"
+                className="rounded-xl border border-[#E8E4DC] bg-[#FAFAFA] p-3.5"
                 data-testid="explain-lineage-section"
               >
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                  <DatabaseZap className="h-4 w-4 text-emerald-400" />
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-[#1C1E21]">
+                  <DatabaseZap className="h-4 w-4 text-[#4D7C0F]" />
                   Linaje de datos
                 </span>
-                <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">{lineage.transformation}</p>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-[#4B4639]">{lineage.transformation}</p>
                 <div className="mt-3">
                   {lineage.stages.length > 0 ? (
                     <LineageMiniGraph stages={lineage.stages} />
                   ) : (
-                    <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/50 px-3 py-2.5 text-[11px] text-slate-400">
-                      <p className="font-medium text-slate-300">Sin ruta Medallón certificada para esta cifra.</p>
-                      <p className="mt-1 text-[10px] text-slate-500">
+                    <div className="rounded-lg border border-dashed border-[#E8E4DC] bg-[#FFFFFF] px-3 py-2.5 text-[11px] text-[#4B4639]">
+                      <p className="font-medium text-[#1C1E21]">Sin ruta Medallón certificada para esta cifra.</p>
+                      <p className="mt-1 text-[10px] text-[#787164]">
                         Cifra analítica calculada en memoria por el agente. El pipeline de catalogación continua registrará el mart Gold tras la próxima ejecución programada.
                       </p>
                     </div>
@@ -197,52 +197,52 @@ export function ExplainNumberDrawer() {
 
               {/* 3. Metadatos de frescura y certificación */}
               <section
-                className="rounded-xl border border-slate-800/80 bg-slate-900/60 p-3.5"
+                className="rounded-xl border border-[#E8E4DC] bg-[#FAFAFA] p-3.5"
                 data-testid="explain-certification-section"
               >
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                  <BadgeCheck className="h-4 w-4 text-blue-400" />
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-[#1C1E21]">
+                  <BadgeCheck className="h-4 w-4 text-[#B8860B]" />
                   Certificación y frescura
                 </span>
                 <div className="mt-3 space-y-2 text-xs">
-                  <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-950/80 px-2.5 py-2">
-                    <span className="flex items-center gap-1.5 text-slate-500">
-                      <BadgeCheck className="h-3 w-3 text-emerald-400" />
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-2.5 py-2">
+                    <span className="flex items-center gap-1.5 text-[#787164]">
+                      <BadgeCheck className="h-3 w-3 text-[#4D7C0F]" />
                       Calidad
                     </span>
-                    <span className="font-mono font-bold text-emerald-400" data-testid="explain-quality">
+                    <span className="font-mono font-bold text-[#4D7C0F]" data-testid="explain-quality">
                       {lineage.certification.qualityPercent !== null
                         ? `${lineage.certification.qualityPercent}% · ${lineage.certification.qualitySummary}`
                         : lineage.certification.qualitySummary}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-950/80 px-2.5 py-2">
-                    <span className="flex items-center gap-1.5 text-slate-500">
-                      <Clock className="h-3 w-3 text-amber-400" />
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-2.5 py-2">
+                    <span className="flex items-center gap-1.5 text-[#787164]">
+                      <Clock className="h-3 w-3 text-[#B8860B]" />
                       Última sincronización
                     </span>
                     <span className="text-right">
-                      <span className="block font-mono text-[11px] text-slate-200" data-testid="explain-last-sync">
+                      <span className="block font-mono text-[11px] text-[#1C1E21]" data-testid="explain-last-sync">
                         {formatIsoDate(lineage.certification.lastSyncIso)}
                       </span>
-                      <span className="block text-[10px] text-slate-500">
+                      <span className="block text-[10px] text-[#787164]">
                         {lineage.certification.freshnessLabel}
                         {lineage.provenance === 'uncertified' ? ' · referencia: respuesta del agente' : ''}
                       </span>
                     </span>
                   </div>
-                  <div className="rounded-lg bg-slate-950/80 px-2.5 py-2">
-                    <span className="flex items-center gap-1.5 text-slate-500">
-                      <Hash className="h-3 w-3 text-purple-400" />
+                  <div className="rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-2.5 py-2">
+                    <span className="flex items-center gap-1.5 text-[#787164]">
+                      <Hash className="h-3 w-3 text-[#8C6D1F]" />
                       Hash de auditoría
                     </span>
                     <span
-                      className="mt-1 block break-all font-mono text-[11px] text-purple-300"
+                      className="mt-1 block break-all font-mono text-[11px] text-[#1C1E21]"
                       data-testid="explain-audit-hash"
                     >
                       {lineage.certification.auditHash}
                     </span>
-                    <span className="mt-0.5 block text-[9px] uppercase tracking-wider text-slate-600">
+                    <span className="mt-0.5 block text-[9px] uppercase tracking-wider text-[#787164]">
                       {lineage.certification.auditHashSource === 'gateway'
                         ? 'Firmado por el gateway de linaje'
                         : 'Derivado localmente (traza reproducible)'}
@@ -253,7 +253,7 @@ export function ExplainNumberDrawer() {
 
               {/* 4. Provenance */}
               <p
-                className="flex items-start gap-1.5 pb-1 text-[10px] leading-relaxed text-slate-600"
+                className="flex items-start gap-1.5 pb-1 text-[10px] leading-relaxed text-[#787164]"
                 data-testid="explain-provenance"
               >
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
@@ -264,10 +264,10 @@ export function ExplainNumberDrawer() {
 
               {lineage.provenance === 'uncertified' && (
                 <p
-                  className="flex items-start gap-1.5 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-[10px] leading-relaxed text-amber-200/90"
+                  className="flex items-start gap-1.5 rounded-lg border border-[#D4AF37]/50 bg-[#FBF8EF] px-3 py-2 text-[10px] leading-relaxed text-[#8C6D1F]"
                   data-testid="explain-uncertified-certification"
                 >
-                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                  <Info className="mt-0.5 h-3 w-3 shrink-0 text-[#B8860B]" />
                   Esta cifra no tiene certificación vigente del catálogo. El porcentaje de calidad y la
                   ausencia de firma OpenMetadata son reales: no se infieren.
                 </p>
