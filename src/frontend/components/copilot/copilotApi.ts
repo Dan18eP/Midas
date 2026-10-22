@@ -1,4 +1,6 @@
 import type { CopilotChatResponse, EChartsOption } from './types';
+import { parseChartOption } from './chartOptions';
+import { getActiveUserRole } from '@/services/securityRolesApi';
 
 const DEFAULT_API_BASE = 'http://localhost:8000';
 
@@ -22,27 +24,13 @@ export interface SendChatMessageInput {
   signal?: AbortSignal;
 }
 
-function parseOption(raw: unknown): EChartsOption | null {
-  if (!raw) return null;
-  if (typeof raw === 'object') return raw as EChartsOption;
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? (parsed as EChartsOption) : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
 function unpackResponse(raw: string): { text: string; option: EChartsOption | null } {
   const trimmed = (raw ?? '').trim();
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
       if (typeof parsed.narrative === 'string') {
-        return { text: parsed.narrative, option: parseOption(parsed.echarts_option) };
+        return { text: parsed.narrative, option: parseChartOption(parsed.echarts_option) };
       }
     } catch {
       return { text: raw, option: null };
@@ -59,7 +47,7 @@ export function normalizeChatResponse(payload: Partial<CopilotChatResponse>): Co
     response: unpacked.text,
     suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
     needs_clarification: Boolean(payload.needs_clarification),
-    echarts_option: parseOption(payload.echarts_option) ?? parseOption(payload.echarts_spec) ?? unpacked.option,
+    echarts_option: parseChartOption(payload.echarts_option) ?? parseChartOption(payload.echarts_spec) ?? unpacked.option,
     metrics_summary: Array.isArray(payload.metrics_summary) ? payload.metrics_summary : [],
     timestamp: payload.timestamp,
   };
@@ -72,8 +60,9 @@ export async function sendChatMessage(input: SendChatMessageInput): Promise<Copi
   let response: Response;
   try {
     const requestHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (input.userRole) {
-      requestHeaders['X-User-Role'] = input.userRole;
+    const effectiveRole = input.userRole || getActiveUserRole();
+    if (effectiveRole) {
+      requestHeaders['X-User-Role'] = effectiveRole;
     }
     response = await fetch(`${COPILOT_API_BASE}${COPILOT_CHAT_PATH}`, {
       method: 'POST',

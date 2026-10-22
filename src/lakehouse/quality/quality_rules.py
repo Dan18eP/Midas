@@ -115,45 +115,61 @@ def normalize_timestamp_utc(val: Any) -> str:
         else:
             dt = val.astimezone(timezone.utc)
     elif isinstance(val, (int, float)):
-        # Distinguir segundos de milisegundos (epochs modernos > 1e11 son en ms)
-        epoch_val = float(val)
-        if epoch_val > 1e11:
-            epoch_val = epoch_val / 1000.0
-        try:
-            dt = datetime.fromtimestamp(epoch_val, tz=timezone.utc)
-        except (ValueError, OverflowError, OSError) as exc:
-            raise ValueError(f"Timestamp epoch inválido: {val}") from exc
+        # Si es un año simple (1900-2100)
+        val_int = int(val)
+        if 1900 <= val_int <= 2100:
+            dt = datetime(val_int, 1, 1, tzinfo=timezone.utc)
+        else:
+            # Distinguir segundos de milisegundos (epochs modernos > 1e11 son en ms)
+            epoch_val = float(val)
+            if epoch_val > 1e11:
+                epoch_val = epoch_val / 1000.0
+            try:
+                dt = datetime.fromtimestamp(epoch_val, tz=timezone.utc)
+            except (ValueError, OverflowError, OSError) as exc:
+                raise ValueError(f"Timestamp epoch inválido: {val}") from exc
     elif isinstance(val, str):
         val_clean = val.strip()
         if not val_clean:
             raise ValueError("Cadena de fecha vacía")
 
-        # Intentar parseo directo ISO 8601
-        iso_candidate = val_clean.replace("Z", "+00:00")
-        try:
-            parsed = datetime.fromisoformat(iso_candidate)
-            if parsed.tzinfo is None:
-                dt = parsed.replace(tzinfo=timezone.utc)
-            else:
-                dt = parsed.astimezone(timezone.utc)
-        except ValueError:
-            # Probar formatos comunes alternativos
-            common_formats = [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y/%m/%d %H:%M:%S",
-                "%Y-%m-%d",
-                "%d/%m/%Y %H:%M:%S",
-                "%d-%m-%Y %H:%M:%S",
-                "%d/%m/%Y",
-                "%d-%m-%Y",
-            ]
-            for fmt in common_formats:
-                try:
-                    parsed = datetime.strptime(val_clean, fmt)
+        # Comprobar si es un año de 4 dígitos (ej: "2026")
+        if val_clean.isdigit() and len(val_clean) == 4:
+            year_int = int(val_clean)
+            if 1900 <= year_int <= 2100:
+                dt = datetime(year_int, 1, 1, tzinfo=timezone.utc)
+
+        if dt is None:
+            # Intentar parseo directo ISO 8601
+            iso_candidate = val_clean.replace("Z", "+00:00")
+            try:
+                parsed = datetime.fromisoformat(iso_candidate)
+                if parsed.tzinfo is None:
                     dt = parsed.replace(tzinfo=timezone.utc)
-                    break
-                except ValueError:
-                    continue
+                else:
+                    dt = parsed.astimezone(timezone.utc)
+            except ValueError:
+                # Probar formatos comunes alternativos
+                common_formats = [
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y/%m/%d %H:%M:%S",
+                    "%Y-%m-%d",
+                    "%d/%m/%Y %H:%M:%S",
+                    "%d-%m-%Y %H:%M:%S",
+                    "%d/%m/%Y",
+                    "%d-%m-%Y",
+                    "%m/%d/%Y",
+                    "%Y-%m",
+                    "%Y/%m",
+                    "%Y",
+                ]
+                for fmt in common_formats:
+                    try:
+                        parsed = datetime.strptime(val_clean, fmt)
+                        dt = parsed.replace(tzinfo=timezone.utc)
+                        break
+                    except ValueError:
+                        continue
 
     if dt is None:
         raise ValueError(f"Formato de fecha no reconocido o no parseable: {val}")

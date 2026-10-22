@@ -22,15 +22,23 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspect
     setExecutionResult(null);
     try {
       const rawId = selectedNode.id;
-      const details = selectedNode.details as Record<string, any> | undefined;
-      const explicitConnId = (details?.connectionId || details?.connection_id || (selectedNode as any).connectionId) as string | undefined;
-      let connId = explicitConnId;
+const details = selectedNode.details as Record<string, any> | undefined;
+      let connId =
+        details?.connectionId ||
+        details?.connection_id ||
+        (selectedNode as any).connectionId;
       if (!connId) {
-        if (rawId === 'source_postgres') connId = 'conn_pg_crm_default';
-        else if (rawId === 'source_excel') connId = 'conn_excel_budget_default';
-        else if (rawId === 'source_api') connId = 'conn_rest_crm_default';
-        else if (rawId.startsWith('source_')) connId = rawId.replace('source_', '');
-        else connId = rawId;
+        if (rawId.startsWith('conn_')) {
+          connId = rawId;
+        } else if (rawId.includes('excel') || selectedNode.subType === 'excel') {
+          connId = 'conn_excel_budget_default';
+        } else if (rawId.includes('postgres') || selectedNode.subType === 'postgresql') {
+          connId = 'conn_pg_crm_default';
+        } else if (rawId.includes('rest') || rawId.includes('api') || selectedNode.subType === 'api') {
+          connId = 'conn_rest_crm_default';
+        } else {
+          connId = rawId.startsWith('source_') ? rawId.replace('source_', '') : rawId;
+        }
       }
       const res = await triggerPipeline(connId);
       setExecutionResult(`Procesado (${res.status}): ${res.records_cleaned} limpios, ${res.records_quarantined} en cuarentena.`);

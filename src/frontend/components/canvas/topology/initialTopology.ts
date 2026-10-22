@@ -9,6 +9,7 @@ export const INITIAL_CANVAS_NODES: Node<MidasNodeData>[] = [
     position: { x: 40, y: 60 },
     data: {
       id: 'source_postgres',
+      connectionId: 'conn_pg_crm_default',
       label: 'PostgreSQL CRM/ERP',
       description: 'Base de datos relacional operacional con transacciones de pedidos.',
       nodeType: 'source',
@@ -33,6 +34,7 @@ export const INITIAL_CANVAS_NODES: Node<MidasNodeData>[] = [
     position: { x: 40, y: 240 },
     data: {
       id: 'source_excel',
+      connectionId: 'conn_excel_budget_default',
       label: 'Excel Metas Presupuesto',
       description: 'Archivos .xlsx multi-hoja con metas comerciales y presupuestos regionales.',
       nodeType: 'source',
@@ -56,6 +58,7 @@ export const INITIAL_CANVAS_NODES: Node<MidasNodeData>[] = [
     position: { x: 40, y: 420 },
     data: {
       id: 'source_api',
+      connectionId: 'conn_rest_crm_default',
       label: 'API REST Webhooks',
       description: 'Ingesta continua de eventos de pasarela de pago y logística.',
       nodeType: 'source',

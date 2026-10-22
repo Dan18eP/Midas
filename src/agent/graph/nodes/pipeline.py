@@ -78,10 +78,17 @@ def make_analytic_nodes(
                 response += "\n\n> **Gobernanza Activa:** Cifra filtrada bajo políticas de Apache Ranger (RLS) para el alcance asignado."
             elif role in ("analista_externo", "compliance_auditor", "auditor"):
                 response += "\n\n> **Gobernanza Activa:** Columnas identificadas con datos sensibles (PII) fueron enmascaradas bajo la directiva de privacidad."
+
+        suggestions = [
+            "Definir dimensiones y métricas para convertir este reporte en tabla Gold",
+            "Modificar filtros o agrupaciones de la consulta",
+            "Consultar fuentes y tablas conectadas",
+        ]
         return {
             "response": response,
             "messages": [AIMessage(content=response)],
             "storytelling_result": result,
+            "suggestions": suggestions,
         }
 
     return generate, validate, execute, synthesize

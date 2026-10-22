@@ -153,3 +153,14 @@ def test_missing_catalog_stops_before_sql_generation():
 
     assert "catálogo de Trino no está disponible" in result["response"]
     assert called is False
+
+
+def test_discovery_intent_for_metadata_questions():
+    """Valida que preguntas exploratorias como 'de qué son los datos' se clasifiquen como discovery y respondan con fuentes."""
+    graph = build_graph(InMemorySaver())
+    for phrase in ["de qué son los datos", "de que son los datos", "qué datos tienes", "cuáles son los datos", "de qué tratan"]:
+        result = invoke_turn(graph, f"session-{phrase[:10]}", phrase)
+        assert result["intent"] == "discovery"
+        assert ("fuentes analíticas" in result["response"] or "fuentes" in result["response"])
+        assert len(result["suggestions"]) == 3
+

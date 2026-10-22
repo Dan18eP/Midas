@@ -1,4 +1,4 @@
-﻿"""Prepara preguntas y sugerencias para guiar al usuario."""
+"""Prepara preguntas y sugerencias para guiar al usuario."""
 
 from collections.abc import Callable
 from typing import Any
@@ -16,25 +16,41 @@ DEMO_SOURCES = [
 
 
 def _generate_suggestions(sources: list[dict[str, Any]]) -> list[str]:
-    """Genera sugerencias dinámicas basadas en las fuentes conectadas."""
+    """Genera sugerencias dinámicas basadas en los datos reales de las fuentes conectadas."""
     if not sources:
-        return []
+        return [
+            "Consultar fuentes y tablas conectadas",
+            "Definir dimensiones y métricas para reporte",
+            "Personalizar tabla Gold",
+        ]
     suggestions = []
     for source in sources:
-        name = source.get("name", "")
+        s_name = source.get("name", "Datos")
         tables = source.get("tables", [])
-        table_names = [t.get("table", t) if isinstance(t, dict) else t for t in tables]
-        if any("transac" in str(t).lower() or "venta" in str(t).lower() for t in table_names):
-            suggestions.append(f"Explorar transacciones y ventas de {name}.")
-        elif any("presupuesto" in str(t).lower() or "meta" in str(t).lower() for t in table_names):
-            suggestions.append(f"Comparar ingresos reales con metas de {name}.")
-        elif any("ticket" in str(t).lower() or "soporte" in str(t).lower() for t in table_names):
-            suggestions.append(f"Revisar tiempos de respuesta y satisfacción de {name}.")
-        elif any("cliente" in str(t).lower() for t in table_names):
-            suggestions.append(f"Analizar segmentación de clientes en {name}.")
-        else:
-            suggestions.append(f"Explorar datos de {name}.")
-    return suggestions[:3]
+        for t in tables:
+            t_name = t.get("table") or t.get("name") if isinstance(t, dict) else str(t)
+            cols = t.get("columns", []) if isinstance(t, dict) else []
+
+            # Identificar columnas numéricas y categóricas reales
+            num_cols = [c for c in cols if any(k in str(c).lower() for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "horas", "unitprice", "quantity", "stock", "neto"))]
+            cat_cols = [c for c in cols if any(k in str(c).lower() for k in ("region", "ciudad", "área", "area", "proveedor", "producto", "categoria", "supplier", "warehouse", "cliente", "canal", "name"))]
+
+            if num_cols and cat_cols:
+                suggestions.append(f"Consultar {num_cols[0]} por {cat_cols[0]} en {s_name}")
+            elif cat_cols:
+                suggestions.append(f"Ver resumen por {cat_cols[0]} en {s_name}")
+            elif num_cols:
+                suggestions.append(f"Calcular total de {num_cols[0]} en {s_name}")
+            elif t_name:
+                clean_t = str(t_name).split(".")[-1]
+                suggestions.append(f"Explorar registros de {clean_t}")
+
+    # Ofrecer al usuario definir su tabla Gold personalizada
+    suggestions.append("Definir dimensiones y métricas para tabla Gold personalizada")
+
+    seen = set()
+    unique = [s for s in suggestions if not (s in seen or seen.add(s))]
+    return unique[:4]
 
 
 def make_introspector(
@@ -74,15 +90,32 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
     suggestions = _generate_suggestions(sources)
 
     if state.get("intent") == "discovery":
-        source_lines = [
-            f"- {source.get('kind', 'Fuente')}: {source.get('name', '')}"
-            for source in sources
-        ]
-        response = "Puedo ayudarte a explorar estas fuentes:\n"
-        response += "\n".join(source_lines)
+        source_lines = []
+        for source in sources:
+            name = source.get("name", "")
+            kind = source.get("kind", "Fuente")
+            tables = source.get("tables", [])
+            tbl_strs = []
+            for t in tables:
+                if isinstance(t, dict):
+                    tbl_name = t.get("table") or t.get("name")
+                    if tbl_name:
+                        tbl_strs.append(str(tbl_name))
+                elif isinstance(t, str):
+                    tbl_strs.append(t)
+            if tbl_strs:
+                source_lines.append(f"- **{kind}** (`{name}`): {', '.join(tbl_strs[:3])}")
+            else:
+                source_lines.append(f"- **{kind}**: `{name}`")
+
+        response = (
+            "Estas son las fuentes y conjuntos de datos reales conectados en tu sesión:\n\n"
+            + "\n".join(source_lines)
+            + "\n\n¿Qué dimensiones y métricas te gustaría explorar? "
+            "Tú tienes el control total para decidir qué analizar o qué consolidar en tu capa Gold:\n"
+        )
         if suggestions:
-            response += "\n\n¿Con cuál empezamos? También puedes elegir:\n"
-            response += "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
+            response += "\n" + "\n".join(f"{index}. {item}" for index, item in enumerate(suggestions, 1))
         return {
             "suggestions": suggestions,
             "response": response,

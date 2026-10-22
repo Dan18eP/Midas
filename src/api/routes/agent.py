@@ -80,6 +80,50 @@ def get_agent_graph() -> Any:
                 return res.data
 
             def live_catalog_source_provider() -> List[Dict[str, Any]]:
+                grouped_sources: Dict[str, Dict[str, Any]] = {}
+
+                # 1. Recuperar conexiones reales registradas por el usuario en PostgreSQL
+                try:
+                    pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("OPERATIONAL_DB_URL") or os.getenv("DATABASE_URL")
+                    if pg_url and "postgresql" in pg_url:
+                        from sqlalchemy import create_engine, text
+                        engine = create_engine(pg_url)
+                        with engine.connect() as conn:
+                            rows = conn.execute(text("SELECT connection_id, name, source_type, config_payload FROM source_connections WHERE status = 'ACTIVE'")).fetchall()
+                            for r in rows:
+                                cid, cname, stype, cfg = r[0], r[1], r[2], r[3]
+                                if isinstance(cfg, str):
+                                    try:
+                                        cfg = json.loads(cfg)
+                                    except Exception:
+                                        cfg = {}
+                                cfg = cfg or {}
+                                detected = cfg.get("detected_columns") or []
+                                sheets = cfg.get("sheets") or []
+                                clean_cid = re.sub(r"[^a-z0-9_]", "_", cid.lower()).strip("_")
+                                clean_suffix = clean_cid.replace("conn_", "")
+                                tables = []
+                                if detected:
+                                    tables.append({"table": f"silver.clean_{clean_suffix}", "columns": detected})
+                                elif stype == "POSTGRES":
+                                    tables.append({"table": "silver.crm_transacciones", "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta", "estado"]})
+                                    tables.append({"table": "silver.crm_clientes", "columns": ["cliente_id", "nombre", "email", "telefono", "region", "categoria_segmento"]})
+                                elif sheets:
+                                    for sh in sheets:
+                                        tables.append({"table": f"silver.{str(sh).lower()}", "columns": ["año", "mes", "region", "monto"]})
+                                if not tables:
+                                    tables.append({"table": f"silver.{clean_suffix}", "columns": ["id", "nombre", "monto"]})
+
+                                grouped_sources[cname] = {
+                                    "connection_id": cid,
+                                    "name": cname,
+                                    "kind": stype,
+                                    "tables": tables,
+                                }
+                except Exception as pg_exc:
+                    logger.debug("No se pudieron cargar conexiones activas de PostgreSQL: %s", pg_exc)
+
+                # 2. Consultar el catalogo de Trino (Iceberg y tablas sincronizadas)
                 try:
                     query = (
                         "SELECT table_schema, table_name, column_name "
@@ -103,42 +147,28 @@ def get_agent_graph() -> Any:
                             if col and col not in schema_tables[sch][tbl]:
                                 schema_tables[sch][tbl].append(col)
 
-                        if schema_tables:
-                            grouped_sources: Dict[str, Dict[str, Any]] = {}
-                            for sch, tables_dict in schema_tables.items():
-                                for tbl, cols in tables_dict.items():
-                                    t_full = f"{sch}.{tbl}"
-                                    if "crm_" in tbl:
-                                        s_name = "crm_operaciones"
-                                        s_kind = "PostgreSQL"
-                                    elif "presupuesto" in tbl or "costo" in tbl:
-                                        s_name = "Presupuesto_Corporativo_2026.xlsx"
-                                        s_kind = "Excel"
-                                    elif "ticket" in tbl or "helpdesk" in tbl or "support" in tbl:
-                                        s_name = "helpdesk_tickets_live"
-                                        s_kind = "API REST"
-                                    elif "fact_" in tbl or "fct_" in tbl or "dim_" in tbl or sch == "gold":
-                                        s_name = "gold_marts"
-                                        s_kind = "Iceberg"
-                                    else:
-                                        s_name = f"dataset_{tbl}"
-                                        s_kind = "Iceberg" if sch in ("silver", "gold") else "PostgreSQL"
-
-                                    if s_name not in grouped_sources:
-                                        grouped_sources[s_name] = {"name": s_name, "kind": s_kind, "tables": []}
+                        for sch, tables_dict in schema_tables.items():
+                            for tbl, cols in tables_dict.items():
+                                t_full = f"{sch}.{tbl}"
+                                s_name = "Capa Gold (Marts)" if sch == "gold" else ("Capa Silver" if sch == "silver" else "PostgreSQL Operacional")
+                                s_kind = "Iceberg" if sch in ("silver", "gold") else "PostgreSQL"
+                                if s_name not in grouped_sources:
+                                    grouped_sources[s_name] = {"name": s_name, "kind": s_kind, "tables": []}
+                                # Agregar tabla si no existe ya
+                                existing_tables = [t.get("table") if isinstance(t, dict) else t for t in grouped_sources[s_name]["tables"]]
+                                if t_full not in existing_tables:
                                     grouped_sources[s_name]["tables"].append({"table": t_full, "columns": cols})
-
-                            return list(grouped_sources.values())
                 except Exception as exc:
-                    logger.debug("No se pudo consultar information_schema de Trino: %s. Usando catalogo referencial canonico.", exc)
+                    logger.debug("No se pudo consultar information_schema de Trino: %s.", exc)
+
+                if grouped_sources:
+                    return list(grouped_sources.values())
 
                 return [
                     {
                         "name": "crm_operaciones",
                         "kind": "PostgreSQL",
                         "tables": [
-                            "clientes",
-                            "transacciones",
                             {
                                 "table": "silver.crm_transacciones",
                                 "columns": ["id", "transaccion_id", "cliente_id", "monto", "fecha", "fecha_orden", "region", "canal_venta", "estado"],
@@ -146,38 +176,6 @@ def get_agent_graph() -> Any:
                             {
                                 "table": "silver.crm_clientes",
                                 "columns": ["cliente_id", "nombre", "email", "telefono", "region", "categoria_segmento"],
-                            },
-                        ],
-                    },
-                    {
-                        "name": "Presupuesto_Corporativo_2026.xlsx",
-                        "kind": "Excel",
-                        "tables": [
-                            "Presupuesto_Metas",
-                            "Costos_Operativos",
-                            {
-                                "table": "silver.presupuesto_metas",
-                                "columns": ["meta_id", "region", "canal_venta", "meta_ingreso_presupuestada", "año", "mes"],
-                            },
-                            {
-                                "table": "silver.costos_operativos",
-                                "columns": ["costo_id", "region", "canal_venta", "costo_operativo_fijo", "año", "mes"],
-                            },
-                        ],
-                    },
-                    {
-                        "name": "helpdesk_tickets_live",
-                        "kind": "API REST",
-                        "tables": [
-                            "tickets",
-                            "satisfacción CSAT",
-                            {
-                                "table": "silver.helpdesk_tickets",
-                                "columns": ["ticket_id", "cliente_id", "tiempo_respuesta_min", "csat_puntuacion", "fecha"],
-                            },
-                            {
-                                "table": "silver.support_tickets",
-                                "columns": ["ticket_id", "satisfaccion_csat", "tiempo_respuesta"],
                             },
                         ],
                     },
@@ -261,24 +259,87 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
             previous_state = snapshot.values if snapshot else {}
             sql = previous_state.get("sql")
             schemas = previous_state.get("schemas", [])
+
+            # Recuperar SQL previo desde los metadatos de la sesion si el snapshot en memoria no lo tiene
+            if not sql:
+                try:
+                    from src.core.session.store import get_session_store
+                    s_store = get_session_store()
+                    msgs = s_store.get_messages(thread_id)
+                    for m in reversed(msgs):
+                        meta = m.get("metadata") or {}
+                        if isinstance(meta, dict) and meta.get("sql"):
+                            sql = meta.get("sql")
+                            break
+                except Exception:
+                    pass
+
+            if not schemas:
+                try:
+                    schemas = [
+                        {"table": t.get("table", ""), "columns": t.get("columns", [])}
+                        for s in live_catalog_source_provider()
+                        for t in s.get("tables", [])
+                        if isinstance(t, dict) and t.get("columns")
+                    ]
+                except Exception:
+                    schemas = []
+
             if not sql or not schemas:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Run a validated report in this chat before confirming Gold materialization.",
+                confirmation_msg = (
+                    "Para materializar tu tabla Gold, **tú decides la definición exacta** de los datos a consolidar. "
+                    "Por favor indícame:\n\n"
+                    "1. **Fuente de datos:** ¿Cuál de tus fuentes conectadas deseas usar?\n"
+                    "2. **Dimensiones:** ¿Por qué campo o categoría deseas agrupar?\n"
+                    "3. **Métricas:** ¿Qué cálculo numérico deseas totalizar (suma, promedio, conteo)?\n\n"
+                    "Formula tu consulta analítica primero (ej: *'ventas totales por region en 2026'* o *'total compras por proveedor'*) "
+                    "y tras ver los resultados, la convertiremos de inmediato en tu contrato Gold gobernado en Airflow."
+                )
+                try:
+                    from src.core.session.store import get_session_store
+                    s_store = get_session_store()
+                    if not s_store.get_session(thread_id):
+                        s_store.create_session(session_id=thread_id, title="Definición Capa Gold")
+                    s_store.add_message(session_id=thread_id, sender="user", content=user_message)
+                    s_store.add_message(
+                        session_id=thread_id,
+                        sender="assistant",
+                        content=confirmation_msg,
+                        metadata={"intent": "materialize_gold", "awaiting_user_definition": True},
+                    )
+                except Exception as store_err:
+                    logger.warning("Could not persist gold definition prompt to session store: %s", store_err)
+
+                return ChatResponse(
+                    thread_id=thread_id,
+                    intent="materialize_gold",
+                    response=confirmation_msg,
+                    suggestions=[
+                        "Ver fuentes conectadas para elegir dimensiones",
+                        "Consultar ventas por región",
+                    ],
+                    needs_clarification=False,
                 )
 
             from src.agent.tools.dag_generator import build_pipeline_spec, publish_pipeline_spec
 
             spec = build_pipeline_spec(
-                previous_state.get("user_message", "Gold report"),
+                previous_state.get("user_message", "Reporte Analitico Gold"),
                 sql,
                 schemas,
             )
-            spec_uri = publish_pipeline_spec(spec, confirmed=True)
-            confirmation_msg = f"Gold pipeline **{spec.pipeline_id}** is scheduled daily. Contract: `{spec_uri}`."
+            spec_uri = publish_pipeline_spec(spec, confirmed=True, session_id=thread_id)
+            confirmation_msg = (
+                f"Capa Gold generada exitosamente. El pipeline **{spec.pipeline_id}** ha sido programado en Airflow.\n\n"
+                f"- **Tabla de salida:** `{spec.output_table}`\n"
+                f"- **Contrato gobernado:** `{spec_uri}`\n"
+                f"- **Subcarpeta de sesión:** `s3://midas-governance/airflow-specs/{thread_id}/`"
+            )
             try:
                 from src.core.session.store import get_session_store
                 s_store = get_session_store()
+                if not s_store.get_session(thread_id):
+                    s_store.create_session(session_id=thread_id, title="Materialización Gold")
                 s_store.add_message(session_id=thread_id, sender="user", content=user_message)
                 s_store.add_message(
                     session_id=thread_id,
@@ -338,6 +399,8 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
     try:
         from src.core.session.store import get_session_store
         session_store = get_session_store()
+        if not session_store.get_session(thread_id):
+            session_store.create_session(session_id=thread_id, title="Conversación con Copiloto")
         session_store.add_message(session_id=thread_id, sender="user", content=user_message)
         session_metadata = {
             "intent": intent,
@@ -399,6 +462,32 @@ async def materialize_gold_pipeline(payload: MaterializeRequest) -> MaterializeR
 
 
 def _is_gold_materialization_confirmation(message: str) -> bool:
-    """Match the confirmation text sent by the frontend approval card."""
+    """Match the confirmation text sent by the frontend approval card or user prompts."""
     normalized = re.sub(r"[.!?\s]+", " ", message.casefold()).strip()
-    return normalized == GOLD_MATERIALIZATION_CONFIRMATION
+    if normalized == GOLD_MATERIALIZATION_CONFIRMATION:
+        return True
+    triggers = (
+        "materializa este reporte",
+        "materializar este reporte",
+        "materializa tabla gold",
+        "materializar tabla gold",
+        "crear tabla gold",
+        "crea tabla gold",
+        "construir gold mart",
+        "construye gold mart",
+        "construir tabla gold",
+        "materializar gold mart",
+        "materializa gold mart",
+        "guardar como tabla gold",
+        "guarda como tabla gold",
+        "programar tabla gold",
+        "programa tabla gold",
+        "crear capa gold",
+        "materializar capa gold",
+        "construir capa gold",
+        "elaboracion de la capa gold",
+        "elaboración de la capa gold",
+        "generar capa gold",
+        "generar gold mart",
+    )
+    return any(t in normalized for t in triggers)
