@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { MidasNodeData, MidasNodeSubtype, MidasNodeType } from '@/types/canvas';
-import { TelemetryEventPayload } from '@/types/telemetry';
+import { TelemetryEventPayload, extractTelemetryRate } from '@/types/telemetry';
 import { useTelemetryStream } from '@/hooks/useTelemetryStream';
 import { useTimeTravel } from '@/hooks/useTimeTravel';
 import { TimeTravelScrubber } from './TimeTravelScrubber';
@@ -140,6 +140,7 @@ export interface PipelineCanvasProps {
   initialNodes?: Node<MidasNodeData>[];
   initialEdges?: Edge[];
   onNodeSelect?: (nodeData: MidasNodeData | null) => void;
+  onTopologyChange?: (nodes: Node<MidasNodeData>[], edges: Edge[]) => void;
   className?: string;
   securityRole?: ZeroTrustRole;
   /**
@@ -158,32 +159,11 @@ export interface PipelineCanvasProps {
   onSnapshotChange?: (snapshot: PipelineSnapshot | null) => void;
 }
 
-function extractRate(event: TelemetryEventPayload): number {
-  const details = event.details;
-  if (details) {
-    if (typeof details.throughput_rps === 'number' && details.throughput_rps >= 0) {
-      return details.throughput_rps;
-    }
-    if (typeof details.records_per_second === 'number' && details.records_per_second >= 0) {
-      return details.records_per_second;
-    }
-    if (typeof details.spark_rps === 'number' && details.spark_rps >= 0) {
-      return details.spark_rps;
-    }
-    if (typeof details.airflow_rps === 'number' && details.airflow_rps >= 0) {
-      return details.airflow_rps;
-    }
-  }
-  if (event.latency_ms > 0 && event.records_out > 0) {
-    return Math.round((event.records_out / event.latency_ms) * 1000);
-  }
-  return event.records_out;
-}
-
 export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   initialNodes = INITIAL_CANVAS_NODES,
   initialEdges = INITIAL_CANVAS_EDGES,
   onNodeSelect,
+  onTopologyChange,
   className = '',
   securityRole = 'admin',
   securityPolicy = null,
@@ -417,7 +397,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         if (edge.id === 'edge_postgres_bronze' && latestEventsByNode.has('source_postgres')) {
           matched = true;
           const evt = latestEventsByNode.get('source_postgres')!;
-          const rate = extractRate(evt);
+          const rate = extractTelemetryRate(evt);
           updatedEdge = {
             ...edge,
             data: {
@@ -433,7 +413,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         if (edge.id === 'edge_excel_bronze' && latestEventsByNode.has('source_excel')) {
           matched = true;
           const evt = latestEventsByNode.get('source_excel')!;
-          const rate = extractRate(evt);
+          const rate = extractTelemetryRate(evt);
           updatedEdge = {
             ...edge,
             data: {
@@ -449,7 +429,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         if (edge.id === 'edge_api_bronze' && latestEventsByNode.has('source_api')) {
           matched = true;
           const evt = latestEventsByNode.get('source_api')!;
-          const rate = extractRate(evt);
+          const rate = extractTelemetryRate(evt);
           updatedEdge = {
             ...edge,
             data: {
@@ -469,7 +449,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           matched = true;
           const evt =
             latestEventsByNode.get('silver_cleansing') || latestEventsByNode.get('bronze_raw')!;
-          const rate = extractRate(evt);
+          const rate = extractTelemetryRate(evt);
           updatedEdge = {
             ...edge,
             data: {
@@ -489,7 +469,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           matched = true;
           const evt =
             latestEventsByNode.get('gold_marts') || latestEventsByNode.get('silver_cleansing')!;
-          const rate = extractRate(evt);
+          const rate = extractTelemetryRate(evt);
           updatedEdge = {
             ...edge,
             data: {
@@ -532,7 +512,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           const evt =
             latestEventsByNode.get(edge.target) ?? latestEventsByNode.get(edge.source);
           if (evt) {
-            const rate = extractRate(evt);
+            const rate = extractTelemetryRate(evt);
             updatedEdge = {
               ...edge,
               data: {
@@ -749,17 +729,26 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
   // Restablecer posiciones originales (conservando los nodos dinámicos recibidos)
   const handleResetLayout = useCallback(() => {
-    setNodes((currentNodes) => {
-      const dynamicNodes = currentNodes.filter((node) => !CANONICAL_NODE_IDS.has(node.id));
-      return [...INITIAL_CANVAS_NODES, ...dynamicNodes];
-    });
-    setEdges((currentEdges) => {
-      const canonicalEdgeIds = new Set(INITIAL_CANVAS_EDGES.map((edge) => edge.id));
-      const dynamicEdges = currentEdges.filter((edge) => !canonicalEdgeIds.has(edge.id));
-      return [...INITIAL_CANVAS_EDGES, ...dynamicEdges];
-    });
+    const dynamicNodes = nodes.filter((node) => !CANONICAL_NODE_IDS.has(node.id));
+    const nextNodes = [...INITIAL_CANVAS_NODES, ...dynamicNodes];
+    const canonicalEdgeIds = new Set(INITIAL_CANVAS_EDGES.map((edge) => edge.id));
+    const dynamicEdges = edges.filter((edge) => !canonicalEdgeIds.has(edge.id));
+    const nextEdges = [...INITIAL_CANVAS_EDGES, ...dynamicEdges];
+
+    setNodes(nextNodes);
+    setEdges(nextEdges);
     setSelectedNodeData(null);
-  }, [setNodes, setEdges]);
+
+    if (onTopologyChange) {
+      onTopologyChange(nextNodes, nextEdges);
+    }
+  }, [nodes, edges, setNodes, setEdges, onTopologyChange]);
+
+  const onNodeDragStop = useCallback(() => {
+    if (onTopologyChange) {
+      onTopologyChange(nodes, edges);
+    }
+  }, [nodes, edges, onTopologyChange]);
 
   // Contadores de salud de la topología
   const totalNodes = nodes.length;
@@ -836,6 +825,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
+        onNodeDragStop={onNodeDragStop}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         fitView

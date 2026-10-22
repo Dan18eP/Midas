@@ -106,9 +106,18 @@ function MidasConsoleWorkspace() {
     activeTopology,
     createAndSelectSession,
     setWorkspaceMode,
+    saveTopology,
+    fetchSessions,
   } = useSession();
 
   const copilotChat = useCopilotChatContext();
+
+  // HU-FRONT-07: Refrescar la lista de sesiones tras completar un turno de conversación
+  useEffect(() => {
+    copilotChat?.setOnTurnComplete?.(() => {
+      void fetchSessions();
+    });
+  }, [copilotChat, fetchSessions]);
 
   // Data-gating: verificar si hay fuentes de datos conectadas
   useEffect(() => {
@@ -268,6 +277,7 @@ function MidasConsoleWorkspace() {
                 securityPolicy={securityPolicy}
                 initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
                 initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
+                onTopologyChange={activeSessionId ? saveTopology : undefined}
               />
               )}
             </section>

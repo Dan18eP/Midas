@@ -42,6 +42,7 @@ export type MidasNodeSubtype =
 
 export interface MidasNodeData {
   id: string;
+  connectionId?: string;
   label: string;
   description: string;
   nodeType: MidasNodeType;
