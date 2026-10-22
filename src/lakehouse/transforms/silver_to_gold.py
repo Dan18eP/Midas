@@ -91,6 +91,17 @@ def round_decimal(val: Union[Decimal, float, int], places: int = 2) -> Decimal:
     return val.quantize(quantizer, rounding=ROUND_HALF_UP)
 
 
+def _safe_decimal(val: Any, default: Decimal = Decimal("0.00")) -> Decimal:
+    """Convierte de forma segura cualquier valor numérico o texto a Decimal."""
+    if val is None or val == "":
+        return default
+    try:
+        clean = str(val).strip().replace("$", "").replace(",", "")
+        return Decimal(clean)
+    except Exception:
+        return default
+
+
 class SilverToGoldTransformer:
     """
     Transformador dimensional y motor de cálculo de KPIs para la capa Gold de Midas.
@@ -175,6 +186,12 @@ class SilverToGoldTransformer:
         for r in records:
             estado = str(r.get("estado", "ENTREGADO")).upper().strip()
 
+            # Mapear estados de negocio completados a ENTREGADO
+            if estado in ("FINALIZADO", "COMPLETADO", "CERRADO", "ACTIVO", "EXITOSO"):
+                estado = "ENTREGADO"
+            elif estado in ("EN PROCESO", "EN_PROCESO", "PROCESANDO"):
+                estado = "EN_TRANSITO"
+
             # Excluir cancelaciones previas al despacho de los pedidos válidos
             if estado == "CANCELADO":
                 continue
@@ -190,28 +207,25 @@ class SilverToGoldTransformer:
                 pedido_id = str(r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id"))
 
             # Calcular Monto Bruto
-            if "cantidad" in r and "precio_unitario" in r:
-                cant = Decimal(str(r["cantidad"]))
-                precio = Decimal(str(r["precio_unitario"]))
+            if "cantidad" in r and "precio_unitario" in r and r.get("cantidad") is not None and r.get("precio_unitario") is not None:
+                cant = _safe_decimal(r["cantidad"], Decimal("1.00"))
+                precio = _safe_decimal(r["precio_unitario"], Decimal("0.00"))
                 bruto_item = cant * precio
             else:
-                bruto_item = Decimal(str(r.get("monto", 0.0)))
+                raw_monto = r.get("monto") if r.get("monto") is not None else (r.get("valor_servicio") or r.get("monto_bruto") or r.get("valor") or r.get("total") or 0.0)
+                bruto_item = _safe_decimal(raw_monto, Decimal("0.00"))
 
             # Calcular Descuento
-            desc_val = r.get("descuento", 0.0)
-            if isinstance(desc_val, (float, int, str, Decimal)):
-                desc_num = Decimal(str(desc_val))
-                # Si el descuento es porcentaje (ej. 0.10)
-                if Decimal("0.0") < desc_num <= Decimal("1.0"):
-                    descuento_item = bruto_item * desc_num
-                else:
-                    descuento_item = desc_num
+            desc_val = r.get("descuento") if r.get("descuento") is not None else 0.0
+            desc_num = _safe_decimal(desc_val, Decimal("0.00"))
+            if Decimal("0.0") < desc_num <= Decimal("1.0"):
+                descuento_item = bruto_item * desc_num
             else:
-                descuento_item = Decimal("0.00")
+                descuento_item = desc_num
 
             # Calcular Devoluciones
             devolucion_val = r.get("devolucion") or r.get("monto_devolucion") or 0.0
-            devolucion_item = Decimal(str(devolucion_val))
+            devolucion_item = _safe_decimal(devolucion_val, Decimal("0.00"))
             if estado == "DEVUELTO" and devolucion_item == Decimal("0.0"):
                 # Si está marcado como devuelto sin monto explícito, se asume el total neto
                 devolucion_item = bruto_item - descuento_item

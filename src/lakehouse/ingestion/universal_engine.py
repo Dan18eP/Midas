@@ -522,7 +522,7 @@ class UniversalIngestionEngine:
             endpoint = source_config.get("endpoint") or ""
             if base_url:
                 try:
-                    connector = RestApiSourceConnector(base_url=base_url, source_name=cid)
+                    connector = RestApiSourceConnector(base_url=base_url)
                     return self.ingest_from_rest(connector, endpoint=endpoint, batch_id=bid, connection_id=cid, persist=persist)
                 except Exception as exc:
                     logger.warning("No se pudo conectar a REST API (%s): %s. Generando lote sintetico.", base_url, exc)

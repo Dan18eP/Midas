@@ -51,14 +51,14 @@ def generate_session_title(first_user_message: str) -> str:
             "de la consulta del usuario. "
             "Responde únicamente con el título, sin comillas, sin explicaciones y sin signos ortográficos."
         )
-        raw_title = router._call_ollama(system_prompt=system_prompt, question=clean_message)
+        raw_title = router(system_prompt=system_prompt, question=clean_message)
         if raw_title:
             cleaned = _PUNCTUATION_REGEX.sub(" ", raw_title).strip()
             words = cleaned.split()
             if 2 <= len(words) <= 7:
                 return " ".join(words[:5]).capitalize()[:60]
     except Exception as exc:
-        logger.debug("Ollama no disponible para titulación rápida, usando fallback heurístico: %s", exc)
+        logger.debug("LLM no disponible para titulacion rapida, usando fallback heuristico: %s", exc)
 
     # 2. Fallback heurístico determinístico
     return _heuristic_title_fallback(clean_message)

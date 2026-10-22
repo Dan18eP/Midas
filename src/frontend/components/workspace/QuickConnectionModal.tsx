@@ -154,6 +154,7 @@ export function QuickConnectionModal({
         data: {
           id: nodeId,
           connectionId: effectiveConnectionId,
+          connection_id: effectiveConnectionId,
           label: sourceName,
           description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze`,
           nodeType: 'source',
@@ -172,6 +173,7 @@ export function QuickConnectionModal({
           lastUpdated: new Date().toISOString(),
           details: {
             connectionId: effectiveConnectionId,
+            connection_id: effectiveConnectionId,
             engine:
               selectedType === 'excel'
                 ? 'Apache POI / openpyxl'

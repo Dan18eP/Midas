@@ -361,6 +361,9 @@ services:
       RANGER_URL: ${RANGER_URL:-http://midas-ranger:6080}
       RANGER_LOCAL_ENFORCEMENT: ${RANGER_LOCAL_ENFORCEMENT:-true}
       RANGER_TRINO_PLUGIN_ENABLED: ${RANGER_TRINO_PLUGIN_ENABLED:-false}
+      # Motor LLM Gemini para analitica avanzada, graficos y Gold Marts
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -459,7 +462,7 @@ services:
     container_name: midas-ollama
     mem_limit: 2048m
     restart: unless-stopped
-    profiles: ["ai", "full"]
+    profiles: ["ollama-optional"]
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:

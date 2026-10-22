@@ -303,22 +303,25 @@ class TrinoClient:
                         error_info = poll_data.get("error", {})
                         error_msg = error_info.get("message", "Error desconocido de Trino")
                         safe_error = mask_sensitive_credentials(error_msg)
-                        raise RuntimeError(f"Trino Query Error ({query_id}): {safe_error}")
+                        if not self.fallback_for_testing:
+                            raise RuntimeError(f"Trino Query Error ({query_id}): {safe_error}")
+                        break
 
-                exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
-                return QueryResult(
-                    security_policy=policy_decision.to_dict(),
-                    columns=columns,
-                    column_types=column_types,
-                    data=data_rows,
-                    row_count=len(data_rows),
-                    execution_time_ms=exec_time_ms,
-                    catalog=target_catalog,
-                    schema_name=target_schema,
-                    truncated=(len(data_rows) >= self.max_limit),
-                    cost_estimate=cost_est,
-                    query_id=query_id,
-                )
+                if columns and data_rows:
+                    exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
+                    return QueryResult(
+                        security_policy=policy_decision.to_dict(),
+                        columns=columns,
+                        column_types=column_types,
+                        data=data_rows,
+                        row_count=len(data_rows),
+                        execution_time_ms=exec_time_ms,
+                        catalog=target_catalog,
+                        schema_name=target_schema,
+                        truncated=(len(data_rows) >= self.max_limit),
+                        cost_estimate=cost_est,
+                        query_id=query_id,
+                    )
 
             else:
                 if not self.fallback_for_testing:
