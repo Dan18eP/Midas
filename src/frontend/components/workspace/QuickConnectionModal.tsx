@@ -122,7 +122,8 @@ export function QuickConnectionModal({
     setError(null);
     try {
       const type = selectedType === 'excel' ? 'EXCEL' : 'CSV';
-      const result = await uploadDataFile(file, file.name.replace(/\.[^/.]+$/, ''), type);
+      const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || file.name || 'fuente_datos';
+      const result = await uploadDataFile(file, baseName, type);
       setUploadResult(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error al subir el archivo.';
@@ -132,11 +133,48 @@ export function QuickConnectionModal({
     }
   };
 
-  const handleConfirmAddToCanvas = async () => {
+  const handleConfirmAddToCanvas = async (registeredConnectionId?: string) => {
     try {
       const sourceName =
         uploadResult?.name || restName || dbName || (file ? file.name : 'Nueva Fuente');
-      const nodeId = `source_${Date.now()}`;
+
+      let actualConnId = registeredConnectionId || uploadResult?.connection_id;
+      if (!actualConnId) {
+        if ((selectedType === 'excel' || selectedType === 'csv') && file) {
+          const type = selectedType === 'excel' ? 'EXCEL' : 'CSV';
+          const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || file.name || 'fuente_datos';
+          const upRes = await uploadDataFile(file, baseName, type);
+          setUploadResult(upRes);
+          actualConnId = upRes.connection_id;
+        } else if (selectedType === 'rest') {
+          const regRes = await registerConnection({
+            name: restName || 'API REST Webhooks',
+            source_type: 'REST',
+            config_payload: {
+              endpoint_url: restUrl,
+              auth_type: restToken ? 'BEARER' : 'NONE',
+              headers: restToken ? { Authorization: `Bearer ${restToken}` } : {},
+            },
+          });
+          actualConnId = (regRes as any)?.connection_id;
+        } else if (selectedType === 'database') {
+          const regRes = await registerConnection({
+            name: dbName || 'Base Relacional',
+            source_type: dbEngine as any,
+            config_payload: {
+              host: dbHost,
+              port: Number(dbPort) || 5432,
+              database: dbDatabase,
+              username: dbUser,
+              password: dbPassword,
+            },
+          });
+          actualConnId = (regRes as any)?.connection_id;
+        }
+      }
+
+      const connectionId = actualConnId || `conn_${selectedType}_${Date.now()}`;
+      const nodeId = `source_${connectionId}`;
 
       const newNode: Node<MidasNodeData> = {
         id: nodeId,
@@ -144,6 +182,7 @@ export function QuickConnectionModal({
         position: { x: 80, y: 150 },
         data: {
           id: nodeId,
+          connectionId: connectionId,
           label: sourceName,
           description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze`,
           nodeType: 'source',
@@ -161,6 +200,7 @@ export function QuickConnectionModal({
           latencyMs: 14,
           lastUpdated: new Date().toISOString(),
           details: {
+            connectionId: connectionId,
             engine:
               selectedType === 'excel'
                 ? 'Apache POI / openpyxl'
@@ -251,25 +291,27 @@ export function QuickConnectionModal({
     setIsUploading(true);
     setError(null);
     try {
+      let createdConnId: string | undefined;
       if (selectedType === 'rest') {
         if (!restName || !restUrl) {
           setError('Nombre y URL del endpoint son requeridos.');
           setIsUploading(false);
           return;
         }
-        await registerConnection({
+        const regRes = await registerConnection({
           name: restName,
-          source_type: 'REST_API',
+          source_type: 'REST',
           url: restUrl,
           headers: restToken ? { Authorization: `Bearer ${restToken}` } : {},
         });
+        createdConnId = (regRes as { connection_id?: string })?.connection_id;
       } else if (selectedType === 'database') {
         if (!dbName || !dbDatabase || !dbUser) {
           setError('Nombre, Base de datos y Usuario son obligatorios.');
           setIsUploading(false);
           return;
         }
-        await registerConnection({
+        const regRes = await registerConnection({
           name: dbName,
           source_type: dbEngine,
           host: dbHost,
@@ -278,9 +320,10 @@ export function QuickConnectionModal({
           username: dbUser,
           password: dbPassword,
         });
+        createdConnId = (regRes as { connection_id?: string })?.connection_id;
       }
 
-      await handleConfirmAddToCanvas();
+      await handleConfirmAddToCanvas(createdConnId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error al registrar conexión.';
       setError(msg);
@@ -705,7 +748,7 @@ export function QuickConnectionModal({
             {uploadResult || selectedType === 'rest' || selectedType === 'database' ? (
               <button
                 type="button"
-                onClick={uploadResult ? handleConfirmAddToCanvas : handleRegisterGeneric}
+                onClick={uploadResult ? () => handleConfirmAddToCanvas() : handleRegisterGeneric}
                 disabled={isUploading || isTesting}
                 className="flex items-center gap-2 rounded-lg bg-[#D4AF37] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B8860B] active:scale-95 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
               >

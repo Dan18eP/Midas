@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import os
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -60,6 +61,70 @@ class PipelineStatusResponse(BaseModel):
     last_updated: str = Field(..., description="Marca temporal ISO-8601 de la última telemetría")
 
 
+CANONICAL_ALIASES: Dict[str, str] = {
+    "postgres": "conn_pg_crm_default",
+    "postgresql": "conn_pg_crm_default",
+    "crm": "conn_pg_crm_default",
+    "excel": "conn_excel_budget_default",
+    "budget": "conn_excel_budget_default",
+    "csv": "conn_excel_budget_default",
+    "api": "conn_rest_crm_default",
+    "rest": "conn_rest_crm_default",
+    "helpdesk": "conn_rest_crm_default",
+}
+
+
+def resolve_connection(
+    connection_id: str, registry: SourceConnectionRegistry
+) -> Optional[SourceConnectionResponse]:
+    """Resuelve una conexión de forma resiliente aceptando:
+    - ID canónico exacto (ej. conn_pg_crm_default, conn_csv_walmart_sales_2c7736)
+    - Prefijos de nodo de canvas (ej. source_postgres, source_conn_...)
+    - Alias funcionales (postgres, excel, api, etc.)
+    - Búsqueda por nombre de dataset o coincidencia parcial
+    - Timestamps numéricos de Date.now() del frontend mapeando a la conexión personalizada más reciente.
+    """
+    # 1. Búsqueda directa
+    conn = registry.get_connection(connection_id)
+    if conn:
+        return conn
+
+    # 2. Alias directo canónico
+    clean_id = connection_id.lower().strip()
+    if clean_id in CANONICAL_ALIASES:
+        conn = registry.get_connection(CANONICAL_ALIASES[clean_id])
+        if conn:
+            return conn
+
+    # 3. Remover prefijo 'source_' si está presente
+    if connection_id.startswith("source_"):
+        stripped = connection_id[len("source_"):]
+        conn = registry.get_connection(stripped)
+        if conn:
+            return conn
+        if stripped.lower() in CANONICAL_ALIASES:
+            conn = registry.get_connection(CANONICAL_ALIASES[stripped.lower()])
+            if conn:
+                return conn
+
+    # 4. Búsqueda en list_connections por nombre o slug
+    all_conns = registry.list_connections()
+    for c in all_conns:
+        if c.name.strip().lower() == clean_id:
+            return c
+        if clean_id in c.connection_id.lower():
+            return c
+
+    # 5. Si connection_id es puramente numérico (ej: Date.now() como '1792672346884')
+    if connection_id.isdigit() and all_conns:
+        custom_conns = [c for c in all_conns if not c.connection_id.endswith("_default")]
+        if custom_conns:
+            return custom_conns[-1]
+        return all_conns[-1]
+
+    return None
+
+
 @router.post(
     "/{connection_id}/trigger",
     response_model=PipelineTriggerResponse,
@@ -73,17 +138,20 @@ async def trigger_pipeline(
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineTriggerResponse:
     """Ejecuta el pipeline completo y emite telemetría viva al Canvas."""
-    conn = registry.get_connection(connection_id)
+    incoming_id = connection_id
+    conn = resolve_connection(connection_id, registry)
     if not conn:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"La conexión '{connection_id}' no existe en el catálogo.",
         )
 
+    actual_conn_id = conn.connection_id
     start_time = time.perf_counter()
-    run_id = f"run_{connection_id}_{uuid.uuid4().hex[:6]}"
-    node_source_id = f"source_{connection_id}"
-    pipe_name = f"dag_pipeline_{connection_id}"
+    run_id = f"run_{actual_conn_id}_{uuid.uuid4().hex[:6]}"
+    node_source_id = f"source_{actual_conn_id}"
+    pipe_name = f"dag_pipeline_{actual_conn_id}"
+    alt_node_source_id = incoming_id if incoming_id.startswith("source_") else f"source_{incoming_id}"
 
     # 1. Notificar inicio de ejecución a través del Hub de Telemetría (SSE)
     telemetry_hub.publish_sync(
@@ -98,6 +166,19 @@ async def trigger_pipeline(
             details={"message": f"Iniciando pipeline para {conn.name}", "phase": "INGESTION"},
         )
     )
+    if alt_node_source_id != node_source_id:
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_start_alt_{run_id}",
+                pipeline_id=pipe_name,
+                node_id=alt_node_source_id,
+                status=NodeStatus.HEALTHY,
+                records_in=0,
+                records_out=0,
+                latency_ms=12.0,
+                details={"message": f"Iniciando pipeline para {conn.name}", "phase": "INGESTION"},
+            )
+        )
 
     try:
         # Inicializar cliente MinIO si está disponible
@@ -113,8 +194,8 @@ async def trigger_pipeline(
         ingest_result = ingestion_engine.ingest_source(
             source_type=conn.source_type.value,
             source_config=conn.config_payload,
-            dataset_name=f"dataset_{connection_id}",
-            connection_id=connection_id,
+            dataset_name=f"dataset_{actual_conn_id}",
+            connection_id=actual_conn_id,
             persist=True,
         )
 
@@ -131,7 +212,7 @@ async def trigger_pipeline(
                 records_in=records_ingested_count,
                 records_out=records_ingested_count,
                 latency_ms=18.0,
-                details={"layer": "BRONZE", "dataset": f"raw_{connection_id}"},
+                details={"layer": "BRONZE", "dataset": f"raw_{actual_conn_id}"},
             )
         )
 
@@ -214,7 +295,7 @@ async def trigger_pipeline(
             from src.security_governance.openmetadata.lineage_extractor import LineageExtractor
             lineage_extractor = LineageExtractor()
             lineage_extractor.register_lineage(
-                from_table=f"silver.clean_{connection_id}",
+                from_table=f"silver.clean_{actual_conn_id}",
                 to_table="gold.fact_ventas",
                 pipeline=pipe_name,
             )
@@ -246,15 +327,15 @@ async def trigger_pipeline(
 
         return PipelineTriggerResponse(
             run_id=run_id,
-            connection_id=connection_id,
+            connection_id=actual_conn_id,
             status=final_status,
             records_ingested=records_ingested_count,
             records_cleaned=records_cleaned_count,
             records_quarantined=records_quarantined_count,
             gold_records_generated=gold_count,
             output_tables=[
-                f"bronze.raw_{connection_id}",
-                f"silver.clean_{connection_id}",
+                f"bronze.raw_{actual_conn_id}",
+                f"silver.clean_{actual_conn_id}",
                 "gold.fact_ventas",
                 "gold.dim_tiendas_regiones",
             ],
@@ -278,6 +359,19 @@ async def trigger_pipeline(
                 details={"error": str(exc), "stage": "FAILED"},
             )
         )
+        if alt_node_source_id != node_source_id:
+            telemetry_hub.publish_sync(
+                TelemetryEvent(
+                    event_id=f"evt_err_alt_{run_id}",
+                    pipeline_id=pipe_name,
+                    node_id=alt_node_source_id,
+                    status=NodeStatus.ERROR,
+                    records_in=0,
+                    records_out=0,
+                    latency_ms=round(elapsed_ms, 2),
+                    details={"error": str(exc), "stage": "FAILED"},
+                )
+            )
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -296,16 +390,22 @@ async def get_pipeline_status(
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineStatusResponse:
     """Consulta el estado del nodo y alertas para la conexión."""
-    conn = registry.get_connection(connection_id)
+    conn = resolve_connection(connection_id, registry)
     if not conn:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"La conexión '{connection_id}' no existe.",
         )
 
+    actual_conn_id = conn.connection_id
     snapshot = telemetry_hub.get_snapshot()
-    node_id = f"source_{connection_id}"
-    node_state = snapshot.get(node_id) or snapshot.get("gold_fact_ventas")
+    node_id = f"source_{actual_conn_id}"
+    node_state = (
+        snapshot.get(node_id)
+        or snapshot.get(f"source_{connection_id}")
+        or snapshot.get(connection_id)
+        or snapshot.get("gold_fact_ventas")
+    )
 
     status_str = node_state.status.value if node_state else "HEALTHY"
     alerts = 1 if status_str in ("DEGRADED", "ERROR") else 0
@@ -317,7 +417,7 @@ async def get_pipeline_status(
     )
 
     return PipelineStatusResponse(
-        connection_id=connection_id,
+        connection_id=actual_conn_id,
         active_status=status_str,
         last_run_id=None,
         alerts_count=alerts,

@@ -32,6 +32,28 @@ export class SessionServiceError extends Error {
   }
 }
 
+async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err: unknown) {
+    if ((err as Error)?.name === 'AbortError') {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    if (
+      message.includes('Failed to fetch') ||
+      message.includes('NetworkError') ||
+      message.includes('Load failed') ||
+      message.includes('Network request failed')
+    ) {
+      throw new SessionServiceError(
+        'No se pudo conectar con el servidor backend (FastAPI en http://localhost:8000). Verifique que los contenedores estén activos y accesibles.',
+      );
+    }
+    throw err;
+  }
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let errorDetail = `Error en petición: ${response.status} ${response.statusText}`;
@@ -62,7 +84,7 @@ export async function listSessions(
   params.set('limit', String(limit));
   params.set('offset', String(offset));
 
-  const response = await fetch(`${API_BASE}/api/v1/sessions?${params.toString()}`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/sessions?${params.toString()}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     signal,
@@ -78,7 +100,7 @@ export async function createSession(
   payload?: CreateSessionDTO,
   signal?: AbortSignal
 ): Promise<ChatSessionSummary> {
-  const response = await fetch(`${API_BASE}/api/v1/sessions`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload || {}),
@@ -95,7 +117,7 @@ export async function getSessionDetail(
   sessionId: string,
   signal?: AbortSignal
 ): Promise<ChatSessionDetail> {
-  const response = await fetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     signal,
@@ -112,7 +134,7 @@ export async function updateSessionTopology(
   topologyState: TopologyStateDTO,
   signal?: AbortSignal
 ): Promise<ChatSessionDetail> {
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}/topology`,
     {
       method: 'PUT',
@@ -132,7 +154,7 @@ export async function deleteSession(
   sessionId: string,
   signal?: AbortSignal
 ): Promise<{ status: string; session_id: string }> {
-  const response = await fetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     signal,
@@ -155,7 +177,7 @@ export async function uploadDataFile(
   if (name) formData.append('name', name);
   if (sourceType) formData.append('source_type', sourceType);
 
-  const response = await fetch(`${API_BASE}/api/v1/connections/upload`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/connections/upload`, {
     method: 'POST',
     body: formData,
     signal,
@@ -171,10 +193,31 @@ export async function registerConnection(
   payload: RegisterConnectionDTO,
   signal?: AbortSignal
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE}/api/v1/connections/register`, {
+  const effectiveSourceType =
+    payload.source_type === 'REST_API' || payload.source_type === 'WEBHOOK'
+      ? 'REST'
+      : payload.source_type;
+
+  const backendPayload = {
+    name: payload.name,
+    source_type: effectiveSourceType,
+    config_payload: payload.config_payload || {
+      host: payload.host,
+      port: payload.port,
+      database: payload.database,
+      username: payload.username,
+      password: payload.password,
+      url: payload.url,
+      auth_type: payload.auth_type,
+      auth_token: payload.auth_token,
+      headers: payload.headers,
+    },
+  };
+
+  const response = await safeFetch(`${API_BASE}/api/v1/connections/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(backendPayload),
     signal,
   });
 
@@ -185,7 +228,7 @@ export async function registerConnection(
  * Lista las conexiones de fuentes registradas en el catálogo backend.
  */
 export async function listSourceConnections(signal?: AbortSignal): Promise<Array<{ connection_id: string; name: string; source_type: string; status: string }>> {
-  const response = await fetch(`${API_BASE}/api/v1/connections`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/connections`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     signal,
@@ -212,7 +255,7 @@ export async function testConnection(
   payload: ConnectionTestRequestDTO,
   signal?: AbortSignal
 ): Promise<ConnectionTestResponseDTO> {
-  const response = await fetch(`${API_BASE}/api/v1/connections/test`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/connections/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -229,7 +272,7 @@ export async function triggerPipeline(
   connectionId: string,
   signal?: AbortSignal
 ): Promise<{ run_id: string; status: string; records_cleaned: number; records_quarantined: number; detail: string }> {
-  const response = await fetch(`${API_BASE}/api/v1/pipelines/${encodeURIComponent(connectionId)}/trigger`, {
+  const response = await safeFetch(`${API_BASE}/api/v1/pipelines/${encodeURIComponent(connectionId)}/trigger`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal,

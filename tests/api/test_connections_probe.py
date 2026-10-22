@@ -53,3 +53,37 @@ def test_connection_test_probe_tabular():
     res_excel = client.post("/api/v1/connections/test", json={"source_type": "EXCEL", "config_payload": {}})
     assert res_excel.status_code == 200
     assert res_excel.json()["success"] is True
+
+
+def test_upload_file_short_name_and_cors():
+    """Valida que un archivo con nombre corto (ej. 'b' de 1 carácter) se procese con 201 y cabeceras CORS."""
+    client = TestClient(app)
+    csv_content = b"id,val\n1,100\n2,200\n"
+
+    res = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("b.csv", csv_content, "text/csv")},
+        data={"name": "b"},
+        headers={"Origin": "http://localhost:3000"},
+    )
+    assert res.status_code == 201
+    assert res.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    data = res.json()
+    assert data["name"] == "b"
+    assert data["source_type"] == "CSV"
+    assert "id" in data["detected_columns"]
+
+
+def test_cors_headers_on_validation_error():
+    """Valida que peticiones con errores de validación mantengan cabeceras CORS evitando 'Failed to fetch'."""
+    client = TestClient(app)
+
+    # Archivo vacío provoca 400 Bad Request
+    res = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("empty.csv", b"", "text/csv")},
+        headers={"Origin": "http://localhost:3000"},
+    )
+    assert res.status_code == 400
+    assert res.headers.get("access-control-allow-origin") == "http://localhost:3000"
+

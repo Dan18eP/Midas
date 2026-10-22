@@ -6,8 +6,10 @@ distributed request tracing via X-Correlation-ID, and real-time Server-Sent Even
 
 from contextlib import asynccontextmanager
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import pydantic
 
 from src.api.middleware import CorrelationIdMiddleware
 from src.api.routes.agent import router as agent_router
@@ -73,6 +75,27 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Correlation-ID", "X-User-Role", "Last-Event-ID", "Content-Type"],
 )
+
+
+@app.exception_handler(pydantic.ValidationError)
+async def pydantic_validation_handler(request: Request, exc: pydantic.ValidationError):
+    """Maneja errores de validación de Pydantic asegurando cabeceras CORS."""
+    logger.warning("Error de validación Pydantic en petición: %s", exc)
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"detail": f"Error de validación: {str(exc)}"},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Maneja cualquier excepción no controlada asegurando cabeceras CORS."""
+    logger.error("Excepción no controlada en API Gateway: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": f"Error interno en el servidor: {str(exc)}"},
+    )
+
 
 # 3. Register Route Controllers
 app.include_router(health_router)

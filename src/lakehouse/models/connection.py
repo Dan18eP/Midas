@@ -30,9 +30,20 @@ class ConnectionStatus(str, Enum):
 
 class SourceConnectionCreate(BaseModel):
     """Payload de entrada para registrar una nueva conexión."""
-    name: str = Field(..., min_length=3, max_length=150, description="Nombre único descriptivo de la conexión")
+    name: str = Field(..., min_length=1, max_length=150, description="Nombre único descriptivo de la conexión")
     source_type: SourceType = Field(..., description="Tipo de fuente: POSTGRES, EXCEL, CSV, REST")
     config_payload: Dict[str, Any] = Field(default_factory=dict, description="Parámetros de conexión específicos")
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def normalize_source_type(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            clean = v.upper().strip()
+            if clean in ("REST_API", "API", "WEBHOOK"):
+                return SourceType.REST
+            if clean in ("POSTGRESQL", "PG", "MYSQL"):
+                return SourceType.POSTGRES
+        return v
 
     @field_validator("name")
     @classmethod

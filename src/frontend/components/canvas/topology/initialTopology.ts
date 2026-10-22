@@ -19,6 +19,7 @@ export const INITIAL_CANVAS_NODES: Node<MidasNodeData>[] = [
       latencyMs: 12.4,
       lastUpdated: new Date().toISOString(),
       details: {
+        connection_id: 'conn_pg_crm_default',
         host: 'midas-postgres:5432',
         database: 'midas_operational',
         table: 'public.pedidos_crm',
@@ -42,6 +43,7 @@ export const INITIAL_CANVAS_NODES: Node<MidasNodeData>[] = [
       latencyMs: 8.1,
       lastUpdated: new Date().toISOString(),
       details: {
+        connection_id: 'conn_excel_budget_default',
         bucket: 's3://midas-governance/metas_comerciales_2026.xlsx',
         format: 'OpenPyXL Multi-sheet',
         frequency: 'Daily drop',
@@ -64,6 +66,7 @@ export const INITIAL_CANVAS_NODES: Node<MidasNodeData>[] = [
       latencyMs: 24.6,
       lastUpdated: new Date().toISOString(),
       details: {
+        connection_id: 'conn_rest_crm_default',
         endpoint: '/api/v1/ingest/webhooks',
         auth: 'Bearer Token (Zero-Trust)',
         rateLimit: '1000 req/min',

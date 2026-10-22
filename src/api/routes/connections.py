@@ -194,7 +194,8 @@ async def upload_source_file(
         )
 
     effective_source_type = source_type or (SourceType.EXCEL if ext in ("xlsx", "xls") else SourceType.CSV)
-    conn_name = name.strip() if name and name.strip() else clean_filename
+    clean_name = name.strip() if name and name.strip() else ""
+    conn_name = clean_name or clean_filename or "fuente_datos"
 
     try:
         raw_bytes = await file.read()
@@ -283,18 +284,25 @@ async def upload_source_file(
     with open(local_file_path, "wb") as f:
         f.write(raw_bytes)
 
-    create_dto = SourceConnectionCreate(
-        name=conn_name,
-        source_type=effective_source_type,
-        config_payload={
-            "filename": clean_filename,
-            "file_path": str(local_file_path).replace("\\", "/"),
-            "sheets": sheets,
-            "detected_columns": detected_columns,
-            "delimiter": detected_delimiter,
-            "file_size_bytes": len(raw_bytes),
-        },
-    )
+    try:
+        create_dto = SourceConnectionCreate(
+            name=conn_name,
+            source_type=effective_source_type,
+            config_payload={
+                "filename": clean_filename,
+                "file_path": str(local_file_path).replace("\\", "/"),
+                "sheets": sheets,
+                "detected_columns": detected_columns,
+                "delimiter": detected_delimiter,
+                "file_size_bytes": len(raw_bytes),
+            },
+        )
+    except Exception as val_exc:
+        logger.error("Error validando modelo de conexión para '%s': %s", conn_name, val_exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error validando parámetros de la conexión: {val_exc}",
+        )
 
     try:
         registered = registry.register_connection(create_dto)

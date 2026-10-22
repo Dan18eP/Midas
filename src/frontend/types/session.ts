@@ -95,7 +95,8 @@ export interface FileUploadResponseDTO {
 
 export interface RegisterConnectionDTO {
   name: string;
-  source_type: 'POSTGRES' | 'MYSQL' | 'REST_API' | 'WEBHOOK' | 'EXCEL' | 'CSV';
+  source_type: 'POSTGRES' | 'MYSQL' | 'REST' | 'REST_API' | 'WEBHOOK' | 'EXCEL' | 'CSV';
+  config_payload?: Record<string, unknown>;
   host?: string;
   port?: number;
   database?: string;

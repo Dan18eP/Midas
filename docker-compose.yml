@@ -353,6 +353,8 @@ services:
       RANGER_URL: ${RANGER_URL:-http://midas-ranger:6080}
       RANGER_LOCAL_ENFORCEMENT: ${RANGER_LOCAL_ENFORCEMENT:-true}
       RANGER_TRINO_PLUGIN_ENABLED: ${RANGER_TRINO_PLUGIN_ENABLED:-false}
+      TRINO_HOST: ${TRINO_HOST:-midas-trino}
+      TRINO_PORT: "8080"
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
