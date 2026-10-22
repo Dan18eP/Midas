@@ -59,20 +59,23 @@ def publish_pipeline_spec(
     spec: PipelineSpec,
     *,
     confirmed: bool,
+    session_id: str | None = None,
     storage: MidasMinioClient | None = None,
 ) -> str:
-    """Publish a confirmed YAML contract and announce its Gold node."""
+    """Publish a confirmed YAML contract in the session subfolder and announce its Gold node."""
     if not confirmed:
         raise ValueError("User confirmation is required before publishing a pipeline")
 
-    object_name = f"airflow-specs/dag_{spec.pipeline_id}.yaml"
+    client = storage or MidasMinioClient()
     payload = yaml.safe_dump(asdict(spec), sort_keys=False, allow_unicode=True).encode("utf-8")
-    (storage or MidasMinioClient()).put_object(
-        "midas-governance",
-        object_name,
-        payload,
-        content_type="application/yaml",
-    )
+
+    # Guardar en la subcarpeta de sesion solicitada y en la raiz de specs para consumo Airflow
+    object_name = f"airflow-specs/dag_{spec.pipeline_id}.yaml"
+    client.put_object("midas-governance", object_name, payload, content_type="application/yaml")
+
+    if session_id:
+        session_obj = f"airflow-specs/{session_id}/dag_{spec.pipeline_id}.yaml"
+        client.put_object("midas-governance", session_obj, payload, content_type="application/yaml")
 
     event = TelemetryEvent(
         pipeline_id=spec.pipeline_id,

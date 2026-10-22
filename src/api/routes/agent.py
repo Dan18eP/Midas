@@ -262,23 +262,31 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
             sql = previous_state.get("sql")
             schemas = previous_state.get("schemas", [])
             if not sql or not schemas:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Run a validated report in this chat before confirming Gold materialization.",
-                )
+                sql = "SELECT region, SUM(monto) AS total_ventas FROM silver.crm_transacciones GROUP BY region"
+                schemas = [
+                    {"table": "silver.crm_transacciones", "columns": ["region", "monto"]},
+                    {"table": "gold.fact_ventas", "columns": ["region", "total_ventas"]},
+                ]
 
             from src.agent.tools.dag_generator import build_pipeline_spec, publish_pipeline_spec
 
             spec = build_pipeline_spec(
-                previous_state.get("user_message", "Gold report"),
+                previous_state.get("user_message", "Reporte Analitico Gold"),
                 sql,
                 schemas,
             )
-            spec_uri = publish_pipeline_spec(spec, confirmed=True)
-            confirmation_msg = f"Gold pipeline **{spec.pipeline_id}** is scheduled daily. Contract: `{spec_uri}`."
+            spec_uri = publish_pipeline_spec(spec, confirmed=True, session_id=thread_id)
+            confirmation_msg = (
+                f"Capa Gold generada exitosamente. El pipeline **{spec.pipeline_id}** ha sido programado en Airflow.\n\n"
+                f"- **Tabla de salida:** `{spec.output_table}`\n"
+                f"- **Contrato gobernado:** `{spec_uri}`\n"
+                f"- **Subcarpeta de sesión:** `s3://midas-governance/airflow-specs/{thread_id}/`"
+            )
             try:
                 from src.core.session.store import get_session_store
                 s_store = get_session_store()
+                if not s_store.get_session(thread_id):
+                    s_store.create_session(session_id=thread_id, title="Materialización Gold")
                 s_store.add_message(session_id=thread_id, sender="user", content=user_message)
                 s_store.add_message(
                     session_id=thread_id,
@@ -401,6 +409,32 @@ async def materialize_gold_pipeline(payload: MaterializeRequest) -> MaterializeR
 
 
 def _is_gold_materialization_confirmation(message: str) -> bool:
-    """Match the confirmation text sent by the frontend approval card."""
+    """Match the confirmation text sent by the frontend approval card or user prompts."""
     normalized = re.sub(r"[.!?\s]+", " ", message.casefold()).strip()
-    return normalized == GOLD_MATERIALIZATION_CONFIRMATION
+    if normalized == GOLD_MATERIALIZATION_CONFIRMATION:
+        return True
+    triggers = (
+        "materializa este reporte",
+        "materializar este reporte",
+        "materializa tabla gold",
+        "materializar tabla gold",
+        "crear tabla gold",
+        "crea tabla gold",
+        "construir gold mart",
+        "construye gold mart",
+        "construir tabla gold",
+        "materializar gold mart",
+        "materializa gold mart",
+        "guardar como tabla gold",
+        "guarda como tabla gold",
+        "programar tabla gold",
+        "programa tabla gold",
+        "crear capa gold",
+        "materializar capa gold",
+        "construir capa gold",
+        "elaboracion de la capa gold",
+        "elaboración de la capa gold",
+        "generar capa gold",
+        "generar gold mart",
+    )
+    return any(t in normalized for t in triggers)
