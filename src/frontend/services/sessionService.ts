@@ -208,6 +208,34 @@ export async function listSourceConnections(signal?: AbortSignal): Promise<Array
   return handleResponse(response);
 }
 
+export interface ConnectionTestRequestDTO {
+  source_type: string;
+  config_payload: Record<string, unknown>;
+}
+
+export interface ConnectionTestResponseDTO {
+  success: boolean;
+  latency_ms: number;
+  detail: string;
+}
+
+/**
+ * Ejecuta un pre-flight check de conectividad (socket TCP o llamada HTTP) sin registrar la fuente.
+ */
+export async function testConnection(
+  payload: ConnectionTestRequestDTO,
+  signal?: AbortSignal
+): Promise<ConnectionTestResponseDTO> {
+  const response = await fetch(`${API_BASE}/api/v1/connections/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  return handleResponse<ConnectionTestResponseDTO>(response);
+}
+
 /**
  * Dispara la ejecución del pipeline para una fuente de datos en caliente.
  */

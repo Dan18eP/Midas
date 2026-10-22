@@ -91,18 +91,20 @@ async def list_quarantine_incidents() -> List[QuarantineIncidentSummary]:
         except Exception as exc:
             logger.debug("Error listando objetos de cuarentena en MinIO: %s", exc)
 
-    # Si MinIO no devolvió incidentes, complementar con la caché local de pruebas
-    if not incidents and _LOCAL_QUARANTINE_CACHE:
+    # Complementar con la caché local de pruebas
+    if _LOCAL_QUARANTINE_CACHE:
+        existing_ids = {i.incident_id for i in incidents}
         for inc_id, data in _LOCAL_QUARANTINE_CACHE.items():
-            incidents.append(
-                QuarantineIncidentSummary(
-                    incident_id=inc_id,
-                    connection_id=data.get("connection_id", "conn_local"),
-                    error_type=data.get("error_type", "ANOMALY_DETECTED"),
-                    created_at=data.get("quarantine_timestamp", "2026-10-21T12:00:00Z"),
-                    storage_uri=f"s3://{QUARANTINE_BUCKET}/incidents/{data.get('connection_id')}/incident_{inc_id}.json",
+            if inc_id not in existing_ids:
+                incidents.append(
+                    QuarantineIncidentSummary(
+                        incident_id=inc_id,
+                        connection_id=data.get("connection_id", "conn_local"),
+                        error_type=data.get("error_type", "ANOMALY_DETECTED"),
+                        created_at=data.get("quarantine_timestamp", "2026-10-21T12:00:00Z"),
+                        storage_uri=f"s3://{QUARANTINE_BUCKET}/incidents/{data.get('connection_id')}/incident_{inc_id}.json",
+                    )
                 )
-            )
 
     return incidents
 
