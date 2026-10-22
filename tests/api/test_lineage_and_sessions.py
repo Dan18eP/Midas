@@ -60,8 +60,8 @@ def test_lineage_gold_fact_ventas_payload_contract(client: TestClient):
 
     assert "certification" in data
     cert = data["certification"]
-    assert cert["quality_percent"] == 100.0
-    assert "OpenMetadata" in cert["quality_summary"]
+    assert cert.get("verified") is False
+    assert "OpenMetadata" in cert["quality_summary"] or "pendiente" in cert["quality_summary"].lower()["quality_summary"]
     assert len(cert["audit_hash"]) == 64
 
 

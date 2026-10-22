@@ -178,6 +178,9 @@ class SilverToGoldTransformer:
             # Excluir cancelaciones previas al despacho de los pedidos válidos
             if estado == "CANCELADO":
                 continue
+            # Venta Bruta solo sobre ENTREGADO/EN_TRANSITO (canonico 04)
+            if estado not in ("ENTREGADO", "EN_TRANSITO", "DEVUELTO", "PENDIENTE"):
+                continue
 
             if not (r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id")):
                 import hashlib
@@ -213,8 +216,9 @@ class SilverToGoldTransformer:
                 # Si está marcado como devuelto sin monto explícito, se asume el total neto
                 devolucion_item = bruto_item - descuento_item
 
-            # Acumuladores
-            venta_bruta += bruto_item
+            # Acumuladores: venta bruta solo para ENTREGADO/EN_TRANSITO
+            if estado in ("ENTREGADO", "EN_TRANSITO"):
+                venta_bruta += bruto_item
             total_descuento += descuento_item
             total_devoluciones += devolucion_item
 

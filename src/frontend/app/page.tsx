@@ -35,6 +35,7 @@ import { useTelemetryHistory } from '@/hooks/useTelemetryHistory';
 import { SessionProvider, useSession } from '@/context/SessionContext';
 import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySidebar';
 import { WelcomeHero } from '@/components/workspace/WelcomeHero';
+import { listSourceConnections } from '@/services/sessionService';
 import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '@/components/canvas/topology/initialTopology';
 
 const PipelineCanvas = dynamic(
@@ -58,6 +59,7 @@ function MidasConsoleWorkspace() {
 
   // HU-FRONT-08: las identidades reales provienen del catálogo del backend.
   const [roleDefinitions, setRoleDefinitions] = useState<SecurityRoleDefinition[]>([]);
+  const [hasConnectedData, setHasConnectedData] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,6 +103,19 @@ function MidasConsoleWorkspace() {
   } = useSession();
 
   const copilotChat = useCopilotChatContext();
+
+  // Data-gating: verificar si hay fuentes de datos conectadas
+  useEffect(() => {
+    const checkData = async () => {
+      try {
+        const conns = await listSourceConnections();
+        setHasConnectedData(Array.isArray(conns) && conns.length > 0);
+      } catch {
+        setHasConnectedData(false);
+      }
+    };
+    void checkData();
+  }, []);
 
   // Sincronizar rol activo con el contexto del Copiloto para inyección en X-User-Role (ADR-011)
   useEffect(() => {
@@ -164,11 +179,13 @@ function MidasConsoleWorkspace() {
   };
 
   const handleQuickConnectSuccess = () => {
+    setHasConnectedData(true);
     setWorkspaceMode('active');
     copilotChat.openDrawer();
   };
 
   const isNewChatView = workspaceMode === 'welcome' && !activeSessionId;
+  const showCanvas = hasConnectedData && !(workspaceMode === 'welcome' && !activeSessionId);
 
   return (
     <div className="flex h-screen w-screen flex-col bg-[#FFFFFF] text-[#1C1E21] antialiased overflow-hidden">
@@ -214,7 +231,7 @@ function MidasConsoleWorkspace() {
 
         {/* Área Central: Transición Dinámica de Estados */}
         <main className="relative flex flex-1 overflow-hidden bg-[#FFFFFF]">
-          {workspaceMode === 'welcome' && !activeSessionId ? (
+          {isNewChatView ? (
             /* Modo 1: Welcome Hub (ChatGPT-Style) */
             <section
               aria-label="Pantalla de Bienvenida y Lanzadores de Ingesta"
@@ -232,19 +249,28 @@ function MidasConsoleWorkspace() {
               aria-label="Topología del Pipeline Lakehouse y Espacio Activo"
               className="relative flex-1 h-full bg-[#FFFFFF]"
             >
+              {!hasConnectedData ? (
+                <div className="flex h-full w-full items-center justify-center bg-[#FFFFFF] text-[#4B4639] font-mono text-sm">
+                  <div className="text-center space-y-3">
+                    <p className="text-lg font-semibold">Conecta tus datos primero</p>
+                    <p className="text-xs text-[#A0988A]">Registra una fuente de datos para habilitar el chat y la topologia.</p>
+                  </div>
+                </div>
+              ) : (
               <PipelineCanvas
                 securityRole={selectedRole}
                 securityPolicy={securityPolicy}
                 initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
                 initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
               />
+              )}
             </section>
           )}
         </main>
       </div>
 
       {/* Frontera HU-FRONT-04: Widget flotante + Drawer expandible del Copiloto */}
-      {!isNewChatView && <CopilotChatWidget />}
+      {!isNewChatView && hasConnectedData && <CopilotChatWidget />}
       <CopilotChatDrawer />
 
       {/* Frontera HU-FRONT-06: Drawer de linaje "Explícame esta cifra" */}

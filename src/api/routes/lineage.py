@@ -33,7 +33,8 @@ class LineageFormulaModel(BaseModel):
 
 
 class LineageCertificationModel(BaseModel):
-    quality_percent: float = Field(100.0, description="Porcentaje de calidad certificado")
+    quality_percent: Optional[float] = Field(None, description="Porcentaje de calidad certificado")
+    verified: bool = Field(False, description="Indica si la certificacion fue verificada con OpenMetadata")
     quality_summary: str = Field(..., description="Resumen de validación de contratos")
     last_sync: str = Field(..., description="Timestamp ISO de última sincronización")
     audit_hash: str = Field(..., description="Hash SHA-256 criptográfico de certificación")

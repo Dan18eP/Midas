@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status
@@ -84,7 +85,7 @@ async def list_quarantine_incidents() -> List[QuarantineIncidentSummary]:
                         incident_id=inc_id,
                         connection_id=conn_id,
                         error_type="QUALITY_GATE_REJECTION",
-                        created_at="2026-10-21T12:00:00Z",
+                        created_at=datetime.now(timezone.utc).isoformat(),
                         storage_uri=f"s3://{QUARANTINE_BUCKET}/{obj_name}",
                     )
                 )
@@ -101,7 +102,7 @@ async def list_quarantine_incidents() -> List[QuarantineIncidentSummary]:
                         incident_id=inc_id,
                         connection_id=data.get("connection_id", "conn_local"),
                         error_type=data.get("error_type", "ANOMALY_DETECTED"),
-                        created_at=data.get("quarantine_timestamp", "2026-10-21T12:00:00Z"),
+                        created_at=data.get("quarantine_timestamp", datetime.now(timezone.utc).isoformat()),
                         storage_uri=f"s3://{QUARANTINE_BUCKET}/incidents/{data.get('connection_id')}/incident_{inc_id}.json",
                     )
                 )
@@ -130,7 +131,7 @@ async def get_quarantine_incident(incident_id: str) -> QuarantineIncidentDetail:
                         connection_id=data.get("connection_id", "conn_unknown"),
                         error_type=data.get("error_type", "QUALITY_GATE_VIOLATION"),
                         bad_record=data.get("bad_record") or data.get("raw_record") or {},
-                        quarantine_timestamp=data.get("quarantine_timestamp", "2026-10-21T12:00:00Z"),
+                        quarantine_timestamp=data.get("quarantine_timestamp", datetime.now(timezone.utc).isoformat()),
                         storage_uri=f"s3://{QUARANTINE_BUCKET}/{obj_name}",
                     )
         except Exception as exc:
@@ -144,7 +145,7 @@ async def get_quarantine_incident(incident_id: str) -> QuarantineIncidentDetail:
             connection_id=data.get("connection_id", "conn_local"),
             error_type=data.get("error_type", "QUALITY_GATE_VIOLATION"),
             bad_record=data.get("bad_record") or data.get("raw_record") or {},
-            quarantine_timestamp=data.get("quarantine_timestamp", "2026-10-21T12:00:00Z"),
+            quarantine_timestamp=data.get("quarantine_timestamp", datetime.now(timezone.utc).isoformat()),
             storage_uri=f"s3://{QUARANTINE_BUCKET}/incidents/{data.get('connection_id')}/incident_{incident_id}.json",
         )
 
