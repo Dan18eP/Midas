@@ -20,6 +20,7 @@ export class CopilotApiError extends Error {
 export interface SendChatMessageInput {
   message: string;
   threadId?: string;
+  userRole?: string;
   signal?: AbortSignal;
 }
 
@@ -56,17 +57,17 @@ export async function sendChatMessage(input: SendChatMessageInput): Promise<Copi
   const body: Record<string, string> = { message: input.message };
   if (input.threadId) body.thread_id = input.threadId;
 
-  const role = getActiveUserRole();
-  const headers: Record<string, string> = {
+  const effectiveRole = input.userRole || getActiveUserRole();
+  const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(role ? { [USER_ROLE_HEADER]: role } : {}),
+    ...(effectiveRole ? { [USER_ROLE_HEADER]: effectiveRole } : {}),
   };
 
   let response: Response;
   try {
     response = await fetch(`${COPILOT_API_BASE}${COPILOT_CHAT_PATH}`, {
       method: 'POST',
-      headers,
+      headers: requestHeaders,
       body: JSON.stringify(body),
       signal: input.signal,
     });

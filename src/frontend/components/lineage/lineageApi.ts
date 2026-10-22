@@ -33,7 +33,7 @@ function parsePayload(raw: unknown): LineageGatewayPayload | null {
 
 export async function fetchTableLineage(
   table: string,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  options: { signal?: AbortSignal; timeoutMs?: number; userRole?: string } = {},
 ): Promise<LineageGatewayPayload> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? LINEAGE_GATEWAY_TIMEOUT_MS);
@@ -42,17 +42,14 @@ export async function fetchTableLineage(
 
   let response: Response;
   try {
-    const role = getActiveUserRole();
+    const effectiveRole = options.userRole || getActiveUserRole();
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...(effectiveRole ? { [USER_ROLE_HEADER]: effectiveRole } : {}),
+    };
     response = await fetch(
       `${LINEAGE_API_BASE}${LINEAGE_TABLE_PATH}/${encodeURIComponent(table)}`,
-      {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          ...(role ? { [USER_ROLE_HEADER]: role } : {}),
-        },
-        signal: controller.signal,
-      },
+      { method: 'GET', headers, signal: controller.signal },
     );
   } catch (cause) {
     if (options.signal?.aborted) throw cause;

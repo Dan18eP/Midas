@@ -46,6 +46,8 @@ export interface CopilotChatController {
   status: CopilotAgentStatus;
   suggestions: string[];
   threadId: string;
+  activeRole?: string;
+  setActiveRole: (role: string) => void;
   drawerOpen: boolean;
   expanded: boolean;
   unread: number;
@@ -61,7 +63,10 @@ export interface CopilotChatController {
   setOnTurnComplete?: (cb: (threadId: string) => void) => void;
 }
 
-export function useCopilotChat(options?: { onTurnComplete?: (threadId: string) => void }): CopilotChatController {
+export function useCopilotChat(options?: {
+  activeRole?: string;
+  onTurnComplete?: (threadId: string) => void;
+}): CopilotChatController {
   const [messages, setMessages] = useState<CopilotMessage[]>(() => [createWelcomeMessage()]);
   const [status, setStatus] = useState<CopilotAgentStatus>('idle');
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
@@ -69,6 +74,14 @@ export function useCopilotChat(options?: { onTurnComplete?: (threadId: string) =
   const [expanded, setExpanded] = useState(false);
   const [unread, setUnread] = useState(0);
   const [threadId, setThreadId] = useState<string>(() => createId('session'));
+  const [activeRole, setActiveRoleState] = useState<string>(() => options?.activeRole || 'director_general');
+  const activeRoleRef = useRef(activeRole);
+  activeRoleRef.current = activeRole;
+
+  const setActiveRole = useCallback((role: string) => {
+    setActiveRoleState(role);
+    activeRoleRef.current = role;
+  }, []);
 
   const phaseTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const wasOpenRef = useRef(false);
@@ -118,7 +131,11 @@ export function useCopilotChat(options?: { onTurnComplete?: (threadId: string) =
       );
 
       try {
-        const payload = await sendChatMessage({ message: content, threadId });
+        const payload = await sendChatMessage({
+          message: content,
+          threadId,
+          userRole: activeRoleRef.current,
+        });
         const assistantMessage: CopilotMessage = {
           id: createId('assistant'),
           role: 'assistant',
@@ -217,6 +234,8 @@ export function useCopilotChat(options?: { onTurnComplete?: (threadId: string) =
       status,
       suggestions,
       threadId,
+      activeRole,
+      setActiveRole,
       drawerOpen,
       expanded,
       unread,
@@ -236,6 +255,8 @@ export function useCopilotChat(options?: { onTurnComplete?: (threadId: string) =
       status,
       suggestions,
       threadId,
+      activeRole,
+      setActiveRole,
       drawerOpen,
       expanded,
       unread,
