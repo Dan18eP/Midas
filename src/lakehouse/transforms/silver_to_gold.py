@@ -172,7 +172,12 @@ class SilverToGoldTransformer:
             if estado == "CANCELADO":
                 continue
 
-            pedido_id = str(r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id") or uuid.uuid4())
+            if not (r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id")):
+                import hashlib
+                raw_repr = str(sorted([(str(k), str(v)) for k, v in r.items()]))
+                pedido_id = "rec_" + hashlib.sha256(raw_repr.encode("utf-8")).hexdigest()[:16]
+            else:
+                pedido_id = str(r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id"))
 
             # Calcular Monto Bruto
             if "cantidad" in r and "precio_unitario" in r:

@@ -39,6 +39,10 @@ class SourceConnectionRegistry:
         # Semilla canónica en memoria para funcionamiento sin DB
         self._seed_default_connections()
 
+        # Hidratar desde PostgreSQL si está disponible
+        if self.db_url and "postgresql" in self.db_url:
+            self._hydrate_from_postgres()
+
     def _seed_default_connections(self) -> None:
         """Inicializa las conexiones canónicas de Midas."""
         defaults = [
@@ -162,6 +166,36 @@ class SourceConnectionRegistry:
             norm_name = data["name"].strip().lower()
             self._name_index.pop(norm_name, None)
             return True
+
+    def _hydrate_from_postgres(self) -> None:
+        """Carga las conexiones previamente registradas desde PostgreSQL operacional."""
+        try:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(self.db_url, pool_pre_ping=True, connect_args={"connect_timeout": 2})
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text("SELECT connection_id, name, source_type, config_payload, status, created_at FROM source_connections")
+                ).fetchall()
+                for r in rows:
+                    cid = r[0]
+                    cname = r[1]
+                    stype = r[2]
+                    payload = r[3] if isinstance(r[3], dict) else json.loads(r[3] or "{}")
+                    status_val = r[4]
+                    created_at = str(r[5])
+                    rec = {
+                        "connection_id": cid,
+                        "name": cname,
+                        "source_type": stype,
+                        "config_payload": payload,
+                        "status": status_val,
+                        "created_at": created_at,
+                    }
+                    self._memory_store[cid] = rec
+                    self._name_index[cname.strip().lower()] = cid
+            logger.info("Hidratadas %d conexiones desde PostgreSQL operacional.", len(rows))
+        except Exception as exc:
+            logger.debug("No se pudo hidratar conexiones desde PostgreSQL: %s", exc)
 
     def _persist_to_postgres(self, record: Dict[str, Any]) -> None:
         """Escribe el registro en midas_operational.source_connections usando psycopg2 o SQLAlchemy."""

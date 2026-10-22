@@ -7,6 +7,7 @@ and Punto 2.5 of documentation/reviews/review-pr-023-hu-ai-01-langgraph.md.
 from datetime import datetime, timezone
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 import uuid
@@ -79,6 +80,59 @@ def get_agent_graph() -> Any:
                 return res.data
 
             def live_catalog_source_provider() -> List[Dict[str, Any]]:
+                try:
+                    query = (
+                        "SELECT table_schema, table_name, column_name "
+                        "FROM information_schema.columns "
+                        "WHERE table_schema IN ('silver', 'gold', 'public') "
+                        "ORDER BY table_schema, table_name, ordinal_position"
+                    )
+                    res = trino_client.execute_query_sync(sql=query)
+                    if res and res.data:
+                        schema_tables: Dict[str, Dict[str, List[str]]] = {}
+                        for row in res.data:
+                            sch = str(row.get("table_schema", "")).lower()
+                            tbl = str(row.get("table_name", "")).lower()
+                            col = str(row.get("column_name", "")).lower()
+                            if not sch or not tbl:
+                                continue
+                            if sch not in schema_tables:
+                                schema_tables[sch] = {}
+                            if tbl not in schema_tables[sch]:
+                                schema_tables[sch][tbl] = []
+                            if col and col not in schema_tables[sch][tbl]:
+                                schema_tables[sch][tbl].append(col)
+
+                        if schema_tables:
+                            # Agrupar tablas en fuentes de datos coherentes segun origen
+                            grouped_sources: Dict[str, Dict[str, Any]] = {}
+                            for sch, tables_dict in schema_tables.items():
+                                for tbl, cols in tables_dict.items():
+                                    t_full = f"{sch}.{tbl}"
+                                    if "crm_" in tbl:
+                                        s_name = "crm_operaciones"
+                                        s_kind = "PostgreSQL"
+                                    elif "presupuesto" in tbl or "costo" in tbl:
+                                        s_name = "Presupuesto_Corporativo_2026.xlsx"
+                                        s_kind = "Excel"
+                                    elif "ticket" in tbl or "helpdesk" in tbl:
+                                        s_name = "helpdesk_tickets_live"
+                                        s_kind = "API REST"
+                                    elif "fact_" in tbl or "fct_" in tbl or "dim_" in tbl or sch == "gold":
+                                        s_name = "gold_marts"
+                                        s_kind = "Iceberg"
+                                    else:
+                                        s_name = f"dataset_{tbl}"
+                                        s_kind = "Iceberg" if sch in ("silver", "gold") else "PostgreSQL"
+
+                                    if s_name not in grouped_sources:
+                                        grouped_sources[s_name] = {"name": s_name, "kind": s_kind, "tables": []}
+                                    grouped_sources[s_name]["tables"].append({"table": t_full, "columns": cols})
+
+                            return list(grouped_sources.values())
+                except Exception as exc:
+                    logger.debug("No se pudo consultar information_schema de Trino: %s. Usando catalogo referencial canonico.", exc)
+
                 return [
                     {
                         "name": "crm_operaciones",
@@ -134,7 +188,17 @@ def get_agent_graph() -> Any:
                     },
                 ]
 
-            checkpointer = InMemorySaver()
+            pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("DATABASE_URL")
+            checkpointer = None
+            if pg_url and "postgresql" in pg_url:
+                try:
+                    from langgraph.checkpoint.postgres import PostgresSaver
+                    checkpointer = PostgresSaver.from_conn_string(pg_url)
+                except Exception as pg_exc:
+                    logger.debug("PostgresSaver no disponible (%s), usando InMemorySaver.", pg_exc)
+            if checkpointer is None:
+                checkpointer = InMemorySaver()
+
             _compiled_graph = build_graph(
                 checkpointer=checkpointer,
                 execute_query=default_trino_executor,

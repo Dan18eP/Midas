@@ -41,6 +41,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init-multi-db.sh:/docker-entrypoint-initdb.d/00-init-multi-db.sh:ro
       - ./docker/postgres/01-init-operational-seed.sql:/docker-entrypoint-initdb.d/01-init-operational-seed.sql:ro
+      - ./docker/postgres/02-init-sessions-schema.sql:/docker-entrypoint-initdb.d/02-init-sessions-schema.sql:ro
     networks:
       - midas-network
     healthcheck:
@@ -389,6 +390,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       MIDAS_GOLD_SPARK_JOB: ${MIDAS_GOLD_SPARK_JOB:-/opt/midas/jobs/materialize_gold.py}
       MIDAS_TELEMETRY_PUBLISH_URL: http://midas-api:8000/api/v1/telemetry/publish
+      POSTGRES_OPERATIONAL_URL: ${POSTGRES_OPERATIONAL_URL:-postgresql://midas_admin:midas_secret_password_2026@midas-postgres:5432/midas_operational}
       PYTHONPATH: /opt/midas
     volumes: &airflow-volumes
       - ./docker/airflow/init.sh:/opt/airflow/init.sh:ro
@@ -397,6 +399,7 @@ services:
       - ./jobs:/opt/midas/jobs:ro
       - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./data:/opt/midas/data:ro
     networks:
       - midas-network
 
@@ -462,6 +465,7 @@ services:
       args:
         INTERNAL_API_URL: ${INTERNAL_API_URL:-http://midas-api:8000}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SSE_URL: ${NEXT_PUBLIC_SSE_URL:-http://localhost:8000/api/v1/telemetry/stream}
     container_name: midas-frontend
     mem_limit: 384m
     restart: unless-stopped
@@ -470,6 +474,7 @@ services:
       - midas-api
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_SSE_URL=${NEXT_PUBLIC_SSE_URL:-http://localhost:8000/api/v1/telemetry/stream}
       - INTERNAL_API_URL=${INTERNAL_API_URL:-http://midas-api:8000}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"

@@ -35,3 +35,6 @@ Thumbs.db
 # Docker volumes / persistence local
 docker/volumes/
 data/raw_dumps/
+data/uploads/*
+!data/uploads/.gitkeep
+*.tsbuildinfo

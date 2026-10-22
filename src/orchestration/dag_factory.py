@@ -63,12 +63,25 @@ def build_dynamic_dags(specs: list[dict[str, Any]]) -> dict[str, Any]:
                 dag = DAG(dag_id=dag_id, schedule=spec["cron_schedule"], start_date=START_DATE,
                           catchup=False, tags=tags)
                 with dag:
-                    SparkSubmitOperator(
+                    task = SparkSubmitOperator(
                         task_id=f"spark_{stage}_{conn_id}",
                         application=os.path.join(jobs_dir, job_file),
                         conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
                         application_args=["--spec-json", json.dumps(spec)],
                     )
+                    # En la etapa de limpieza, encadenar el perfilamiento agnóstico de Silver
+                    if stage == "clean":
+                        profile_task = SparkSubmitOperator(
+                            task_id=f"spark_profile_{conn_id}",
+                            application=os.path.join(jobs_dir, "profile_silver.py"),
+                            conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
+                            application_args=["--spec-json", json.dumps(spec)],
+                        )
+                        if hasattr(task, "__rshift__"):
+                            try:
+                                task >> profile_task
+                            except Exception:
+                                pass
                 dags[dag_id] = dag
             continue
 

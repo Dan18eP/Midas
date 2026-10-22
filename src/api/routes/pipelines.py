@@ -99,13 +99,21 @@ async def trigger_pipeline(
     )
 
     try:
-        # 2. Extracción / Ingesta Universal a Bronze
-        ingestion_engine = UniversalIngestionEngine()
+        # Inicializar cliente MinIO si está disponible
+        from src.lakehouse.storage.minio_client import MidasMinioClient
+        try:
+            minio_cli = MidasMinioClient()
+        except Exception:
+            minio_cli = None
+
+        # 2. Extracción / Ingesta Universal a Bronze con persistencia
+        ingestion_engine = UniversalIngestionEngine(minio_client=minio_cli)
         ingest_result = ingestion_engine.ingest_source(
             source_type=conn.source_type.value,
             source_config=conn.config_payload,
             dataset_name=f"dataset_{connection_id}",
             connection_id=connection_id,
+            persist=True,
         )
 
         records_bronze = ingest_result.raw_records or []
@@ -125,8 +133,14 @@ async def trigger_pipeline(
             )
         )
 
-        # 3. Limpieza Silver con Quality Gate y Cuarentena
-        transformer = BronzeToSilverTransformer()
+        # 3. Limpieza Silver con Quality Gate, Cuarentena y Escudo PII
+        from src.security_governance.atlas.pii_shield import PIIShield
+        try:
+            shield = PIIShield()
+        except Exception:
+            shield = None
+
+        transformer = BronzeToSilverTransformer(pii_shield=shield)
         transform_result = transformer.process_batch(
             records=records_bronze,
             source_name=conn.name,
@@ -187,10 +201,22 @@ async def trigger_pipeline(
 
         # 4. Agregación a Capa Gold
         silver_data = transform_result.valid_records
-        gold_transformer = SilverToGoldTransformer()
+        gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
         gold_result = gold_transformer.transform_and_aggregate_sales(
             silver_records=silver_data,
         )
+
+        # 4.1 Registrar linaje activo en OpenMetadata si está disponible
+        try:
+            from src.security_governance.openmetadata.lineage_extractor import LineageExtractor
+            lineage_extractor = LineageExtractor()
+            lineage_extractor.register_lineage(
+                from_table=f"silver.clean_{connection_id}",
+                to_table="gold.fact_ventas",
+                pipeline=pipe_name,
+            )
+        except Exception as lin_exc:
+            logger.debug("Registro de linaje omitido: %s", lin_exc)
         gold_count = gold_result.fct_ventas_count
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000

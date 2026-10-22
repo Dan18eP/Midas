@@ -21,6 +21,7 @@ class HealthResponse(BaseModel):
     uptime_seconds: float = Field(..., description="Seconds elapsed since gateway process start.")
     active_sse_subscribers: int = Field(..., description="Count of currently active SSE stream clients.")
     environment: str = Field(..., description="Current running environment (development, staging, production).")
+    subsystems: dict = Field(default_factory=dict, description="Status of auxiliary subsystems (minio, postgres, telemetry).")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -38,6 +39,12 @@ class HealthResponse(BaseModel):
 )
 async def get_health() -> HealthResponse:
     hub = get_telemetry_hub()
+    subsystems_status = {
+        "telemetry_hub": "healthy" if hub else "degraded",
+    }
+    db_url = os.getenv("OPERATIONAL_DB_URL") or os.getenv("DATABASE_URL")
+    subsystems_status["postgres"] = "configured" if db_url and "postgresql" in db_url else "in_memory"
+
     return HealthResponse(
         status="healthy",
         service="midas-api-gateway",
@@ -45,4 +52,5 @@ async def get_health() -> HealthResponse:
         uptime_seconds=round(time.time() - START_TIME, 2),
         active_sse_subscribers=hub.subscriber_count,
         environment=os.getenv("ENVIRONMENT", "development"),
+        subsystems=subsystems_status,
     )
