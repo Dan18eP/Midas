@@ -115,7 +115,8 @@ def inject_negative_amount() -> int:
     # Intentar persistir el incidente en MinIO directamente si la librería está disponible
     try:
         from src.lakehouse.storage.minio_client import MidasMinioClient
-        minio_client = MidasMinioClient()
+        minio_endpoint = os.getenv("MINIO_PUBLIC_ENDPOINT", "http://localhost:9000")
+        minio_client = MidasMinioClient(endpoint=minio_endpoint)
         if minio_client.check_health():
             incident_data = {
                 "incident_id": incident_id,
@@ -131,8 +132,8 @@ def inject_negative_amount() -> int:
                 data=json.dumps(incident_data).encode("utf-8"),
             )
             logger.info(f"  [{GREEN}MINIO OK{RESET}] Incidente persistido en bucket s3://midas-quarantine/")
-    except Exception:
-        pass
+    except Exception as err:
+        logger.debug(f"MinIO write skipped: {err}")
 
     logger.info(f"\n{BOLD}{GREEN}[EXITO] Playbook QUARANTINE_INVALID_ROWS_V1 ejecutado.{RESET}")
     logger.info(f"        El nodo Silver se ilumina en ámbar y el 99.8% de los datos continúa a Gold.\n")

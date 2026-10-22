@@ -78,10 +78,51 @@ def get_agent_graph() -> Any:
                 res = trino_client.execute_query_sync(sql=sql, user_role=user_role)
                 return res.data
 
+            def default_source_provider() -> List[Dict[str, Any]]:
+                return [
+                    {
+                        "name": "crm_operaciones",
+                        "kind": "PostgreSQL",
+                        "tables": [
+                            "clientes",
+                            "transacciones",
+                            {
+                                "table": "silver.crm_transacciones",
+                                "columns": ["id", "cliente_id", "monto", "fecha_orden", "region", "estado"],
+                            },
+                        ],
+                    },
+                    {
+                        "name": "Presupuesto_Corporativo_2026.xlsx",
+                        "kind": "Excel",
+                        "tables": [
+                            "Presupuesto_Metas",
+                            "Costos_Operativos",
+                            {
+                                "table": "gold.fact_ventas",
+                                "columns": ["orden_id", "cliente_id", "monto_neto", "fecha_orden", "descuento", "impuesto"],
+                            },
+                        ],
+                    },
+                    {
+                        "name": "helpdesk_tickets_live",
+                        "kind": "API REST",
+                        "tables": [
+                            "tickets",
+                            "satisfacción CSAT",
+                            {
+                                "table": "silver.support_tickets",
+                                "columns": ["ticket_id", "satisfaccion_csat", "tiempo_respuesta"],
+                            },
+                        ],
+                    },
+                ]
+
             checkpointer = InMemorySaver()
             _compiled_graph = build_graph(
                 checkpointer=checkpointer,
                 execute_query=default_trino_executor,
+                source_provider=default_source_provider,
             )
             logger.info("LangGraph conversational state machine compiled successfully with Trino executor.")
         except Exception as exc:
