@@ -91,6 +91,17 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
           json: () => Promise.resolve(MOCK_SESSION_DETAIL),
         });
       }
+      if (urlStr.includes('/api/v1/connections/test')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            success: true,
+            latency_ms: 18.5,
+            detail: 'HTTP 200 - Servicio accesible',
+          }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -214,6 +225,31 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
       fireEvent.click(dbTab);
 
       expect(screen.getByText(/Motor de Base de Datos/i)).toBeInTheDocument();
+    });
+
+    it('ejecuta la prueba de conexión y limpia el resultado al cambiar de pestaña', async () => {
+      render(
+        <SessionProvider>
+          <QuickConnectionModal isOpen={true} initialType="rest" onClose={vi.fn()} />
+        </SessionProvider>
+      );
+
+      const urlInput = screen.getByPlaceholderText('https://api.empresa.com/v1/tickets');
+      fireEvent.change(urlInput, { target: { value: 'https://api.empresa.com/v1/tickets' } });
+
+      const testBtn = screen.getByRole('button', { name: /Probar Conexión/i });
+      fireEvent.click(testBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Diagnóstico Pre-flight Exitoso/i)).toBeInTheDocument();
+        expect(screen.getByText(/18.5 ms/i)).toBeInTheDocument();
+      });
+
+      // Al alternar a otra pestaña, el diagnóstico se limpia de inmediato
+      const dbTab = screen.getByRole('button', { name: /Base de Datos/i });
+      fireEvent.click(dbTab);
+
+      expect(screen.queryByText(/Diagnóstico Pre-flight Exitoso/i)).not.toBeInTheDocument();
     });
   });
 

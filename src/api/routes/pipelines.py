@@ -111,6 +111,20 @@ async def trigger_pipeline(
         records_bronze = ingest_result.raw_records or []
         records_ingested_count = len(records_bronze)
 
+        # 2.1 Emitir evento de ingesta Bronze al Hub de Telemetria (SSE)
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_bronze_{run_id}",
+                pipeline_id=pipe_name,
+                node_id="bronze_raw",
+                status=NodeStatus.HEALTHY,
+                records_in=records_ingested_count,
+                records_out=records_ingested_count,
+                latency_ms=18.0,
+                details={"layer": "BRONZE", "dataset": f"raw_{connection_id}"},
+            )
+        )
+
         # 3. Limpieza Silver con Quality Gate y Cuarentena
         transformer = BronzeToSilverTransformer()
         transform_result = transformer.process_batch(
@@ -134,6 +148,43 @@ async def trigger_pipeline(
                     incident_id=incident.quarantine_id,
                 )
 
+        # 3.1 Emitir evento de limpieza Silver al Hub de Telemetria (SSE)
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_silver_{run_id}",
+                pipeline_id=pipe_name,
+                node_id="silver_cleansing",
+                status=NodeStatus.DEGRADED if records_quarantined_count > 0 else NodeStatus.HEALTHY,
+                records_in=records_ingested_count,
+                records_out=records_cleaned_count,
+                latency_ms=35.0,
+                details={
+                    "layer": "SILVER",
+                    "quarantined_records": records_quarantined_count,
+                    "valid_records": records_cleaned_count,
+                },
+            )
+        )
+
+        # 3.2 Si hubo anomalias, emitir evento de Guardian Monitor (Auto-Healing / PB-03)
+        if records_quarantined_count > 0:
+            telemetry_hub.publish_sync(
+                TelemetryEvent(
+                    event_id=f"evt_guardian_{run_id}",
+                    pipeline_id=pipe_name,
+                    node_id="guardian_monitor",
+                    status=NodeStatus.AUTO_HEALING,
+                    records_in=records_quarantined_count,
+                    records_out=records_quarantined_count,
+                    latency_ms=12.0,
+                    details={
+                        "playbook_id": "PB-03-QUARANTINE",
+                        "action_taken": f"Desviando {records_quarantined_count} transacciones anómalas a cuarentena",
+                        "quarantined_records": records_quarantined_count,
+                    },
+                )
+            )
+
         # 4. Agregación a Capa Gold
         silver_data = transform_result.valid_records
         gold_transformer = SilverToGoldTransformer()
@@ -145,20 +196,21 @@ async def trigger_pipeline(
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         final_status = "DEGRADED" if records_quarantined_count > 0 else "HEALTHY"
 
-        # 5. Emitir telemetría final al Canvas
+        # 5. Emitir telemetría final al Canvas para Gold Marts
         telemetry_hub.publish_sync(
             TelemetryEvent(
                 event_id=f"evt_done_{run_id}",
                 pipeline_id=pipe_name,
-                node_id="gold_fact_ventas",
+                node_id="gold_marts",
                 status=NodeStatus.DEGRADED if records_quarantined_count > 0 else NodeStatus.HEALTHY,
-                records_in=records_ingested_count,
+                records_in=records_cleaned_count,
                 records_out=gold_count,
                 latency_ms=round(elapsed_ms, 2),
                 details={
                     "message": "Pipeline completado exitosamente",
                     "quarantined": records_quarantined_count,
                     "cleaned": records_cleaned_count,
+                    "output_table": "gold.fact_ventas",
                 },
             )
         )

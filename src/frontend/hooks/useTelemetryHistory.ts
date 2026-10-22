@@ -57,12 +57,6 @@ export function useTelemetryHistory(
       setLoadedEvents(loaded);
       setStatus(store.getHistoryStatus());
       setError(store.getHistoryError());
-
-      // Hitos canónicos del backend. Un fallo aquí no invalida el historial real.
-      await store.hydrateScenarioAnchors();
-      if (cancelled) return;
-      setStatus(store.getHistoryStatus());
-      setError(store.getHistoryError());
     };
 
     void run();

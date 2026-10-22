@@ -26,7 +26,12 @@ import {
 import type { Node } from '@xyflow/react';
 import type { MidasNodeData } from '@/types/canvas';
 import type { FileUploadResponseDTO, TopologyStateDTO } from '@/types/session';
-import { uploadDataFile, registerConnection } from '@/services/sessionService';
+import {
+  uploadDataFile,
+  registerConnection,
+  testConnection,
+  type ConnectionTestResponseDTO,
+} from '@/services/sessionService';
 import { useSession } from '@/context/SessionContext';
 
 export type QuickSourceType = 'excel' | 'csv' | 'rest' | 'database';
@@ -51,6 +56,8 @@ export function QuickConnectionModal({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<FileUploadResponseDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ConnectionTestResponseDTO | null>(null);
 
   // Form states for REST
   const [restName, setRestName] = useState('');
@@ -73,6 +80,8 @@ export function QuickConnectionModal({
     setFile(null);
     setUploadResult(null);
     setError(null);
+    setTestResult(null);
+    setIsTesting(false);
   }, [initialType, isOpen]);
 
   // Manejo de tecla Escape
@@ -87,6 +96,13 @@ export function QuickConnectionModal({
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  const handleSelectTab = (type: QuickSourceType) => {
+    setSelectedType(type);
+    setError(null);
+    setTestResult(null);
+    setIsTesting(false);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -183,6 +199,54 @@ export function QuickConnectionModal({
     }
   };
 
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    setError(null);
+    try {
+      if (selectedType === 'rest') {
+        if (!restUrl) {
+          setError('La URL del endpoint es requerida para probar la conexión.');
+          setIsTesting(false);
+          return;
+        }
+        const res = await testConnection({
+          source_type: 'REST',
+          config_payload: {
+            url: restUrl,
+            headers: restToken ? { Authorization: `Bearer ${restToken}` } : {},
+          },
+        });
+        setTestResult(res);
+      } else if (selectedType === 'database') {
+        if (!dbHost || !dbPort) {
+          setError('Host y Puerto son requeridos para probar el socket de conexión.');
+          setIsTesting(false);
+          return;
+        }
+        const res = await testConnection({
+          source_type: dbEngine,
+          config_payload: {
+            host: dbHost,
+            port: dbPort,
+            database: dbDatabase,
+            username: dbUser,
+            password: dbPassword,
+          },
+        });
+        setTestResult(res);
+      }
+    } catch (err) {
+      setTestResult({
+        success: false,
+        latency_ms: 0,
+        detail: err instanceof Error ? err.message : 'Error al probar la conexión con el servicio.',
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleRegisterGeneric = async () => {
     setIsUploading(true);
     setError(null);
@@ -267,7 +331,7 @@ export function QuickConnectionModal({
         <div className="flex border-b border-[#F0EDE7] bg-[#FFFFFF] px-6 pt-2 gap-2">
           <button
             type="button"
-            onClick={() => setSelectedType('excel')}
+            onClick={() => handleSelectTab('excel')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'excel'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -279,7 +343,7 @@ export function QuickConnectionModal({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedType('csv')}
+            onClick={() => handleSelectTab('csv')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'csv'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -291,7 +355,7 @@ export function QuickConnectionModal({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedType('rest')}
+            onClick={() => handleSelectTab('rest')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'rest'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -303,7 +367,7 @@ export function QuickConnectionModal({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedType('database')}
+            onClick={() => handleSelectTab('database')}
             className={`flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               selectedType === 'database'
                 ? 'border-[#D4AF37] text-[#8C6D1F]'
@@ -576,6 +640,34 @@ export function QuickConnectionModal({
               </div>
             </div>
           )}
+
+          {/* Test connection feedback */}
+          {testResult && (
+            <div
+              className={`mt-4 flex items-start gap-2.5 rounded-lg border p-3 text-xs font-mono transition-all animate-in fade-in ${
+                testResult.success
+                  ? 'border-[#4D7C0F]/30 bg-[#F4F9ED] text-[#365314]'
+                  : 'border-[#A8422B]/30 bg-[#FFF5F2] text-[#A8422B]'
+              }`}
+            >
+              {testResult.success ? (
+                <CheckCircle2 className="h-4 w-4 text-[#4D7C0F] shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="h-4 w-4 text-[#A8422B] shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <span className="font-semibold block">
+                  {testResult.success ? 'Diagnóstico Pre-flight Exitoso' : 'Fallo en Diagnóstico Pre-flight'}
+                </span>
+                <span className="text-[11px] block mt-0.5">{testResult.detail}</span>
+                {testResult.latency_ms > 0 && (
+                  <span className="text-[10px] text-[#787164] block mt-1">
+                    Latencia: {testResult.latency_ms} ms
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -588,26 +680,49 @@ export function QuickConnectionModal({
             Cancelar
           </button>
 
-          {uploadResult || selectedType === 'rest' || selectedType === 'database' ? (
-            <button
-              type="button"
-              onClick={uploadResult ? handleConfirmAddToCanvas : handleRegisterGeneric}
-              disabled={isUploading}
-              className="flex items-center gap-2 rounded-lg bg-[#D4AF37] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B8860B] active:scale-95 disabled:opacity-50 transition-all shadow-xs"
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Conectando...</span>
-                </>
-              ) : (
-                <>
-                  <span>Añadir al Canvas Topológico</span>
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {(selectedType === 'rest' || selectedType === 'database') && (
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={isTesting || isUploading}
+                className="flex items-center gap-1.5 rounded-lg border border-[#D4AF37]/60 bg-[#FBF8EF] px-3.5 py-2 text-xs font-semibold text-[#8C6D1F] hover:bg-[#F5EED8] active:scale-95 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
+              >
+                {isTesting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Probando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Radio className="h-3.5 w-3.5" />
+                    <span>Probar Conexión</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {uploadResult || selectedType === 'rest' || selectedType === 'database' ? (
+              <button
+                type="button"
+                onClick={uploadResult ? handleConfirmAddToCanvas : handleRegisterGeneric}
+                disabled={isUploading || isTesting}
+                className="flex items-center gap-2 rounded-lg bg-[#D4AF37] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B8860B] active:scale-95 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Conectando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Añadir al Canvas Topológico</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
