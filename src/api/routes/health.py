@@ -21,7 +21,7 @@ class HealthResponse(BaseModel):
     uptime_seconds: float = Field(..., description="Seconds elapsed since gateway process start.")
     active_sse_subscribers: int = Field(..., description="Count of currently active SSE stream clients.")
     environment: str = Field(..., description="Current running environment (development, staging, production).")
-    subsystems: dict = Field(default_factory=dict, description="Status of auxiliary subsystems (minio, postgres, telemetry).")
+    subsystems: dict = Field(default_factory=dict, description="Status of auxiliary subsystems (minio, trino, postgres, telemetry).")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -42,8 +42,37 @@ async def get_health() -> HealthResponse:
     subsystems_status = {
         "telemetry_hub": "healthy" if hub else "degraded",
     }
-    db_url = os.getenv("OPERATIONAL_DB_URL") or os.getenv("DATABASE_URL")
-    subsystems_status["postgres"] = "configured" if db_url and "postgresql" in db_url else "in_memory"
+
+    # 1. Chequeo dinámico de PostgreSQL operacional
+    db_url = os.getenv("OPERATIONAL_DB_URL") or os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("DATABASE_URL")
+    if db_url and "postgresql" in db_url:
+        try:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(db_url, connect_args={"connect_timeout": 1})
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            subsystems_status["postgres"] = "healthy"
+        except Exception:
+            subsystems_status["postgres"] = "degraded"
+    else:
+        subsystems_status["postgres"] = "in_memory"
+
+    # 2. Chequeo dinámico de MinIO S3
+    try:
+        from src.lakehouse.storage.minio_client import MidasMinioClient
+        minio_healthy = MidasMinioClient().check_health(timeout_sec=0.5)
+        subsystems_status["minio"] = "healthy" if minio_healthy else "unavailable"
+    except Exception:
+        subsystems_status["minio"] = "unavailable"
+
+    # 3. Chequeo dinámico de Trino Coordinator
+    try:
+        from src.core.query_engine.trino_client import TrinoClient
+        trino_cli = TrinoClient()
+        trino_healthy = await trino_cli.check_health()
+        subsystems_status["trino"] = "healthy" if trino_healthy else "unavailable"
+    except Exception:
+        subsystems_status["trino"] = "unavailable"
 
     return HealthResponse(
         status="healthy",

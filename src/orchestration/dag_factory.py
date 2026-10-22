@@ -69,8 +69,21 @@ def build_dynamic_dags(specs: list[dict[str, Any]]) -> dict[str, Any]:
                         conn_id=os.getenv("AIRFLOW_SPARK_CONN_ID", "spark_default"),
                         application_args=["--spec-json", json.dumps(spec)],
                     )
-                    # En la etapa de limpieza, encadenar el perfilamiento agnóstico de Silver
-                    if stage == "clean":
+                    # Encadenar flujo end-to-end: ingest -> clean -> profile
+                    if stage == "ingest":
+                        try:
+                            from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+                            trigger_clean = TriggerDagRunOperator(
+                                task_id=f"trigger_clean_{conn_id}",
+                                trigger_dag_id=f"dag_clean_{conn_id}",
+                                reset_dag_run=True,
+                                wait_for_completion=False,
+                            )
+                            if hasattr(task, "__rshift__"):
+                                task >> trigger_clean
+                        except Exception:
+                            pass
+                    elif stage == "clean":
                         profile_task = SparkSubmitOperator(
                             task_id=f"spark_profile_{conn_id}",
                             application=os.path.join(jobs_dir, "profile_silver.py"),

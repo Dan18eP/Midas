@@ -264,6 +264,15 @@ class TrinoClient:
                 column_types = []
                 data_rows: List[Dict[str, Any]] = []
 
+                # Extraer columnas y datos iniciales si vienen en la respuesta inmediata
+                if "columns" in statement_resp:
+                    columns = [c["name"] for c in statement_resp["columns"]]
+                    column_types = [c.get("type", "unknown") for c in statement_resp["columns"]]
+                if "data" in statement_resp and columns:
+                    for row in statement_resp["data"]:
+                        row_dict = {columns[idx]: val for idx, val in enumerate(row)}
+                        data_rows.append(row_dict)
+
                 # Polling asíncrono con control de timeout global
                 while next_uri:
                     elapsed = time.perf_counter() - start_time
@@ -382,6 +391,15 @@ class TrinoClient:
                     columns: List[str] = []
                     column_types: List[str] = []
                     data_rows: List[Dict[str, Any]] = []
+
+                    # Extraer columnas y datos iniciales si vienen en la respuesta inmediata
+                    if "columns" in statement_resp:
+                        columns = [c["name"] for c in statement_resp["columns"]]
+                        column_types = [c.get("type", "unknown") for c in statement_resp["columns"]]
+                    if "data" in statement_resp and columns:
+                        for row in statement_resp["data"]:
+                            row_dict = {columns[idx]: val for idx, val in enumerate(row)}
+                            data_rows.append(row_dict)
 
                     while next_uri:
                         elapsed = time.perf_counter() - start_time
