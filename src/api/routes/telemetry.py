@@ -31,6 +31,7 @@ class TelemetryHistoryResponse(BaseModel):
     events: List[Dict[str, Any]] = Field(..., description="Chronological list of events.")
     nodes_summary: Dict[str, Any] = Field(..., description="Consolidated node statuses and metrics.")
     active_alerts_count: int = Field(0, description="Count of active alerts/anomalies.")
+    is_simulated: bool = Field(False, description="Indicates if snapshot was populated with initial reference baseline T0.")
     retrieved_at: str = Field(..., description="ISO 8601 timestamp.")
 
 
@@ -135,8 +136,10 @@ async def get_telemetry_history(
 
     hub = get_telemetry_hub()
     buffered = hub.get_buffered_events()
+    is_simulated = False
     if not buffered:
         buffered = get_scenario_events("T0")
+        is_simulated = True
 
     events = [e.to_dict() for e in buffered]
     if node_id:
@@ -165,6 +168,7 @@ async def get_telemetry_history(
         events=events,
         nodes_summary=nodes_summary,
         active_alerts_count=active_alerts,
+        is_simulated=is_simulated,
         retrieved_at=datetime.now(timezone.utc).isoformat(),
     )
 

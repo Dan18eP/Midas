@@ -28,6 +28,7 @@ services:
   midas-postgres:
     image: postgres:16-alpine
     container_name: midas-postgres
+    mem_limit: 512m
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-midas_admin}
@@ -40,6 +41,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init-multi-db.sh:/docker-entrypoint-initdb.d/00-init-multi-db.sh:ro
       - ./docker/postgres/01-init-operational-seed.sql:/docker-entrypoint-initdb.d/01-init-operational-seed.sql:ro
+      - ./docker/postgres/02-init-sessions-schema.sql:/docker-entrypoint-initdb.d/02-init-sessions-schema.sql:ro
     networks:
       - midas-network
     healthcheck:
@@ -57,6 +59,7 @@ services:
     # bitnamilegacy publica el ultimo build comunitario de MinIO.
     image: bitnamilegacy/minio:latest
     container_name: midas-minio
+    mem_limit: 384m
     restart: unless-stopped
     user: "0"
     environment:
@@ -105,6 +108,7 @@ services:
   midas-iceberg-catalog:
     image: tabulario/iceberg-rest:1.5.0
     container_name: midas-iceberg-catalog
+    mem_limit: 512m
     restart: unless-stopped
     profiles: ["lakehouse", "full"]
     depends_on:
@@ -140,6 +144,7 @@ services:
   midas-trino:
     image: trinodb/trino:450
     container_name: midas-trino
+    mem_limit: 2048m
     restart: unless-stopped
     profiles: ["lakehouse", "query", "full"]
     depends_on:
@@ -162,6 +167,7 @@ services:
     # bitnami/spark:3.5.1 fue movida al namespace bitnamilegacy.
     image: bitnamilegacy/spark:3.5.1
     container_name: midas-spark-master
+    mem_limit: 512m
     restart: unless-stopped
     profiles: ["lakehouse", "spark", "orchestration", "full"]
     depends_on:
@@ -189,6 +195,7 @@ services:
     # bitnami/spark:3.5.1 fue movida al namespace bitnamilegacy.
     image: bitnamilegacy/spark:3.5.1
     container_name: midas-spark-worker
+    mem_limit: 1792m
     restart: unless-stopped
     profiles: ["lakehouse", "spark", "orchestration", "full"]
     depends_on:
@@ -219,6 +226,7 @@ services:
   midas-opensearch:
     image: opensearchproject/opensearch:2.11.1
     container_name: midas-opensearch
+    mem_limit: 1024m
     restart: unless-stopped
     profiles: ["governance", "full"]
     environment:
@@ -292,6 +300,7 @@ services:
   midas-openmetadata:
     image: docker.getcollate.io/openmetadata/server:1.5.11
     container_name: midas-openmetadata
+    mem_limit: 1280m
     restart: unless-stopped
     profiles: ["governance", "full"]
     depends_on:
@@ -319,6 +328,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: midas-api
+    mem_limit: 384m
     restart: unless-stopped
     profiles: ["api", "full"]
     depends_on:
@@ -384,6 +394,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-midas_minio_secret_2026}
       MIDAS_GOLD_SPARK_JOB: ${MIDAS_GOLD_SPARK_JOB:-/opt/midas/jobs/materialize_gold.py}
       MIDAS_TELEMETRY_PUBLISH_URL: http://midas-api:8000/api/v1/telemetry/publish
+      POSTGRES_OPERATIONAL_URL: ${POSTGRES_OPERATIONAL_URL:-postgresql://midas_admin:midas_secret_password_2026@midas-postgres:5432/midas_operational}
       PYTHONPATH: /opt/midas
     volumes: &airflow-volumes
       - ./docker/airflow/init.sh:/opt/airflow/init.sh:ro
@@ -392,6 +403,7 @@ services:
       - ./jobs:/opt/midas/jobs:ro
       - ./docker/spark/jars:/opt/midas/spark-jars:ro
       - ./docker/spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./data:/opt/midas/data:ro
     networks:
       - midas-network
 
@@ -400,6 +412,7 @@ services:
       context: .
       dockerfile: docker/airflow/Dockerfile
     container_name: midas-airflow-webserver
+    mem_limit: 512m
     restart: unless-stopped
     profiles: ["orchestration", "full"]
     depends_on:
@@ -418,6 +431,7 @@ services:
       context: .
       dockerfile: docker/airflow/Dockerfile
     container_name: midas-airflow-scheduler
+    mem_limit: 512m
     restart: unless-stopped
     profiles: ["orchestration", "full"]
     depends_on:
@@ -435,6 +449,7 @@ services:
   midas-ollama:
     image: ollama/ollama:latest
     container_name: midas-ollama
+    mem_limit: 2048m
     restart: unless-stopped
     profiles: ["ai", "full"]
     ports:
@@ -451,13 +466,19 @@ services:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
+      args:
+        INTERNAL_API_URL: ${INTERNAL_API_URL:-http://midas-api:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SSE_URL: ${NEXT_PUBLIC_SSE_URL:-http://localhost:8000/api/v1/telemetry/stream}
     container_name: midas-frontend
+    mem_limit: 384m
     restart: unless-stopped
     profiles: ["frontend", "full"]
     depends_on:
       - midas-api
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_SSE_URL=${NEXT_PUBLIC_SSE_URL:-http://localhost:8000/api/v1/telemetry/stream}
       - INTERNAL_API_URL=${INTERNAL_API_URL:-http://midas-api:8000}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"

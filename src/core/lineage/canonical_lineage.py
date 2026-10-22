@@ -168,8 +168,9 @@ def get_table_lineage(table_name: str) -> Dict[str, Any]:
         "stages": stages,
         "transformation": transformation,
         "certification": {
-            "quality_percent": 100,
-            "quality_summary": "100% Contratos de Datos Certificados (OpenMetadata)",
+            "quality_percent": None,
+            "verified": False,
+            "quality_summary": "Certificacion pendiente de verificacion con OpenMetadata",
             "last_sync": now_iso,
             "audit_hash": audit_hash,
         },

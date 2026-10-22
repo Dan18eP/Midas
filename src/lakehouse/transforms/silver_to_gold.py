@@ -117,7 +117,14 @@ class SilverToGoldTransformer:
         pipeline_id: str = "pipeline_silver_to_gold",
         node_id: str = "gold_marts",
     ):
-        self.acid_manager = acid_manager
+        if acid_manager is None:
+            try:
+                from src.lakehouse.storage.acid_manager import MidasAcidStorageManager
+                self.acid_manager = MidasAcidStorageManager()
+            except Exception:
+                self.acid_manager = None
+        else:
+            self.acid_manager = acid_manager
         self.minio_client = minio_client
         self.telemetry_publisher = telemetry_publisher
         self.pipeline_id = pipeline_id
@@ -171,8 +178,16 @@ class SilverToGoldTransformer:
             # Excluir cancelaciones previas al despacho de los pedidos válidos
             if estado == "CANCELADO":
                 continue
+            # Venta Bruta solo sobre ENTREGADO/EN_TRANSITO (canonico 04)
+            if estado not in ("ENTREGADO", "EN_TRANSITO", "DEVUELTO", "PENDIENTE"):
+                continue
 
-            pedido_id = str(r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id") or uuid.uuid4())
+            if not (r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id")):
+                import hashlib
+                raw_repr = str(sorted([(str(k), str(v)) for k, v in r.items()]))
+                pedido_id = "rec_" + hashlib.sha256(raw_repr.encode("utf-8")).hexdigest()[:16]
+            else:
+                pedido_id = str(r.get("pedido_id") or r.get("transaccion_id") or r.get("_raw_id"))
 
             # Calcular Monto Bruto
             if "cantidad" in r and "precio_unitario" in r:
@@ -201,8 +216,9 @@ class SilverToGoldTransformer:
                 # Si está marcado como devuelto sin monto explícito, se asume el total neto
                 devolucion_item = bruto_item - descuento_item
 
-            # Acumuladores
-            venta_bruta += bruto_item
+            # Acumuladores: venta bruta solo para ENTREGADO/EN_TRANSITO
+            if estado in ("ENTREGADO", "EN_TRANSITO"):
+                venta_bruta += bruto_item
             total_descuento += descuento_item
             total_devoluciones += devolucion_item
 
@@ -346,24 +362,51 @@ class SilverToGoldTransformer:
             "gold.dim_tiendas_regiones": get_dim_tiendas_openmetadata_spec(),
         }
 
-        # 7. Persistencia opcional en Apache Iceberg v2
+        # 7. Persistencia opcional en Apache Iceberg v2 y MinIO S3
         fct_path = None
         dim_path = None
-        if persist_iceberg and self.acid_manager is not None:
-            try:
-                # Materializar Dimensión
-                dim_dicts = [d.to_dict() for d in dim_records]
-                dim_arrow = pa.Table.from_pylist(dim_dicts, schema=get_dim_tiendas_arrow_schema())
-                self.acid_manager.append_data("gold.dim_tiendas_regiones", dim_arrow)
-                dim_path = "s3://midas-gold/gold.db/dim_tiendas_regiones"
+        if persist_iceberg:
+            if self.acid_manager is not None:
+                try:
+                    # Materializar Dimensión
+                    dim_dicts = [d.to_dict() for d in dim_records]
+                    dim_arrow = pa.Table.from_pylist(dim_dicts, schema=get_dim_tiendas_arrow_schema())
+                    self.acid_manager.append_data("gold.dim_tiendas_regiones", dim_arrow)
+                    dim_path = "s3://midas-gold/gold.db/dim_tiendas_regiones"
 
-                # Materializar Hechos
-                fct_dicts = [f.to_dict() for f in fct_records]
-                fct_arrow = pa.Table.from_pylist(fct_dicts, schema=get_fct_ventas_arrow_schema())
-                self.acid_manager.append_data("gold.fct_ventas_diarias", fct_arrow)
-                fct_path = "s3://midas-gold/gold.db/fct_ventas_diarias"
-            except Exception as e:
-                logger.error(f"Error persistiendo en Iceberg v2: {e}")
+                    # Materializar Hechos en fct_ventas_diarias y fact_ventas para compatibilidad total
+                    fct_dicts = [f.to_dict() for f in fct_records]
+                    fct_arrow = pa.Table.from_pylist(fct_dicts, schema=get_fct_ventas_arrow_schema())
+                    self.acid_manager.append_data("gold.fct_ventas_diarias", fct_arrow)
+                    try:
+                        self.acid_manager.append_data("gold.fact_ventas", fct_arrow)
+                    except Exception:
+                        pass
+                    fct_path = "s3://midas-gold/gold.db/fct_ventas_diarias"
+                except Exception as e:
+                    logger.error(f"Error persistiendo en Iceberg v2: {e}")
+
+            # Persistir instantánea en MinIO si el cliente S3 está disponible
+            if self.minio_client is not None:
+                try:
+                    import json
+                    fct_dicts = [f.to_dict() for f in fct_records]
+                    raw_bytes = json.dumps(fct_dicts, default=str, indent=2).encode("utf-8")
+                    self.minio_client.put_object(
+                        bucket="midas-gold",
+                        object_name=f"gold.db/fct_ventas_diarias/{batch_id}.json",
+                        data=raw_bytes,
+                        content_type="application/json",
+                    )
+                    self.minio_client.put_object(
+                        bucket="midas-gold",
+                        object_name=f"gold.db/fact_ventas/{batch_id}.json",
+                        data=raw_bytes,
+                        content_type="application/json",
+                    )
+                    fct_path = fct_path or f"s3://midas-gold/gold.db/fct_ventas_diarias/{batch_id}.json"
+                except Exception as s3_err:
+                    logger.debug("Persistencia MinIO auxiliar Gold omitida: %s", s3_err)
 
         # 8. Emisión de Telemetría hacia Canvas (node_id='gold_marts')
         telemetry_event = self._emit_telemetry(

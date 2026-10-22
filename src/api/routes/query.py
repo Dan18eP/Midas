@@ -154,6 +154,14 @@ async def execute_query_endpoint(
             detail=masked_msg,
         ) from timeout_err
 
+    except ConnectionError as conn_err:
+        masked_msg = mask_sensitive_credentials(str(conn_err))
+        logger.error("Fallo de conexion con Trino: %s", masked_msg)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Motor federado Trino no disponible: {masked_msg}",
+        ) from conn_err
+
     except Exception as exc:
         masked_msg = mask_sensitive_credentials(str(exc))
         logger.error("Fallo inesperado ejecutando query: %s", masked_msg)

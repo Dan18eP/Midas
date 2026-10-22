@@ -78,6 +78,11 @@ class ExcelSourceConnector:
         finally:
             wb.close()
 
+    @property
+    def sheet_names(self) -> List[str]:
+        """Propiedad de conveniencia para acceder a los nombres de las hojas."""
+        return self.get_sheet_names()
+
     def _normalize_header(self, raw_header: Any, index: int) -> str:
         """Normaliza una cadena de cabecera a snake_case seguro."""
         if raw_header is None or str(raw_header).strip() == "":

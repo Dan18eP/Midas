@@ -85,3 +85,29 @@ def test_pipeline_get_status():
     assert data["connection_id"] == cid
     assert "active_status" in data
     assert "last_updated" in data
+
+
+def test_approve_gold_proposal_endpoint():
+    """Valida la aprobación de un modelo Gold y la emisión de telemetría hacia el Canvas."""
+    client = TestClient(app)
+    payload = {
+        "proposal_id": "gold_ventas_by_canal",
+        "target_table": "gold.fct_ventas_canal",
+        "sql": "SELECT canal_venta, SUM(monto) AS total_monto FROM silver.clean_data GROUP BY canal_venta",
+        "pipeline_id": "pipeline_silver_to_gold",
+        "quality_policies": ["row_count_gt_zero"],
+    }
+    response = client.post("/api/v1/pipelines/gold/approve", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["status"] == "APPROVED"
+    assert data["target_table"] == "gold.fct_ventas_canal"
+    assert data["execution_mode"] == "ICEBERG_WAP"
+    assert data["telemetry_event_id"] is not None
+
+    # Verificar que el evento de telemetría fue publicado en el Hub
+    hub = get_telemetry_hub()
+    snapshot = hub.get_snapshot()
+    assert "gold_fct_ventas_canal" in snapshot
+    assert snapshot["gold_fct_ventas_canal"].status.value == "HEALTHY"

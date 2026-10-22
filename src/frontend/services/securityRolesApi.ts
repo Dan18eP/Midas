@@ -16,6 +16,22 @@ const DEFAULT_API_BASE = 'http://localhost:8000';
 export const SECURITY_API_BASE = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
 export const SECURITY_ROLES_PATH = '/api/v1/auth/roles';
 export const SECURITY_ROLES_TIMEOUT_MS = 2500;
+let currentActiveRole: string = 'director_general';
+
+/**
+ * Actualiza el rol de usuario activo para propagacion transparente mediante X-User-Role.
+ */
+export function setActiveUserRole(role: string): void {
+  currentActiveRole = role;
+}
+
+/**
+ * Obtiene el rol de usuario activo para inyeccion en encabezados HTTP.
+ */
+export function getActiveUserRole(): string {
+  return currentActiveRole;
+}
+
 
 /** Cabecera que el Gateway lee para resolver el rol efectivo (ver src/api/middleware.py). */
 export const USER_ROLE_HEADER = 'X-User-Role';

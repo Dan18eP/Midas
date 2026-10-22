@@ -480,6 +480,23 @@ class UniversalIngestionEngine:
                 create_bronze_envelope(item, stype, origin, bid, schema_fingerprint=fp)
                 for item in raw_items
             ]
+        elif "CSV" in stype:
+            file_path = source_config.get("file_path") or source_config.get("path")
+            if file_path and isinstance(file_path, str) and os.path.exists(file_path):
+                try:
+                    import csv
+                    with open(file_path, "r", encoding="utf-8-sig", errors="replace") as f:
+                        reader = csv.DictReader(f)
+                        raw_items = [row for row in reader if any(v is not None and v != "" for v in row.values())]
+                    if raw_items:
+                        cols = list(raw_items[0].keys())
+                        fp = compute_schema_fingerprint(cols)
+                        records = [
+                            create_bronze_envelope(item, stype, origin, bid, schema_fingerprint=fp)
+                            for item in raw_items
+                        ]
+                except Exception as exc:
+                    logger.warning("No se pudo leer archivo CSV local (%s): %s. Generando lote sintetico.", file_path, exc)
         elif "EXCEL" in stype:
             file_path = source_config.get("file_path") or source_config.get("path")
             sheet = source_config.get("sheet") or source_config.get("sheet_name") or 0
@@ -491,7 +508,7 @@ class UniversalIngestionEngine:
                 except Exception as exc:
                     logger.warning("No se pudo leer archivo Excel local (%s): %s. Generando lote sintetico.", file_path, exc)
         elif "POSTGRES" in stype:
-            conn_url = source_config.get("connection_url") or source_config.get("url_env")
+            conn_url = source_config.get("connection_url") or (os.getenv(source_config.get("url_env", "")) if source_config.get("url_env") else None) or source_config.get("url_env")
             tbl = source_config.get("table") or "crm_transacciones"
             sch = source_config.get("schema") or "public"
             if conn_url and not str(conn_url).startswith("POSTGRES_"):
@@ -501,7 +518,7 @@ class UniversalIngestionEngine:
                 except Exception as exc:
                     logger.warning("No se pudo conectar a PostgreSQL (%s): %s. Generando lote sintetico.", tbl, exc)
         elif "REST" in stype:
-            base_url = source_config.get("base_url") or source_config.get("url")
+            base_url = source_config.get("base_url") or source_config.get("url") or source_config.get("endpoint_url")
             endpoint = source_config.get("endpoint") or ""
             if base_url:
                 try:

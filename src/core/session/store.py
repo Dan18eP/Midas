@@ -39,12 +39,12 @@ class SessionStore:
                 self._engine = create_engine(
                     self.db_url,
                     pool_pre_ping=True,
-                    connect_args={"connect_timeout": 1},
+                    connect_args={"connect_timeout": 3},
                 )
                 self._hydrate_from_postgres()
                 self._postgres_available = True
             except Exception as exc:
-                logger.warning("No se pudo conectar a PostgreSQL (usando modo memoria pura): %s", exc)
+                logger.warning("No se pudo conectar a PostgreSQL en arranque (usando modo memoria con reintento lazy): %s", exc)
                 self._postgres_available = False
 
     def create_session(

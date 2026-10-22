@@ -79,7 +79,7 @@ class TrinoClient:
         schema: str = "silver",
         timeout_sec: float = 10.0,
         max_limit: int = 1000,
-        fallback_for_testing: bool = True,
+        fallback_for_testing: Optional[bool] = None,
     ):
         self.host = host or os.getenv("TRINO_HOST", "localhost")
         self.port = port or int(os.getenv("TRINO_PORT", "8082"))
@@ -88,7 +88,14 @@ class TrinoClient:
         self.default_schema = schema
         self.timeout_sec = timeout_sec
         self.max_limit = max_limit
-        self.fallback_for_testing = fallback_for_testing
+        if fallback_for_testing is not None:
+            self.fallback_for_testing = fallback_for_testing
+        else:
+            is_test_env = (
+                os.getenv("MIDAS_TEST_MODE", "").lower() in ("true", "1", "yes")
+                or "PYTEST_CURRENT_TEST" in os.environ
+            )
+            self.fallback_for_testing = is_test_env
 
         self.base_url = f"http://{self.host}:{self.port}"
         self._async_client: Optional[Any] = None
@@ -209,6 +216,7 @@ class TrinoClient:
         target_catalog = catalog or self.default_catalog
         target_schema = schema_name or self.default_schema
         effective_timeout = timeout_sec or self.timeout_sec
+        effective_timeout = timeout_sec or self.timeout_sec
 
         # 1. Aplicar Guardrails y forzado de LIMIT 1000
         safe_sql = enforce_limit_and_read_only(
@@ -255,6 +263,15 @@ class TrinoClient:
                 columns = []
                 column_types = []
                 data_rows: List[Dict[str, Any]] = []
+
+                # Extraer columnas y datos iniciales si vienen en la respuesta inmediata
+                if "columns" in statement_resp:
+                    columns = [c["name"] for c in statement_resp["columns"]]
+                    column_types = [c.get("type", "unknown") for c in statement_resp["columns"]]
+                if "data" in statement_resp and columns:
+                    for row in statement_resp["data"]:
+                        row_dict = {columns[idx]: val for idx, val in enumerate(row)}
+                        data_rows.append(row_dict)
 
                 # Polling asíncrono con control de timeout global
                 while next_uri:
@@ -303,6 +320,10 @@ class TrinoClient:
                     query_id=query_id,
                 )
 
+            else:
+                if not self.fallback_for_testing:
+                    raise ConnectionError(f"Trino statement rejected with status {resp.status_code}")
+
         except (httpx.ConnectError, httpx.TimeoutException, TimeoutError) as net_err:
             if isinstance(net_err, (TimeoutError, httpx.TimeoutException)):
                 elapsed = time.perf_counter() - start_time
@@ -338,6 +359,7 @@ class TrinoClient:
         start_time = time.perf_counter()
         target_catalog = catalog or self.default_catalog
         target_schema = schema_name or self.default_schema
+        effective_timeout = timeout_sec or self.timeout_sec
         safe_sql = enforce_limit_and_read_only(sql, default_limit=self.max_limit, max_limit=self.max_limit)
         policy_decision = apply_policies(safe_sql, user_role)
         effective_sql = policy_decision.effective_sql
@@ -348,6 +370,99 @@ class TrinoClient:
             cost_level="LOW",
             plan_summary="Distributed Plan Sync",
         )
+
+        headers = {
+            "X-Trino-User": self.user,
+            "X-Trino-Catalog": target_catalog,
+            "X-Trino-Schema": target_schema,
+            "X-Trino-Source": "midas-api",
+        }
+        if user_role and ranger_trino_plugin_enabled():
+            headers["X-Trino-Role"] = f"system=ROLE{{{user_role}}}"
+
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=effective_timeout) as sync_cli:
+                resp = sync_cli.post("/v1/statement", content=effective_sql.encode("utf-8"), headers=headers)
+                if resp.status_code == 200:
+                    statement_resp = resp.json()
+                    query_id = statement_resp.get("id")
+                    next_uri = statement_resp.get("nextUri")
+
+                    columns: List[str] = []
+                    column_types: List[str] = []
+                    data_rows: List[Dict[str, Any]] = []
+
+                    # Extraer columnas y datos iniciales si vienen en la respuesta inmediata
+                    if "columns" in statement_resp:
+                        columns = [c["name"] for c in statement_resp["columns"]]
+                        column_types = [c.get("type", "unknown") for c in statement_resp["columns"]]
+                    if "data" in statement_resp and columns:
+                        for row in statement_resp["data"]:
+                            row_dict = {columns[idx]: val for idx, val in enumerate(row)}
+                            data_rows.append(row_dict)
+
+                    while next_uri:
+                        elapsed = time.perf_counter() - start_time
+                        remaining = effective_timeout - elapsed
+                        if remaining <= 0:
+                            raise TimeoutError(f"Consulta Trino excedió el timeout de {effective_timeout:.1f} segundos.")
+
+                        poll_resp = sync_cli.get(next_uri, timeout=remaining)
+                        if poll_resp.status_code != 200:
+                            break
+
+                        poll_data = poll_resp.json()
+                        next_uri = poll_data.get("nextUri")
+
+                        if "columns" in poll_data and not columns:
+                            columns = [c["name"] for c in poll_data["columns"]]
+                            column_types = [c.get("type", "unknown") for c in poll_data["columns"]]
+
+                        if "data" in poll_data:
+                            for row in poll_data["data"]:
+                                row_dict = {columns[idx]: val for idx, val in enumerate(row)}
+                                data_rows.append(row_dict)
+
+                        stats = poll_data.get("stats", {})
+                        state = stats.get("state")
+                        if state == "FAILED":
+                            error_info = poll_data.get("error", {})
+                            error_msg = error_info.get("message", "Error desconocido de Trino")
+                            safe_error = mask_sensitive_credentials(error_msg)
+                            raise RuntimeError(f"Trino Query Error ({query_id}): {safe_error}")
+
+                    exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
+                    return QueryResult(
+                        security_policy=policy_decision.to_dict(),
+                        columns=columns,
+                        column_types=column_types,
+                        data=data_rows,
+                        row_count=len(data_rows),
+                        execution_time_ms=exec_time_ms,
+                        catalog=target_catalog,
+                        schema_name=target_schema,
+                        truncated=(len(data_rows) >= self.max_limit),
+                        cost_estimate=cost_est,
+                        query_id=query_id,
+                    )
+                else:
+                    if not self.fallback_for_testing:
+                        raise ConnectionError(f"Trino statement rejected with status {resp.status_code}")
+
+        except (httpx.ConnectError, httpx.TimeoutException, TimeoutError) as net_err:
+            if isinstance(net_err, (TimeoutError, httpx.TimeoutException)):
+                elapsed = time.perf_counter() - start_time
+                if elapsed >= effective_timeout:
+                    raise TimeoutError(f"Consulta Trino cancelada por exceder el timeout de {effective_timeout:.1f}s.")
+
+            if not self.fallback_for_testing:
+                safe_net_err = mask_sensitive_credentials(str(net_err))
+                raise ConnectionError(f"No fue posible conectar con el coordinador Trino en {self.base_url}: {safe_net_err}")
+
+        except Exception as sync_err:
+            if not self.fallback_for_testing:
+                safe_err = mask_sensitive_credentials(str(sync_err))
+                raise ConnectionError(f"No fue posible conectar con el coordinador Trino en {self.base_url}: {safe_err}") from sync_err
 
         return self._execute_deterministic_local_engine(
             sql=effective_sql,
@@ -411,6 +526,51 @@ class TrinoClient:
             sample_records = [
                 {"id_cliente": "CLI-001", "nombre": "Carlos Mendoza", "region": "ANDINA", "categoria_segmento": "CORPORATIVO"},
                 {"id_cliente": "CLI-002", "nombre": "Laura Gómez", "region": "ANTIOQUIA", "categoria_segmento": "PYME"},
+            ]
+        # Si consulta metadatos de esquema o catalogo (information_schema)
+        elif any(term in t for t in tables for term in ["column", "table", "schema", "information_schema"]):
+            sample_records = [
+                {"table_schema": "silver", "table_name": "crm_transacciones", "column_name": "transaccion_id"},
+                {"table_schema": "silver", "table_name": "crm_transacciones", "column_name": "cliente_id"},
+                {"table_schema": "silver", "table_name": "crm_transacciones", "column_name": "monto"},
+                {"table_schema": "silver", "table_name": "crm_transacciones", "column_name": "fecha"},
+                {"table_schema": "silver", "table_name": "crm_transacciones", "column_name": "region"},
+                {"table_schema": "silver", "table_name": "crm_transacciones", "column_name": "canal_venta"},
+                {"table_schema": "silver", "table_name": "crm_clientes", "column_name": "cliente_id"},
+                {"table_schema": "silver", "table_name": "crm_clientes", "column_name": "nombre"},
+                {"table_schema": "silver", "table_name": "crm_clientes", "column_name": "email"},
+                {"table_schema": "silver", "table_name": "crm_clientes", "column_name": "telefono"},
+                {"table_schema": "silver", "table_name": "crm_clientes", "column_name": "region"},
+                {"table_schema": "silver", "table_name": "crm_clientes", "column_name": "categoria_segmento"},
+                {"table_schema": "silver", "table_name": "presupuesto_metas", "column_name": "meta_id"},
+                {"table_schema": "silver", "table_name": "presupuesto_metas", "column_name": "region"},
+                {"table_schema": "silver", "table_name": "presupuesto_metas", "column_name": "canal_venta"},
+                {"table_schema": "silver", "table_name": "presupuesto_metas", "column_name": "meta_ingreso_presupuestada"},
+                {"table_schema": "silver", "table_name": "presupuesto_metas", "column_name": "año"},
+                {"table_schema": "silver", "table_name": "presupuesto_metas", "column_name": "mes"},
+                {"table_schema": "silver", "table_name": "costos_operativos", "column_name": "costo_id"},
+                {"table_schema": "silver", "table_name": "costos_operativos", "column_name": "region"},
+                {"table_schema": "silver", "table_name": "costos_operativos", "column_name": "canal_venta"},
+                {"table_schema": "silver", "table_name": "costos_operativos", "column_name": "costo_operativo_fijo"},
+                {"table_schema": "silver", "table_name": "costos_operativos", "column_name": "año"},
+                {"table_schema": "silver", "table_name": "costos_operativos", "column_name": "mes"},
+                {"table_schema": "silver", "table_name": "helpdesk_tickets", "column_name": "ticket_id"},
+                {"table_schema": "silver", "table_name": "helpdesk_tickets", "column_name": "cliente_id"},
+                {"table_schema": "silver", "table_name": "helpdesk_tickets", "column_name": "tiempo_respuesta_min"},
+                {"table_schema": "silver", "table_name": "helpdesk_tickets", "column_name": "csat_puntuacion"},
+                {"table_schema": "silver", "table_name": "helpdesk_tickets", "column_name": "fecha"},
+                {"table_schema": "gold", "table_name": "fact_ventas", "column_name": "id"},
+                {"table_schema": "gold", "table_name": "fact_ventas", "column_name": "fecha"},
+                {"table_schema": "gold", "table_name": "fact_ventas", "column_name": "monto"},
+                {"table_schema": "gold", "table_name": "fact_ventas", "column_name": "monto_bruto"},
+                {"table_schema": "gold", "table_name": "fact_ventas", "column_name": "region"},
+                {"table_schema": "gold", "table_name": "fact_ventas", "column_name": "canal_venta"},
+                {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "fecha"},
+                {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "region"},
+                {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "canal_venta"},
+                {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "total_neto"},
+                {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "total_pedidos"},
+                {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "ticket_promedio"},
             ]
         else:
             # Fallback genérico para SHOW / DESCRIBE u otras consultas

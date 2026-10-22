@@ -8,6 +8,7 @@ Soporta registro declarativo JSON y carga multipart/form-data de binarios Excel 
 import csv
 import io
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -275,11 +276,19 @@ async def upload_source_file(
                 detail=f"Error parseando archivo CSV: {exc}",
             )
 
+    # Guardar archivo localmente de forma persistente en data/uploads/
+    upload_dir = Path("data/uploads")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    local_file_path = upload_dir / clean_filename
+    with open(local_file_path, "wb") as f:
+        f.write(raw_bytes)
+
     create_dto = SourceConnectionCreate(
         name=conn_name,
         source_type=effective_source_type,
         config_payload={
             "filename": clean_filename,
+            "file_path": str(local_file_path).replace("\\", "/"),
             "sheets": sheets,
             "detected_columns": detected_columns,
             "delimiter": detected_delimiter,
@@ -297,6 +306,7 @@ async def upload_source_file(
 
     cid = registered.connection_id
     storage_path = f"s3://midas-bronze/sources/{cid}/raw/{clean_filename}"
+    registered.config_payload["storage_uri"] = storage_path
 
     # Persistir archivo crudo en MinIO S3 si está disponible
     try:

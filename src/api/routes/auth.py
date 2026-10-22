@@ -22,63 +22,55 @@ class ZeroTrustRole(BaseModel):
     scope_value: Optional[str] = Field(None, description="Target value for ABAC scoped filtering")
 
 
-CANONICAL_ROLES = [
-    ZeroTrustRole(
-        role_id="director_general",
-        title="Director General (Data Owner)",
-        description="Acceso irrestricto a todas las capas del Lakehouse (Bronze, Silver, Gold y Guardian).",
-        canvas_effect="Todos los nodos del Canvas en verde brillante; acceso completo sin restricciones.",
-        ranger_row_filter=None,
-        ranger_column_mask=None,
-        allowed_nodes=[
-            "source_postgres",
-            "source_csv",
-            "source_api",
-            "bronze_raw",
-            "silver_cleansing",
-            "silver_quarantine",
-            "guardian_monitor",
-            "gold_marts",
-        ],
-        locked_nodes=[],
-        archetype="DATA_OWNER",
-    ),
-    ZeroTrustRole(
-        role_id="gerente_norte",
-        title="Gerente Regional Norte (Restricted Operator)",
-        description="Acceso condicionado a métricas y transacciones pertenecientes exclusivamente a la región NORTE.",
-        canvas_effect="Nodos de otras regiones en ámbar con etiqueta flotante: Row Filter: region = 'NORTE'.",
-        ranger_row_filter="region = 'NORTE'",
-        ranger_column_mask=None,
-        allowed_nodes=[
-            "source_postgres",
-            "bronze_raw",
-            "silver_cleansing",
-            "gold_marts",
-        ],
-        locked_nodes=["source_csv", "silver_quarantine"],
-        archetype="RESTRICTED_OPERATOR",
-        scope_column="region",
-        scope_value="NORTE",
-    ),
-    ZeroTrustRole(
-        role_id="analista_externo",
-        title="Analista Externo (Compliance Auditor)",
-        description="Perfil de menor privilegio con enmascaramiento estricto de PII y bloqueo de nodos financieros.",
-        canvas_effect="Nodos financieros bloqueados con candado (Política Ranger #402); nodos permitidos con Column Mask: PII.",
-        ranger_row_filter=None,
-        ranger_column_mask="PII_HASH (email, telefono, rfc)",
-        allowed_nodes=[
-            "source_api",
-            "bronze_raw",
-            "silver_cleansing",
-        ],
-        locked_nodes=["gold_marts", "silver_quarantine"],
-        archetype="COMPLIANCE_AUDITOR",
-    ),
-]
-
+# Roles se registran dinámicamente. Los roles por defecto se siembran
+# al importar el módulo, pero son modificables en caliente.
 _custom_roles: Dict[str, ZeroTrustRole] = {}
+
+# Siembra de roles por defecto (solo si no existen)
+def _seed_default_roles() -> None:
+    """Siembra roles por defecto de forma dinámica."""
+    defaults = [
+        ZeroTrustRole(
+            role_id="director_general",
+            title="Director General (Data Owner)",
+            description="Acceso irrestricto a todas las capas del Lakehouse (Bronze, Silver, Gold y Guardian).",
+            canvas_effect="Todos los nodos del Canvas en verde brillante; acceso completo sin restricciones.",
+            ranger_row_filter=None,
+            ranger_column_mask=None,
+            allowed_nodes=["source_postgres", "source_csv", "source_api", "bronze_raw", "silver_cleansing", "silver_quarantine", "guardian_monitor", "gold_marts"],
+            locked_nodes=[],
+            archetype="DATA_OWNER",
+        ),
+        ZeroTrustRole(
+            role_id="gerente_norte",
+            title="Gerente Regional Norte (Restricted Operator)",
+            description="Acceso condicionado a métricas y transacciones pertenecientes exclusivamente a la región NORTE.",
+            canvas_effect="Nodos de otras regiones en ámbar con etiqueta flotante: Row Filter: region = 'NORTE'.",
+            ranger_row_filter="region = 'NORTE'",
+            ranger_column_mask=None,
+            allowed_nodes=["source_postgres", "bronze_raw", "silver_cleansing", "gold_marts"],
+            locked_nodes=["source_csv", "silver_quarantine"],
+            archetype="RESTRICTED_OPERATOR",
+            scope_column="region",
+            scope_value="NORTE",
+        ),
+        ZeroTrustRole(
+            role_id="analista_externo",
+            title="Analista Externo (Compliance Auditor)",
+            description="Perfil de menor privilegio con enmascaramiento estricto de PII y bloqueo de nodos financieros.",
+            canvas_effect="Nodos financieros bloqueados con candado; nodos permitidos con Column Mask: PII.",
+            ranger_row_filter=None,
+            ranger_column_mask="PII_HASH (email, telefono, rfc)",
+            allowed_nodes=["source_api", "bronze_raw", "silver_cleansing"],
+            locked_nodes=["gold_marts", "silver_quarantine"],
+            archetype="COMPLIANCE_AUDITOR",
+        ),
+    ]
+    for role in defaults:
+        if role.role_id not in _custom_roles:
+            _custom_roles[role.role_id] = role
+
+_seed_default_roles()
 
 
 class CreateRoleRequest(BaseModel):
@@ -100,7 +92,7 @@ class CreateRoleRequest(BaseModel):
 )
 async def list_roles() -> List[ZeroTrustRole]:
     """Retrieve all canonical and dynamic Zero-Trust identities."""
-    return list(CANONICAL_ROLES) + list(_custom_roles.values())
+    return list(_custom_roles.values())
 
 
 @router.post(
@@ -136,5 +128,6 @@ async def create_role(payload: CreateRoleRequest) -> ZeroTrustRole:
 
 
 def reset_roles_catalog() -> None:
-    """Limpia roles personalizados para aislamiento de pruebas."""
+    """Limpia roles personalizados para aislamiento de pruebas y re-siembra los defaults."""
     _custom_roles.clear()
+    _seed_default_roles()

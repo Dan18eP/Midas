@@ -137,7 +137,6 @@ PROYECTO-JUEVES-22/
 │   ├── 01_anti_code_drift_policy.md   # Política estricta: Document First, Code Second
 │   └── 02_adr_workflow_and_governance.md # Protocolo obligatorio para registrar ADRs
 ├── scripts/                    # Scripts de auditoría e inyección de fallos controlados
-│   └── inject_fault.py         # Inyector de fallos F1-F5 para demostración de auto-healing
 ├── src/                        # Código fuente modular (Single-Area Ownership)
 │   ├── lakehouse/              # PySpark jobs, conectores multi-fuente y modelos Iceberg
 │   ├── core/                   # Clientes Trino, telemetría SSE y utilidades centrales

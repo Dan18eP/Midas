@@ -181,3 +181,31 @@ async def test_trino_client_timeout_handling():
             timeout_sec=0.1,
         )
     await client_trino.close()
+
+def test_trino_client_execute_query_sync_fail_closed():
+    """Valida que execute_query_sync falle cerrado con TimeoutError o ConnectionError cuando Trino no esta accesible en modo produccion."""
+    client_trino = TrinoClient(
+        host="192.0.2.1",
+        port=8082,
+        timeout_sec=0.2,
+        fallback_for_testing=False,
+    )
+    with pytest.raises((TimeoutError, ConnectionError)):
+        client_trino.execute_query_sync(
+            sql="SELECT * FROM silver.crm_transacciones",
+            timeout_sec=0.2,
+        )
+
+
+def test_trino_client_execute_query_sync_deterministic_fallback():
+    """Valida que execute_query_sync use motor determinista en modo testing."""
+    client_trino = TrinoClient(
+        host="localhost",
+        port=8082,
+        fallback_for_testing=True,
+    )
+    result = client_trino.execute_query_sync(
+        sql="SELECT region, total_neto FROM silver.crm_transacciones",
+    )
+    assert result.row_count > 0
+    assert "region" in result.columns
