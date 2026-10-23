@@ -66,7 +66,7 @@ stateDiagram-v2
 
 ### 3. `REPLAY_WINDOW_V1` (Reproceso Idempotente de Ventana)
 - **Disparador:** Procesamiento incompleto detectado por diferencia de conteos entre Bronze y Silver para una fecha específica.
-- **Acción:** Guardian toma el snapshot original de Bronze y reejecuta la transformación para esa partición de fecha usando `MERGE INTO` de Iceberg.
+- **Acción:** Guardian toma el snapshot original de Bronze y reejecuta la transformación para esa partición de fecha usando `MERGE INTO` de Iceberg. En Gold, la escritura es idempotente por clave natural (`fecha` + dimensiones de la fila): una reingesta reemplaza la fila existente en lugar de agregar un duplicado.
 - **Condición de Éxito:** Las particiones de Silver y Gold se reconcilian exactamente con el origen sin duplicar ventas.
 
 ### 4. `SCHEMA_DRIFT_V1` (Incompatibilidad Estructural — Supervisado)

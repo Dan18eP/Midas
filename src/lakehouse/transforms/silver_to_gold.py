@@ -341,6 +341,29 @@ class SilverToGoldTransformer:
             )
         return dim_records
 
+    def _upsert_unique_rows(
+        self,
+        identifier: str,
+        new_rows: pa.Table,
+        key_fields: Tuple[str, ...],
+    ) -> int:
+        """Escribe filas Gold de forma idempotente usando la clave natural.
+
+        Reingerir la misma fuente no debe duplicar hechos: las filas nuevas
+        reemplazan a las existentes con la misma clave (fecha + dimensiones).
+        """
+        table = self.acid_manager.catalog.load_table(identifier)
+        existing = table.scan().to_arrow()
+        merged: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+        for row in existing.to_pylist():
+            merged[tuple(row.get(field) for field in key_fields)] = row
+        for row in new_rows.to_pylist():
+            merged[tuple(row.get(field) for field in key_fields)] = row
+        schema = table.schema().as_arrow()
+        merged_table = pa.Table.from_pylist(list(merged.values()), schema=schema)
+        table.overwrite(merged_table)
+        return merged_table.num_rows
+
     def transform_and_aggregate_sales(
         self,
         silver_records: List[Dict[str, Any]],
@@ -444,7 +467,9 @@ class SilverToGoldTransformer:
                             self.acid_manager.create_table_v2("gold.dim_tiendas_regiones", get_dim_tiendas_iceberg_schema())
                         except Exception as c_err:
                             logger.debug("Omitiendo creacion explicita de dim_tiendas_regiones: %s", c_err)
-                    self.acid_manager.append_data("gold.dim_tiendas_regiones", dim_arrow)
+                    self._upsert_unique_rows(
+                        "gold.dim_tiendas_regiones", dim_arrow, ("tienda_id",)
+                    )
                     dim_path = "s3://midas-gold/gold.db/dim_tiendas_regiones"
 
                     # Materializar Hechos en fct_ventas_diarias y fact_ventas para compatibilidad total
@@ -457,7 +482,13 @@ class SilverToGoldTransformer:
                             self.acid_manager.create_table_v2("gold.fct_ventas_diarias", get_fct_ventas_iceberg_schema())
                         except Exception as c_err:
                             logger.debug("Omitiendo creacion explicita de fct_ventas_diarias: %s", c_err)
-                    self.acid_manager.append_data("gold.fct_ventas_diarias", fct_arrow)
+                    _sales_key = (
+                        "fecha", "anio", "mes", "dia",
+                        "region_id", "tienda_id", "cliente_id", "canal_venta",
+                    )
+                    self._upsert_unique_rows(
+                        "gold.fct_ventas_diarias", fct_arrow, _sales_key
+                    )
                     try:
                         try:
                             self.acid_manager.catalog.load_table("gold.fact_ventas")
@@ -466,7 +497,9 @@ class SilverToGoldTransformer:
                                 self.acid_manager.create_table_v2("gold.fact_ventas", get_fct_ventas_iceberg_schema())
                             except Exception as c_err:
                                 logger.debug("Omitiendo creacion explicita de fact_ventas: %s", c_err)
-                        self.acid_manager.append_data("gold.fact_ventas", fct_arrow)
+                        self._upsert_unique_rows(
+                            "gold.fact_ventas", fct_arrow, _sales_key
+                        )
                     except Exception:
                         pass
                     fct_path = "s3://midas-gold/gold.db/fct_ventas_diarias"

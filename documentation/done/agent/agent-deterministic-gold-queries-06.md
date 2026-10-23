@@ -3,7 +3,7 @@
 - **ID:** HU-AGENT-14 (subsanacion operativa del Copiloto)
 - **Responsable:** Edgar Corzo
 - **Rama:** `feature/agent-deterministic-gold-queries`
-- **Modulo:** `src/agent/`, `src/api/routes/agent.py`, `src/core/query_engine/trino_client.py`
+- **Modulo:** `src/agent/`, `src/lakehouse/transforms/silver_to_gold.py`, `src/api/routes/agent.py`, `src/core/query_engine/trino_client.py`
 - **Documento canonico:** `documentation/canonical/06_arquitectura_agente_ia_y_capa_semantica.md`
 - **Documento de datos:** `documentation/canonical/03_especificacion_base_de_datos_y_lakehouse.md`
 - **Estado:** Implementado y verificado contra Trino/Gold local.
@@ -14,6 +14,10 @@
 2. Las preguntas de ventas terminaban en tablas Silver inexistentes y el cliente Trino devolvia filas sinteticas de demostracion (`1.350.000`, `2.520.000`, `850.000`) en lugar de datos Gold.
 3. El fallback deterministico no soportaba `GROUP BY`, por lo que preguntas como "ventas por region" o "ventas por mes" fallaban o no generaban grafico.
 4. La introspeccion del catalogo Trino fallaba si el esquema `silver` no existia, dejando al agente sin las tablas Gold reales.
+5. Formulaciones como "ranking de regiones por venta neta" o "region con mayor venta neta" no detectaban la dimension y devolvian el total global en lugar del desglose.
+6. "Canal de venta con mejor ticket promedio" priorizaba la palabra "venta" sobre `ticket_promedio`, devolviendo `AVG(venta_neta)` en lugar del ticket por canal.
+7. Reimportar el mismo CSV volvia a ejecutar el pipeline y duplicaba las filas Gold, inflando los totales que consumia el Copiloto.
+8. La narrativa y `metrics_summary` mostraban solo el nombre de la metrica, sin indicar a que region, canal o periodo correspondia cada cifra.
 
 ## Solucion implementada
 
@@ -40,6 +44,39 @@
 - Las agrupaciones temporales (`mes`, `anio`, `dia`, `fecha`) ordenan cronologicamente para que la linea de ECharts sea correcta.
 - El sintetizador ECharts existente genera barras para categorias y lineas con area para series temporales; no fue necesario modificar el frontend.
 
+### 3.1. Ranking, superlativos y metrica explicita
+
+- `_RANKING_RE` reconoce `ranking`, `top`, `mejor`, `peor`, `mayor`, `menor` y `principales` aunque la pregunta no use la forma `por <dimension>`.
+- "Ranking de regiones por venta neta en 2011" genera `SELECT region_id, SUM(venta_neta) ... GROUP BY region_id`.
+- "Region con mayor venta neta" y "canal con mejor ticket promedio" generan `LIMIT 1` para devolver un unico ganador.
+- `_METRIC_SYNONYMS` resuelve primero las metricas explicitas. `ticket_promedio` tiene prioridad sobre la deteccion generica de "venta", por lo que el ticket por canal usa `AVG(ticket_promedio)`.
+- Los superlativos de ventas siguen usando `SUM(venta_neta)`; el promedio solo se aplica cuando la pregunta lo pide o la metrica ya es un promedio canonico.
+
+### 3.2. Etiquetas de dimension en narrativa y chips
+
+- `dimension_columns()` identifica dimensiones categoricas y temporales, incluidas las numericas como `mes` o `anio`.
+- `metric_columns()` excluye esas dimensiones de la lista de metricas para no reportar `mes` o `anio` como si fueran cifras de negocio.
+- La narrativa muestra `region_id=REG-NORTE · venta_neta` en lugar de solo `venta_neta`.
+- `metrics_summary` conserva la etiqueta contextual y agrega `dimensions` (`{"region_id": "REG-NORTE"}`) para el drawer de linaje y los chips.
+- La validacion anti-alucinacion sigue rechazando cifras que no provengan de Trino; los digitos de identificadores como `TND-001` se permiten solo porque provienen de la fila consultada.
+
+### 3.3. Reingesta idempotente de Gold
+
+- `SilverToGoldTransformer._upsert_unique_rows()` combina las filas existentes con las nuevas y conserva una sola fila por clave natural.
+- Claves usadas: `tienda_id` en `gold.dim_tiendas_regiones` y `fecha, anio, mes, dia, region_id, tienda_id, cliente_id, canal_venta` en `gold.fct_ventas_diarias` y `gold.fact_ventas`.
+- La escritura reemplaza el snapshot Gold con el conjunto deduplicado; reimportar el mismo CSV ya no duplica hechos ni dimensiones.
+- Se limpiaron los duplicados existentes y las 4 filas residuales `anio=2026` de `gold.fct_ventas_diarias`.
+- Gold quedo reconciliado con el CSV real: 2010 = 2.160 filas / 2.288.886.120,41; 2011 = 2.340 filas / 2.448.200.007,35; 2012 = 1.935 filas / 2.000.132.859,35.
+
+### 3.4. Confianza del router y alineacion SQL-pregunta
+
+- El router deterministico ya no devuelve un total global cuando la pregunta pide un desglose (`por`, `según`, `desglose`, `distribución`, `cada`, `evolución`) pero no reconoce una dimension certificada. En ese caso delega al LLM.
+- Tampoco responde con la plantilla si la pregunta pide metricas no soportadas (margen, utilidad, ratio, conteos distintos), comparaciones (`vs`, diferencia) o fechas relativas (año pasado, mes anterior, hoy).
+- Se agregaron variantes generales: "qué region vendio mas", "qué tienda vende menos", "ventas de cada tienda", "evolución mensual", "ticket promedio por region" y "top 5 regiones con mas ventas".
+- `validate_sql_alignment` revisa el AST de cualquier SQL generado por el LLM: exige `GROUP BY` si hay intencion de desglose, exige las dimensiones reconocidas, exige `ORDER BY` en rankings y exige la metrica correcta para ticket promedio.
+- Si Gemini devuelve un SQL que no conserva el desglose, se reintenta una vez con la correccion explicita. Si tampoco cumple, el agente falla sin ejecutar un total incorrecto.
+- Preguntas con dimensiones no disponibles en los datos (por ejemplo, "ventas por producto" cuando no existe columna producto) no inventan resultados: se delega al LLM y, si no hay columna valida, el agente informa que no pudo generar una consulta segura.
+
 ### 4. Prioridad deterministica sobre el LLM
 
 - Para intenciones soportadas por la plantilla certificada, `ModelRouter` devuelve la consulta deterministica sin invocar a Gemini/Ollama.
@@ -52,21 +89,34 @@ Consultas ejecutadas contra el catalogo Gold real:
 
 | Pregunta | Resultado |
 | :--- | :--- |
-| `Cual es el total de ventas 2011?` | `2.449.382.740,35` (sin fixtures) |
-| `Ventas por region en 2011` | 3 filas, grafico `bar` |
+| `Cual es el total de ventas 2011?` | `2.448.200.007,35` (suma exacta del CSV) |
+| `Ventas por region en 2011` | 3 filas, grafico `bar`, etiquetas `REG-NORTE/CENTRO/SUR` |
+| `Hazme un ranking de regiones por venta neta en 2011` | 3 filas ordenadas, `region_id=... · venta_neta` |
 | `Ventas por mes en 2011` | 12 filas, grafico `line` en orden enero->diciembre |
 | `Top 5 tiendas por ventas en 2011` | 5 filas, grafico `bar` |
-| `Quiero ver las ventas` | Anios reales: `2010, 2011, 2012, 2026` + opcion `todos` |
+| `Que canal de venta tuvo mejor ticket promedio en 2012?` | 1 fila, `canal_venta=TIENDA · ticket_promedio = 1.033.660,39` |
+| `Que tienda vendio mas en 2011?` | 1 fila, `tienda_id=WMT-004` |
+| `Cual es la region con peor venta neta en 2010?` | 1 fila, `region_id=REG-SUR`, orden ascendente |
+| `Ticket promedio por region en 2012` | 3 filas, `region_id=... · ticket_promedio`, grafico `bar` |
+| `Evolucion mensual de ventas en 2011` | 12 filas, grafico `line` |
+| `Ventas por region y canal en 2011` | Delegado a Gemini; 3 filas con ambas dimensiones |
+| `Ventas por producto en 2011` | Sin columna `producto`; no inventa datos y falla de forma segura |
+| `Quiero ver las ventas` | Anios reales: `2010, 2011, 2012` + opcion `todos` |
 
 Pruebas automatizadas ejecutadas dentro de la imagen `midas-api` (Python 3.11):
 
 ```powershell
-python -m pytest tests/agent/test_qwen_inference.py tests/agent/test_gemini_inference.py `
-  tests/agent/test_langgraph_flow.py tests/agent/test_storytelling.py `
-  tests/api/test_agent_endpoint.py tests/backend/test_trino_query_engine.py -q
+python -m pytest tests/agent/test_qwen_inference.py tests/agent/test_storytelling.py `
+  tests/lakehouse/test_silver_to_gold.py -q
 ```
 
-Resultado: **55 passed**.
+Resultado: **53 passed**. Suite backend funcional completa: **321 passed**. Los 9 tests de
+infraestructura que fallan lo hacen porque el contenedor `midas-api` no monta
+`docker-compose.yml`, `docker/`, `scripts/` ni `.env.example`, no por los cambios funcionales.
+
+Verificacion E2E por API (`POST /api/v1/agent/chat`) con las dos preguntas reportadas:
+la respuesta incluye la dimension junto a la metrica, las cifras coinciden con Gold y
+`echarts_option` usa barras horizontales con `region_id` o `canal_venta` como categoria.
 
 ## Revision anti-deriva
 
@@ -75,6 +125,8 @@ Resultado: **55 passed**.
 - [x] No se agregaron ni cambiaron tablas o columnas del lakehouse.
 - [x] Los cambios se limitan al agente, su ruta API y el cliente Trino compartido.
 - [x] Se agregaron pruebas para anios dinamicos, filtro por anio, agrupaciones, Top N, metrica canonica, graficos y ausencia de fixtures en produccion.
+- [x] Se agregaron pruebas para ranking sin `por`, superlativos, prioridad de `ticket_promedio`, etiquetas de dimension y upsert idempotente de Gold.
+- [x] No se alteraron formulas canonicas ni se agregaron columnas/tablas; la reingesta usa la clave natural ya existente.
 
 ## Coordinacion e impacto
 

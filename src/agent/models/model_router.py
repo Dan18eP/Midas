@@ -7,7 +7,6 @@ import logging
 import os
 import re
 from collections.abc import Mapping, Sequence
-from http.client import HTTPException
 from urllib.request import Request, urlopen
 
 import sqlglot
@@ -51,7 +50,7 @@ _SUPPORTED_NUMERIC_COLUMNS = {
 }
 
 _SALES_RE = re.compile(
-    r"\b(ventas?|ingresos?|facturaci[oó]n|revenue)\b", re.IGNORECASE
+    r"\b(vend\w*|ventas?|ingresos?|facturaci[oó]n|revenue)\b", re.IGNORECASE
 )
 _COUNT_ROW_TERMS = (
     "cuantos registros",
@@ -64,14 +63,98 @@ _COUNT_ROW_TERMS = (
     "count",
 )
 _DIMENSION_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-    (("region", "región"), ("region_id", "region")),
-    (("mes",), ("mes",)),
-    (("año", "ano", "anio"), ("anio", "año")),
+    (("region", "región", "regiones", "regiónes"), ("region_id", "region")),
+    (("mes", "meses", "mensual", "mensuales"), ("mes",)),
+    (("año", "ano", "anio", "años", "anos"), ("anio", "año")),
     (("tienda", "tiendas", "sucursal", "sucursales"), ("tienda_id", "tienda")),
     (("canal", "canales"), ("canal_venta", "canal")),
     (("cliente", "clientes"), ("cliente_id", "cliente")),
     (("dia", "día", "dias", "días"), ("dia", "fecha")),
     (("estado", "estados"), ("estado",)),
+)
+
+# Palabras que piden una agrupación/orden aunque no usen la forma "por <dimensión>".
+_RANKING_RE = re.compile(
+    r"\b(ranking|r[aá]nking|top|mejor|mejores|peor|peores|mayor|mayores|menor|menores|"
+    r"principal|principales|con\s+m[aá]s|con\s+mayor|con\s+menor)\b",
+    re.IGNORECASE,
+)
+
+# Preguntas como "¿qué región vendió más?" o "¿cuál tienda vende menos?" no
+# usan la forma "por <dimensión>" pero sí piden un ranking.
+_SUPERLATIVE_QUERY_RE = re.compile(
+    r"\b(?:qu[eé]|cu[aá]l(?:es)?|qui[eé]n)\b[\s\S]*\b(?:m[aá]s|menos|mayor|menor|mejor|peor)\b",
+    re.IGNORECASE,
+)
+
+# La pregunta pide explícitamente una agrupación. Si no se reconoce una
+# dimensión certificada, es preferible delegar al LLM antes que devolver un total.
+_GROUPING_INTENT_RE = re.compile(
+    r"(?:\bpor\s+(?!qu[eé]\b|que\b|favor\b|ciento\b)|\bseg[uú]n\b|"
+    r"\bdesglos\w*|\bdistribu\w*|\bdesempe[nñ]o\b|\bevoluci[oó]n\b|"
+    r"\bcada\b|\ba\s+nivel\s+de\b|\ben\s+funci[oó]n\s+de\b)",
+    re.IGNORECASE,
+)
+
+# Métricas de negocio que no están cubiertas por las plantillas certificadas.
+_UNSUPPORTED_METRIC_TERMS = (
+    "margen",
+    "utilidad",
+    "ganancia",
+    "rentabilidad",
+    "conversion",
+    "conversión",
+    "clientes nuevos",
+    "crecimiento",
+    "variacion",
+    "variación",
+    "porcentaje",
+    "ratio",
+    "únicos",
+    "unicos",
+    "únicas",
+    "unicas",
+    "distintos",
+    "distintas",
+    "distinct",
+)
+
+_UNSUPPORTED_TIME_TERMS = (
+    "año pasado",
+    "ano pasado",
+    "último año",
+    "ultimo ano",
+    "mes pasado",
+    "mes anterior",
+    "semana pasada",
+    "trimestre pasado",
+    "ayer",
+    "hoy",
+)
+
+# Métricas explícitas: deben resolver antes que la detección genérica de "ventas".
+_METRIC_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("venta neta", ("venta_neta", "total_neto", "monto_neto")),
+    ("ventas netas", ("venta_neta", "total_neto", "monto_neto")),
+    ("venta bruta", ("venta_bruta", "monto_bruto", "total_bruto")),
+    ("ventas brutas", ("venta_bruta", "monto_bruto", "total_bruto")),
+    ("devoluciones", ("total_devoluciones", "devolucion", "devoluciones")),
+    ("devolucion", ("total_devoluciones", "devolucion", "devoluciones")),
+    ("devolución", ("total_devoluciones", "devolucion", "devoluciones")),
+    ("descuentos", ("total_descuento", "descuento", "descuentos")),
+    ("descuento", ("total_descuento", "descuento", "descuentos")),
+    ("ticket promedio", ("ticket_promedio",)),
+    ("ticket", ("ticket_promedio",)),
+    ("pedidos validos", ("pedidos_validos", "total_pedidos")),
+    ("pedidos válidos", ("pedidos_validos", "total_pedidos")),
+    ("pedidos", ("pedidos_validos", "total_pedidos", "pedidos")),
+    ("tasa de devolucion", ("tasa_devolucion",)),
+    ("tasa de devolución", ("tasa_devolucion",)),
+    ("costos", ("costo_operativo_fijo", "costo")),
+    ("costo", ("costo_operativo_fijo", "costo")),
+    ("gastos", ("gasto_marketing", "gasto")),
+    ("satisfaccion", ("calificacion_satisfaccion",)),
+    ("satisfacción", ("calificacion_satisfaccion",)),
 )
 
 
@@ -120,19 +203,30 @@ class ModelRouter:
             )
 
         if self._api_key:
-            try:
-                candidate = self._call_gemini(system_prompt, question)
-                candidate = _clean_sql_output(candidate)
-                return validate_query(candidate, catalog)
-            except Exception as exc:
-                logger.warning("Fallo al generar SQL con Gemini: %s. Intentando respaldo...", exc)
+            feedback = ""
+            for _ in range(2):
+                try:
+                    candidate = self._call_gemini(
+                        f"{system_prompt}{feedback}", question
+                    )
+                    return _validated_model_sql(candidate, question, catalog)
+                except Exception as exc:
+                    feedback = f"\n\nCorrección obligatoria: {exc}"
+                    logger.debug("Gemini devolvió un SQL no alineado: %s", exc)
+            logger.warning(
+                "Fallo al generar SQL con Gemini tras reintento. Intentando respaldo..."
+            )
 
-        try:
-            candidate = self._call_ollama(system_prompt, question)
-            candidate = _clean_sql_output(candidate)
-            return validate_query(candidate, catalog)
-        except (OSError, TimeoutError, ValueError, KeyError, HTTPException, Exception):
-            return deterministic_sql(question, catalog)
+        feedback = ""
+        for _ in range(2):
+            try:
+                candidate = self._call_ollama(
+                    f"{system_prompt}{feedback}", question
+                )
+                return _validated_model_sql(candidate, question, catalog)
+            except Exception as exc:
+                feedback = f"\n\nCorrección obligatoria: {exc}"
+        return deterministic_sql(question, catalog)
 
     def _call_gemini(self, system_prompt: str, question: str) -> str:
         import time
@@ -216,6 +310,115 @@ def _clean_sql_output(candidate: str) -> str:
     return cleaned
 
 
+def validate_sql_alignment(question: str, sql: str) -> str | None:
+    """Comprueba que el SQL conserve las dimensiones y el ranking pedidos.
+
+    Devuelve un mensaje de corrección o ``None`` si la consulta es coherente.
+    Es la red de seguridad tanto para el router determinístico como para el LLM:
+    una pregunta de desglose nunca debe terminar en un total global.
+    """
+    normalized = question.casefold()
+    try:
+        query = sqlglot.parse_one(sql, read="trino")
+    except sqlglot.errors.ParseError:
+        return "La consulta SQL no es válida para Trino."
+
+    grouped = _group_by_columns(query)
+    requested = _requested_dimensions_for_validation(normalized)
+    needs_grouping = bool(requested) or bool(_GROUPING_INTENT_RE.search(normalized))
+
+    if needs_grouping and not grouped:
+        return (
+            "La pregunta pide un desglose por dimensión, pero la consulta no "
+            "tiene GROUP BY."
+        )
+    if requested and grouped:
+        for candidates in requested:
+            if not any(candidate in grouped for candidate in candidates):
+                return (
+                    f"La consulta debe agrupar por {candidates[0]} porque la "
+                    "pregunta lo solicita."
+                )
+
+    if " por " in normalized:
+        tail = normalized.split(" por ", 1)[1]
+        segments = [
+            segment for segment in re.split(r"\b(?:y|e)\b|,", tail) if segment.strip()
+        ]
+        if len(segments) > 1 and len(grouped) < len(segments):
+            return (
+                "La pregunta pide más dimensiones de agrupación de las que "
+                "incluye el GROUP BY."
+            )
+
+    columns = {column.name.casefold() for column in query.find_all(exp.Column)}
+    if "ticket" in normalized and not (
+        "ticket_promedio" in columns
+        or (
+            columns & {"venta_neta", "total_neto", "monto_neto"}
+            and columns & {"pedidos_validos", "total_pedidos"}
+        )
+    ):
+        return "La pregunta pide ticket promedio y la consulta no usa esa métrica."
+
+    if (
+        _RANKING_RE.search(normalized) or _SUPERLATIVE_QUERY_RE.search(normalized)
+    ) and query.args.get("order") is None:
+        return "La pregunta pide un ranking y la consulta no tiene ORDER BY."
+
+    return None
+
+
+def _validated_model_sql(
+    candidate: str,
+    question: str,
+    catalog: Sequence[Mapping[str, object]],
+) -> str:
+    cleaned = _clean_sql_output(candidate)
+    validated = validate_query(cleaned, catalog)
+    alignment_error = validate_sql_alignment(question, validated)
+    if alignment_error:
+        raise ValueError(alignment_error)
+    return validated
+
+
+def _group_by_columns(query: exp.Select) -> set[str]:
+    group = query.args.get("group")
+    if not isinstance(group, exp.Group):
+        return set()
+    columns: set[str] = set()
+    for expression in group.expressions:
+        if isinstance(expression, exp.Literal):
+            # GROUP BY 1: no podemos inferir esa dimensión desde el AST, pero
+            # otras columnas del mismo GROUP BY siguen siendo verificables.
+            continue
+        for column in expression.find_all(exp.Column):
+            columns.add(column.name.casefold())
+        if isinstance(expression, exp.Column):
+            columns.add(expression.name.casefold())
+    return columns
+
+
+def _requested_dimensions_for_validation(
+    question: str,
+) -> list[tuple[str, ...]]:
+    """Detecta todas las dimensiones mencionadas en preguntas de desglose."""
+    if not (
+        _GROUPING_INTENT_RE.search(question)
+        or _RANKING_RE.search(question)
+        or _SUPERLATIVE_QUERY_RE.search(question)
+    ):
+        return []
+    found: list[tuple[str, ...]] = []
+    for keywords, candidates in _DIMENSION_SYNONYMS:
+        if any(
+            re.search(rf"\b{re.escape(keyword)}\b", question)
+            for keyword in keywords
+        ):
+            found.append(candidates)
+    return found
+
+
 def deterministic_sql(
     question: str,
     catalog: Sequence[Mapping[str, object]],
@@ -226,7 +429,9 @@ def deterministic_sql(
         "compara",
         "comparar",
         "versus",
+        " vs ",
         " contra ",
+        "diferencia",
         "cruza",
         "tendencia",
         "trend",
@@ -242,6 +447,7 @@ def deterministic_sql(
         " en octubre",
         " en noviembre",
         " en diciembre",
+        *_UNSUPPORTED_TIME_TERMS,
     )
     if any(word in f" {normalized_question} " for word in unsupported_detail):
         raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
@@ -259,8 +465,31 @@ def deterministic_sql(
         if dimension_column is None:
             raise ValueError("La dimensión solicitada no está disponible en la tabla activa.")
 
+    # No devolver un total silencioso cuando la pregunta pide un desglose o un
+    # ranking sobre una dimensión que la plantilla no reconoce.
+    if dimension_column is None and (
+        _GROUPING_INTENT_RE.search(normalized_question)
+        or _RANKING_RE.search(normalized_question)
+        or _SUPERLATIVE_QUERY_RE.search(normalized_question)
+    ):
+        raise ValueError(
+            "La pregunta pide una agrupación, pero la dimensión no está "
+            "certificada en la plantilla determinística."
+        )
+
+    if (
+        any(term in normalized_question for term in _UNSUPPORTED_METRIC_TERMS)
+        and _explicit_metric(normalized_question, columns) is None
+    ):
+        raise ValueError(
+            "La métrica solicitada no está cubierta por la plantilla determinística."
+        )
+
     operation, metric = _resolve_operation(normalized_question, columns)
     top_n = _requested_top_n(normalized_question) if dimension_column else None
+    descending = not re.search(
+        r"\b(?:peor(?:es)?|menor(?:es)?|menos)\b", normalized_question
+    )
 
     if operation == "COUNT":
         metric_alias = "total_registros"
@@ -298,13 +527,13 @@ def deterministic_sql(
     if dimension_column:
         query = query.group_by(exp.column(dimension_column))
         if top_n:
-            query = query.order_by(exp.Ordered(this=exp.column(metric_alias), desc=True))
+            query = query.order_by(exp.Ordered(this=exp.column(metric_alias), desc=descending))
             query = query.limit(top_n)
         elif dimension_column in ("mes", "anio", "año", "dia", "fecha"):
             # Las series temporales deben conservar el orden cronológico.
             query = query.order_by(exp.Ordered(this=exp.column(dimension_column), desc=False))
         else:
-            query = query.order_by(exp.Ordered(this=exp.column(metric_alias), desc=True))
+            query = query.order_by(exp.Ordered(this=exp.column(metric_alias), desc=descending))
     return validate_query(query.sql(dialect="trino"), catalog)
 
 
@@ -361,7 +590,7 @@ def _select_table(
 
     hints = (
         (("cliente", "clientes"), ("cliente",)),
-        (("ticket", "soporte", "satisfaccion", "satisfacción"), ("ticket", "soporte", "helpdesk")),
+        (("soporte", "satisfaccion", "satisfacción"), ("ticket", "soporte", "helpdesk")),
         (("presupuesto", "meta"), ("presupuesto", "meta")),
         (("costo", "gasto"), ("costo", "gasto")),
         (("transaccion", "transacción"), ("transaccion", "transacción")),
@@ -379,6 +608,22 @@ def _select_table(
             if table:
                 return table
 
+    # Si la pregunta nombra una métrica explícita, elegir la tabla que la expone
+    # (p. ej. "ticket promedio" debe ir a gold.fact_ventas, no a una tabla de soporte).
+    for phrase, candidates in _METRIC_SYNONYMS:
+        if phrase not in question:
+            continue
+        table = next(
+            (
+                entry
+                for entry in tables
+                if any(candidate in entry[1] for candidate in candidates)
+            ),
+            None,
+        )
+        if table:
+            return table
+
     numeric_tables = [entry for entry in tables if entry[1] & _SUPPORTED_NUMERIC_COLUMNS]
     if len(numeric_tables) == 1:
         return numeric_tables[0]
@@ -394,12 +639,39 @@ def _sales_metric(columns: set[str]) -> str | None:
     return None
 
 
+def _explicit_metric(question: str, columns: set[str]) -> str | None:
+    """Devuelve la métrica nombrada explícitamente, si existe en la tabla."""
+    for phrase, candidates in _METRIC_SYNONYMS:
+        if phrase in question:
+            for candidate in candidates:
+                if candidate in columns:
+                    return candidate
+    return None
+
+
 def _resolve_operation(
     question: str,
     columns: set[str],
 ) -> tuple[str, str | None]:
     if any(term in question for term in _COUNT_ROW_TERMS):
         return "COUNT", None
+
+    # La métrica explícita manda sobre la detección genérica de "venta(s)".
+    # Ej.: "canal de venta con mejor ticket promedio" debe usar ticket_promedio,
+    # no venta_neta.
+    explicit_metric = _explicit_metric(question, columns)
+    if explicit_metric is not None:
+        uses_average = any(
+            word in question for word in ("promedio", "average", "avg", "media")
+        )
+        if uses_average or explicit_metric in (
+            "ticket_promedio",
+            "tasa_devolucion",
+            "calificacion_satisfaccion",
+        ):
+            return "AVG", explicit_metric
+        return "SUM", explicit_metric
+
     if "pedido" in question:
         if "pedidos_validos" in columns:
             return "SUM", "pedidos_validos"
@@ -425,34 +697,9 @@ def _resolve_operation(
 
 
 def _numeric_column(question: str, columns: set[str]) -> str:
-    explicit_metrics = (
-        ("venta neta", ("venta_neta", "total_neto", "monto_neto")),
-        ("ventas netas", ("venta_neta", "total_neto", "monto_neto")),
-        ("venta bruta", ("venta_bruta", "monto_bruto", "total_bruto")),
-        ("ventas brutas", ("venta_bruta", "monto_bruto", "total_bruto")),
-        ("devoluciones", ("total_devoluciones", "devolucion", "devoluciones")),
-        ("devolucion", ("total_devoluciones", "devolucion", "devoluciones")),
-        ("devolución", ("total_devoluciones", "devolucion", "devoluciones")),
-        ("descuentos", ("total_descuento", "descuento", "descuentos")),
-        ("descuento", ("total_descuento", "descuento", "descuentos")),
-        ("ticket promedio", ("ticket_promedio",)),
-        ("ticket", ("ticket_promedio",)),
-        ("pedidos validos", ("pedidos_validos", "total_pedidos")),
-        ("pedidos válidos", ("pedidos_validos", "total_pedidos")),
-        ("pedidos", ("pedidos_validos", "total_pedidos", "pedidos")),
-        ("tasa de devolucion", ("tasa_devolucion",)),
-        ("tasa de devolución", ("tasa_devolucion",)),
-        ("costos", ("costo_operativo_fijo", "costo")),
-        ("costo", ("costo_operativo_fijo", "costo")),
-        ("gastos", ("gasto_marketing", "gasto")),
-        ("satisfaccion", ("calificacion_satisfaccion",)),
-        ("satisfacción", ("calificacion_satisfaccion",)),
-    )
-    for phrase, candidates in explicit_metrics:
-        if phrase in question:
-            for candidate in candidates:
-                if candidate in columns:
-                    return candidate
+    explicit = _explicit_metric(question, columns)
+    if explicit is not None:
+        return explicit
 
     if _SALES_RE.search(question):
         metric = _sales_metric(columns)
@@ -473,16 +720,31 @@ def _dimension_requested(question: str) -> tuple[str, ...] | None:
     found: list[tuple[str, ...]] = []
     if " por " in question:
         tail = question.split(" por ", 1)[1]
-        for segment in re.split(r"\b(?:y|e)\b|,", tail):
+        segments = [segment for segment in re.split(r"\b(?:y|e)\b|,", tail) if segment.strip()]
+        unrecognized: list[str] = []
+        for segment in segments:
+            segment_found = False
             for keywords, candidates in _DIMENSION_SYNONYMS:
                 if any(
                     re.search(rf"\b{re.escape(keyword)}\b", segment)
                     for keyword in keywords
                 ):
                     found.append(candidates)
+                    segment_found = True
                     break
+            if not segment_found:
+                unrecognized.append(segment.strip())
+        if len(segments) > 1 and unrecognized:
+            raise ValueError(
+                "Hay una dimensión de agrupación que no está certificada: "
+                f"{unrecognized[0]}."
+            )
 
-    if not found and re.search(r"\b(top|principales|mayores|mejores|con\s+m[aá]s|con\s+mayor)\b", question):
+    if not found and (
+        _RANKING_RE.search(question)
+        or _SUPERLATIVE_QUERY_RE.search(question)
+        or _GROUPING_INTENT_RE.search(question)
+    ):
         for keywords, candidates in _DIMENSION_SYNONYMS:
             if any(re.search(rf"\b{re.escape(keyword)}\b", question) for keyword in keywords):
                 found.append(candidates)
@@ -502,6 +764,16 @@ def _requested_top_n(question: str) -> int | None:
     if match is None:
         match = re.search(r"\b(\d+)\s+(?:mejores|mayores|principales)\b", question)
     if match is None:
+        match = re.search(
+            r"\b(\d+)\s+\w+\s+con\s+(?:mayor|menor|mejor|peor)\b", question
+        )
+    if match is None:
+        # Preguntas del tipo "¿qué región vendió más?", "¿cuál es el canal con
+        # mejor...?" o "¿qué tienda vende menos?" esperan un único ganador.
+        if _SUPERLATIVE_QUERY_RE.search(question) or re.search(
+            r"\b(?:mejor|peor|mayor|menor|menos)\b", question
+        ):
+            return 1
         return None
     return min(max(int(match.group(1)), 1), 100)
 

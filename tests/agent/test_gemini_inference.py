@@ -52,6 +52,41 @@ def test_gemini_router_invokes_gemini_when_key_present(monkeypatch):
     assert calls[0][0] == "gemini-3.1-flash-lite"
 
 
+def test_gemini_retries_when_sql_drops_requested_grouping(monkeypatch):
+    responses = [
+        "SELECT SUM(monto_neto) AS venta FROM gold.fact_ventas",
+        "SELECT region, SUM(monto_neto) AS venta FROM gold.fact_ventas "
+        "GROUP BY region",
+    ]
+    prompts = []
+
+    class FakeResponse:
+        def __init__(self, text):
+            self.text = text
+
+    class FakeModels:
+        def generate_content(self, model, contents):
+            prompts.append(contents)
+            return FakeResponse(responses[len(prompts) - 1])
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.api_key = api_key
+            self.models = FakeModels()
+
+    import google.genai
+    monkeypatch.setattr(google.genai, "Client", FakeClient)
+
+    router = ModelRouter(api_key="fake-test-key", model="gemini-3.1-flash-lite")
+    generator = TextToSqlGenerator(router)
+
+    sql = generator("Desglose de ventas por producto", CATALOG)
+
+    assert "GROUP BY region" in sql
+    assert len(prompts) == 2
+    assert "Corrección obligatoria" in prompts[1]
+
+
 def test_router_prefers_deterministic_sql_over_gemini_for_supported_questions(monkeypatch):
     calls = []
 

@@ -439,6 +439,11 @@ def test_end_to_end_iceberg_v2_gold_marts_persistence(tmp_path):
     assert len(snapshots) >= 1
     assert snapshots[0]["snapshot_id"] != -1
 
+    # 5. Reingerir la misma fuente no debe duplicar hechos ni dimensiones
+    transformer.transform_and_aggregate_sales(silver_records, persist_iceberg=True)
+    assert len(acid_mgr.read_current("gold.fct_ventas_diarias")) == 2
+    assert len(acid_mgr.read_current("gold.dim_tiendas_regiones")) == len(arrow_dim)
+
 
 def test_parse_date_components_resilience():
     """Valida que parse_date_components no lance excepciones con años aislados o formatos variados."""

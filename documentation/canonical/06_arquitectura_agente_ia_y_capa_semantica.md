@@ -151,7 +151,18 @@ Admite conteos, suma/promedio y filtros por año. También admite una única
 dimensión de agrupación (`region_id`, `mes`, `anio`, `tienda_id`,
 `canal_venta`, `cliente_id` o `dia`) y variantes Top N
 (*"top 5 tiendas por ventas"*), generando `GROUP BY` y orden descendente por la
-métrica. Los filtros de categoría disponibles son `region_id` (`REG-NORTE`,
+métrica. También reconoce formulaciones de ranking sin la forma
+`"por <dimensión>"` (por ejemplo, *"ranking de regiones por venta neta"*),
+superlativos (*"la región con mayor venta neta"*, *"el canal con mejor ticket
+promedio"*, *"qué tienda vendió más"*) y variantes como *"cada tienda"* o
+*"evolución mensual"*, aplicando `LIMIT 1` cuando la pregunta espera un único
+ganador y orden ascendente para *"peor"* o *"menos"*. Una métrica explícita como
+`ticket_promedio` tiene prioridad sobre la detección genérica de ventas. Si la
+pregunta pide una agrupación (`por`, `según`, `desglose`, `distribución`,
+`cada`, `evolución`) y la dimensión no está certificada, el router **no**
+devuelve un total global: delega la pregunta al LLM. Tampoco responde con la
+plantilla cuando se piden métricas no soportadas (margen, utilidad, ratio,
+conteos distintos), comparaciones o fechas relativas. Los filtros de categoría disponibles son `region_id` (`REG-NORTE`,
 `REG-SUR`, `REG-CENTRO`), `canal_venta` (`ONLINE`, `TIENDA`, `PARTNER`) y
 `estado` (`CERRADO`, `ABIERTO`), con un filtro por consulta. Las comparaciones
 entre años, los cruces de tablas y las agrupaciones con más de una dimensión
@@ -167,7 +178,12 @@ Los prompts de Text-to-Gold para Qwen reciben el catálogo permitido, solicitan
 una única consulta Trino sin prosa y recuerdan las reglas de solo lectura. Toda
 salida, incluida la del fallback, pasa por el mismo `QueryGuardrail`: solo
 `SELECT`, capas `silver`/`gold`, validación de tablas y columnas e inyección de
-`LIMIT 1000`.
+`LIMIT 1000`. Además, `validate_sql_alignment` compara la pregunta con el AST:
+si el usuario pidió un desglose, el SQL debe tener `GROUP BY`; si pidió varias
+dimensiones, debe conservarlas; si pidió un ranking, debe tener `ORDER BY`; y si
+pidió ticket promedio, debe usar `ticket_promedio` o la razón
+`venta_neta / pedidos_validos`. Si el LLM incumple, se reintenta una vez con la
+corrección explícita antes de fallar sin ejecutar SQL.
 
 ### 3.4. `TrinoExecutorNode`
 - Ejecuta la consulta en Trino pasando la cabecera `X-Trino-User` con el rol actual del Lente Zero-Trust (ej. `director_general`, `gerente_norte`, `analista_externo`).
@@ -181,11 +197,15 @@ salida, incluida la del fallback, pasa por el mismo `QueryGuardrail`: solo
     `#F59E0B`, `#1E293B`).
   - `metrics_summary`: lista de cifras observadas con etiqueta, valor original,
     columna de origen e índice de fila para que el cliente pueda abrir el drawer
-    de linaje correspondiente.
+    de linaje correspondiente. Cuando la fila tiene dimensiones de agrupación
+    (`region_id`, `canal_venta`, `mes`, etc.), la etiqueta las incluye
+    (`region_id=REG-NORTE · venta_neta`) y el objeto expone `dimensions` con sus
+    valores para conservar el contexto del hallazgo.
 - El generador narrativo no calcula cifras nuevas. Cada número en `narrative`
   debe copiarse literalmente de un valor numérico presente en las filas de
   Trino; conteos, porcentajes, diferencias y promedios no observados no se
-  agregan.
+  agregan. Cada hallazgo incluye la etiqueta de dimensión junto a la métrica
+  para que la cifra sea interpretable sin abrir el gráfico.
 - El sintetizador de gráficos decide el tipo a partir de los valores y nombres
   de columnas, en este orden: una dimensión temporal con valores numéricos usa
   línea con área; dos columnas numéricas usan dispersión; una categoría
