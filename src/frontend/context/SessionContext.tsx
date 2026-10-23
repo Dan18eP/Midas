@@ -194,6 +194,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setActiveSessionId(null);
     setActiveSession(null);
     setActiveTopology(null);
+    lastTopologyRef.current = null;
     setWorkspaceMode('welcome');
     setError(null);
   }, []);

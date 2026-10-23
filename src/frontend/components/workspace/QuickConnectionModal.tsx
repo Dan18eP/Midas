@@ -23,9 +23,15 @@ import {
   Layers,
   Table,
 } from 'lucide-react';
-import type { Node } from '@xyflow/react';
+import { MarkerType, type Node, type Edge } from '@xyflow/react';
 import type { MidasNodeData } from '@/types/canvas';
 import type { FileUploadResponseDTO, TopologyStateDTO } from '@/types/session';
+import {
+  INITIAL_CANVAS_NODES,
+  INITIAL_CANVAS_EDGES,
+  CANONICAL_STAGE_NODES,
+  CANONICAL_STAGE_EDGES,
+} from '@/components/canvas/topology/initialTopology';
 import {
   uploadDataFile,
   registerConnection,
@@ -174,25 +180,20 @@ export function QuickConnectionModal({
 
       const connectionId =
         actualConnId ||
-        (selectedType === 'database'
-          ? 'conn_pg_crm_default'
-          : selectedType === 'excel'
-            ? 'conn_excel_budget_default'
-            : selectedType === 'rest'
-              ? 'conn_rest_crm_default'
-              : `conn_${selectedType}_${Date.now()}`);
+        (uploadResult as any)?.connection_id ||
+        `conn_${selectedType}_${Date.now()}`;
       const nodeId = `source_${connectionId}`;
 
       const newNode: Node<MidasNodeData> = {
         id: nodeId,
         type: 'source',
-        position: { x: 80, y: 150 },
+        position: { x: 40, y: 240 },
         data: {
           id: nodeId,
           connectionId: connectionId,
           connection_id: connectionId,
           label: sourceName,
-          description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze`,
+          description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze (Pendiente de ejecución)`,
           nodeType: 'source',
           subType:
             selectedType === 'excel'
@@ -202,10 +203,10 @@ export function QuickConnectionModal({
                 : selectedType === 'rest'
                   ? 'api'
                   : 'postgresql',
-          status: 'HEALTHY',
-          recordsIn: uploadResult?.sample_rows?.length ? 1500 : 0,
-          recordsOut: uploadResult?.sample_rows?.length ? 1500 : 0,
-          latencyMs: 14,
+          status: 'STANDBY',
+          recordsIn: undefined,
+          recordsOut: undefined,
+          latencyMs: undefined,
           lastUpdated: new Date().toISOString(),
           details: {
             connectionId: connectionId,
@@ -225,18 +226,69 @@ export function QuickConnectionModal({
         },
       };
 
-      const existingNodes = activeTopology?.nodes || [];
-      const existingEdges = activeTopology?.edges || [];
-      // Reimportar la misma fuente debe actualizar su nodo, no duplicarlo.
-      const nodesWithoutDuplicate = existingNodes.filter((node) => node.id !== nodeId);
-      const newTopology: TopologyStateDTO = {
-        nodes: [...nodesWithoutDuplicate, newNode],
-        edges: existingEdges,
+      const edgeId = `edge_${nodeId}_bronze`;
+      const newEdge: Edge = {
+        id: edgeId,
+        source: nodeId,
+        target: 'bronze_raw',
+        type: 'dataflow',
+        animated: false,
+        style: { stroke: '#2563EB', strokeWidth: 1.5 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#2563EB' },
+        data: {
+          label: 'Conectado · Listo para procesar',
+          volume: 0,
+          recordsPerSecond: 0,
+          status: 'STANDBY',
+        },
       };
 
       if (!activeSessionId) {
+        // En una nueva sesión, el pipeline nace EXCLUSIVAMENTE a partir de la fuente ingresada por el usuario
+        const singleSourceNode: Node<MidasNodeData> = {
+          ...newNode,
+          position: { x: 40, y: 240 },
+        };
+        const newTopology: TopologyStateDTO = {
+          nodes: [singleSourceNode, ...CANONICAL_STAGE_NODES],
+          edges: [newEdge, ...CANONICAL_STAGE_EDGES],
+        };
         await createAndSelectSession(`Ingesta: ${sourceName}`, newTopology);
       } else {
+        // En una sesión existente, añadimos la nueva fuente a las fuentes ya existentes del usuario en esta sesión
+        const existingNodes = activeTopology?.nodes || [];
+        const existingEdges = activeTopology?.edges || [];
+
+        // Excluir fuentes demo si quedaron de alguna plantilla anterior
+        const userSourceNodes = existingNodes.filter(
+          (n) => n.type === 'source' && n.id !== 'source_postgres' && n.id !== 'source_excel' && n.id !== 'source_api' && n.id !== nodeId
+        );
+
+        // Posicionar debajo de las fuentes de usuario ya existentes
+        const maxY = userSourceNodes.reduce((max, node) => Math.max(max, node.position?.y ?? 0), 60);
+        const computedY = userSourceNodes.length > 0 ? maxY + 180 : 240;
+        const positionedNode: Node<MidasNodeData> = {
+          ...newNode,
+          position: { x: 40, y: computedY },
+        };
+
+        // Conservar las etapas canónicas del Lakehouse
+        const stageNodes = existingNodes.filter(
+          (n) => n.id === 'bronze_raw' || n.id === 'silver_cleansing' || n.id === 'guardian_monitor' || n.id === 'gold_marts'
+        );
+        const resolvedStageNodes = stageNodes.length > 0 ? stageNodes : CANONICAL_STAGE_NODES;
+
+        // Conservar las aristas de las etapas y las fuentes de usuario (sin aristas demo)
+        const userEdges = existingEdges.filter(
+          (e) => !e.id.startsWith('edge_postgres') && !e.id.startsWith('edge_excel') && !e.id.startsWith('edge_api') && e.id !== edgeId
+        );
+        const existingStageEdgeIds = new Set(userEdges.map((e) => e.id));
+        const missingStageEdges = CANONICAL_STAGE_EDGES.filter((e) => !existingStageEdgeIds.has(e.id));
+
+        const newTopology: TopologyStateDTO = {
+          nodes: [positionedNode, ...userSourceNodes, ...resolvedStageNodes],
+          edges: [newEdge, ...userEdges, ...missingStageEdges],
+        };
         await saveTopology(newTopology.nodes, newTopology.edges);
       }
 

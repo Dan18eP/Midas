@@ -30,7 +30,7 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
       aria-label={`${nodeData.label} - Estado: ${statusConfig.label}`}
       className={`relative w-64 rounded-xl border border-[#E8E4DC] bg-[#FFFFFF] p-3 shadow-[0_2px_8px_rgba(30,20,5,0.04)] transition-all duration-200 ${
         selected ? 'ring-2 ring-[#D4AF37] ring-offset-2 ring-offset-[#FFFFFF]' : 'hover:border-[#D4AF37]'
-      } ${isMasked ? 'opacity-30 grayscale-[0.2]' : ''}`}
+      } ${nodeData.status === 'RUNNING' ? 'ring-1 ring-blue-500/50 shadow-md shadow-blue-500/10' : ''} ${isMasked ? 'opacity-30 grayscale-[0.2]' : ''}`}
     >
       {isMasked && (
         <div
@@ -56,10 +56,10 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
 
         {/* Badge de Estado Canónico */}
         <div
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-medium text-[#4D7C0F] bg-[#4D7C0F]/10 border border-[#4D7C0F]/25"
+          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-medium ${statusConfig.textClass} ${statusConfig.bgClass} border ${statusConfig.borderClass}`}
           title={statusConfig.accessibleDescription}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4D7C0F]" />
+          <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dotClass}`} />
           <span>{statusConfig.label}</span>
         </div>
       </div>
@@ -69,13 +69,21 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Emitidas</span>
           <span className="text-xs font-semibold text-[#1E293B]">
-            {nodeData.recordsOut !== undefined ? nodeData.recordsOut.toLocaleString() : 'N/D'}
+            {nodeData.recordsOut !== undefined && nodeData.recordsOut !== null
+              ? nodeData.recordsOut.toLocaleString()
+              : nodeData.status === 'STANDBY'
+                ? 'Pendiente'
+                : 'N/D'}
           </span>
         </div>
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Latencia</span>
           <span className="text-xs font-semibold text-[#1E293B]">
-            {nodeData.latencyMs !== undefined ? `${nodeData.latencyMs} ms` : 'N/D'}
+            {nodeData.latencyMs !== undefined && nodeData.latencyMs !== null
+              ? `${nodeData.latencyMs} ms`
+              : nodeData.status === 'STANDBY'
+                ? 'En espera'
+                : 'N/D'}
           </span>
         </div>
       </div>
@@ -91,7 +99,9 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
         type="source"
         position={Position.Right}
         id="out"
-        className="!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] !bg-[#D4AF37] transition-transform hover:!scale-125"
+        className={`!h-2.5 !w-2.5 !rounded-full !border !border-[#FFFFFF] transition-transform hover:!scale-125 ${
+          nodeData.status === 'RUNNING' ? '!bg-[#2563EB] animate-pulse !scale-125' : '!bg-[#D4AF37]'
+        }`}
       />
     </div>
   );

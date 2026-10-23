@@ -253,11 +253,14 @@ describe('Menú «+» Conversacional de Fuentes de Datos (SourceActionMenu)', ()
   });
 
   describe('5. Verificación de Despliegue Único del Historial (Criterio #2)', () => {
-    it('confirma que NO existe botón de colapsado en el Header y solo existe en el Sidebar', () => {
+    it('confirma que NO existe botón de colapsado ni badge de Time-Travel Replay en el Header y el colapsado solo existe en el Sidebar', () => {
       render(<MidasConsolePage />);
 
-      // En el header solo deben existir Marca, Replay Buffer y Zero-Trust
+      // En el header solo deben existir Marca y Zero-Trust (sin Time-Travel Replay — Historial del Gateway de Telemetría)
       expect(screen.queryByRole('button', { name: /Alternar barra lateral de sesiones/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Historial del Gateway de Telemetría/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Time-Travel Replay:/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId('zero-trust-role-selector')).toBeInTheDocument();
 
       // En el sidebar sí existe el botón de colapsar
       const sidebarCollapseBtn = screen.getByRole('button', { name: /Colapsar historial/i });

@@ -64,17 +64,28 @@ export const DataFlowEdge = memo(({
   const edgeData = data as DataFlowEdgeData | undefined;
   const isQuarantine = edgeData?.status === 'DEGRADED' || (edgeData?.label && String(edgeData.label).toLowerCase().includes('cuarentena'));
   const isWap = Boolean(edgeData?.isWap) || (edgeData?.label && String(edgeData.label).toLowerCase().includes('wap'));
-  const strokeColor = isQuarantine ? '#C86A43' : (style.stroke as string) || '#2563EB';
+  const isStandby = edgeData?.status === 'STANDBY';
+  const strokeColor = isQuarantine ? '#C86A43' : isStandby ? '#94A3B8' : (style.stroke as string) || '#2563EB';
 
   const labelClass = isQuarantine
     ? 'bg-[#FFF8F5] text-[#A8422B] border border-[#ECCFC5]'
     : isWap
     ? 'bg-[#FBF8EF] text-[#8C6D1F] border border-[#D4AF37]'
+    : isStandby
+    ? 'bg-[#F7F7F5] text-[#787164] border border-[#E8E4DC]'
     : 'bg-[#FFFFFF] text-[#1E293B] border border-[#E8E4DC]';
 
   // Compute modulated particle duration from recordsPerSecond if provided, or use explicit duration
   const particleDuration =
     edgeData?.duration || calculateParticleDuration(edgeData?.recordsPerSecond);
+
+  const hasActiveFlow =
+    Boolean(animated) &&
+    !isStandby &&
+    (edgeData?.recordsPerSecond === undefined ||
+      edgeData.recordsPerSecond > 0 ||
+      (typeof edgeData?.volume === 'number' && edgeData.volume > 0) ||
+      edgeData?.status === 'RUNNING');
 
   return (
     <>
@@ -89,8 +100,8 @@ export const DataFlowEdge = memo(({
       />
 
       {/* Partículas / Pulso animado en SVG modulado según la tasa de registros */}
-      {animated && (
-        <circle r="3" fill={strokeColor} className="animate-pulse">
+      {hasActiveFlow && (
+        <circle r="3.5" fill={strokeColor} stroke="#FFFFFF" strokeWidth="0.75" className="animate-pulse">
           <animateMotion
             dur={particleDuration}
             repeatCount="indefinite"

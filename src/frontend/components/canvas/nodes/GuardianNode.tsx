@@ -51,10 +51,10 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
 
         {/* Badge de Estado Canónico */}
         <div
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-medium text-[#4D7C0F] bg-[#4D7C0F]/10 border border-[#4D7C0F]/25"
+          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-medium ${statusConfig.textClass} ${statusConfig.bgClass} border ${statusConfig.borderClass}`}
           title={statusConfig.accessibleDescription}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4D7C0F]" />
+          <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dotClass}`} />
           <span>{statusConfig.label}</span>
         </div>
       </div>
@@ -64,11 +64,11 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
         <div className="flex items-center justify-between text-[10px] font-mono">
           <span className="text-[#787164]">Playbook:</span>
           <span className="font-mono text-[#A8422B] font-semibold px-1 rounded bg-[#FDF1ED] border border-[#ECCFC5]">
-            {nodeData.guardianDetails?.playbook_id || 'PB-03-QUARANTINE'}
+            {nodeData.guardianDetails?.playbook_id || (nodeData.quarantinedRecords && nodeData.quarantinedRecords > 0 ? 'PB-03-QUARANTINE' : 'PB-03-STANDBY')}
           </span>
         </div>
         <p className="text-[10px] text-[#787164] leading-snug line-clamp-2">
-          {nodeData.guardianDetails?.action_taken || 'Standby · Monitoreando F1 a F5'}
+          {nodeData.guardianDetails?.action_taken || (nodeData.status === 'STANDBY' ? 'Standby · Monitoreo activo en espera' : 'Standby · Lote 100% íntegro sin cuarentena')}
         </p>
       </div>
 
@@ -84,7 +84,9 @@ export const GuardianNode = memo(({ data, selected }: NodeProps<GuardianCanvasNo
         </div>
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Patrón WAP</span>
-          <span className="text-xs font-bold text-[#4D7C0F]">Activo / Seguro</span>
+          <span className={`text-xs font-bold ${nodeData.status === 'STANDBY' ? 'text-[#8A8374]' : 'text-[#4D7C0F]'}`}>
+            {nodeData.status === 'STANDBY' ? 'En Espera' : 'Activo / Seguro'}
+          </span>
         </div>
       </div>
 

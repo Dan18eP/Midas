@@ -290,7 +290,15 @@ export async function testConnection(
 export async function triggerPipeline(
   connectionId: string,
   signal?: AbortSignal
-): Promise<{ run_id: string; status: string; records_cleaned: number; records_quarantined: number; detail: string }> {
+): Promise<{
+  run_id: string;
+  status: string;
+  records_ingested?: number;
+  records_cleaned: number;
+  records_quarantined: number;
+  output_tables?: string[];
+  detail: string;
+}> {
   const response = await safeFetch(`${API_BASE}/api/v1/pipelines/${encodeURIComponent(connectionId)}/trigger`, {
     method: 'POST',
     headers: getSessionHeaders(),

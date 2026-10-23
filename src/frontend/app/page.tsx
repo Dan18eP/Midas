@@ -224,15 +224,6 @@ function MidasConsoleWorkspace() {
           </div>
         </div>
 
-        {/* Frontera HU-FRONT-03: Time-Travel Replay Status */}
-        <div className="hidden lg:flex items-center bg-[#F7F7F5] border border-[#E8E4DC] rounded-md px-2.5 py-1 text-xs shadow-inner gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono font-medium">Time-Travel Replay:</span>
-          <span className="flex items-center space-x-1.5 px-2 py-1 rounded bg-[#FFFFFF] text-[#1C1E21] font-medium border border-[#D4AF37]/40 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#4D7C0F] animate-pulse" />
-            <span className="font-mono text-[10px] font-semibold text-[#8C6D1F]">Historial del Gateway de Telemetría</span>
-          </span>
-        </div>
-
         {/* Frontera HU-FRONT-05: Selector Zero-Trust Roles */}
         <ZeroTrustLens
           role={selectedRole}
@@ -242,7 +233,7 @@ function MidasConsoleWorkspace() {
       </header>
 
       {/* 2. Cuerpo Principal con Layout Dividido: Sidebar + Workspace (Modo 1 vs Modo 2) */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Panel Lateral de Historial de Sesiones */}
         <SessionHistorySidebar
           collapsed={sidebarCollapsed}
@@ -250,7 +241,7 @@ function MidasConsoleWorkspace() {
         />
 
         {/* Área Central: Transición Dinámica de Estados */}
-        <main className="relative flex flex-1 overflow-hidden bg-[#FFFFFF]">
+        <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#FFFFFF]">
           {isNewChatView ? (
             /* Modo 1: Welcome Hub (ChatGPT-Style) */
             <section
@@ -267,7 +258,7 @@ function MidasConsoleWorkspace() {
             /* Modo 2: Active Canvas & Copilot Workspace */
             <section
               aria-label="Topología del Pipeline Lakehouse y Espacio Activo"
-              className="relative flex-1 h-full bg-[#FFFFFF]"
+              className="relative flex min-h-0 min-w-0 flex-1 h-full bg-[#FFFFFF]"
             >
               {!hasConnectedData ? (
                 <div className="flex h-full w-full items-center justify-center bg-[#FFFFFF] text-[#4B4639] font-mono text-sm">

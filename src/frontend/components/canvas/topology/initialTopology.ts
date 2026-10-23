@@ -261,9 +261,164 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     source: 'guardian_monitor',
     target: 'gold_marts',
     type: 'dataflow',
+    animated: true,
+    style: { stroke: '#D4AF37', strokeWidth: 1.2, strokeDasharray: '3 3' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#D4AF37' },
+    data: { label: 'Gatekeeper WAP', volume: 0, status: 'HEALTHY' },
+  },
+];
+
+/**
+ * Etapas canónicas limpias de la arquitectura Medallion (Bronze Raw, Silver Cleanse, Guardian Monitor, Gold Marts).
+ * En una sesión recién creada, todas las etapas inician en estado 'STANDBY' (En Espera)
+ * sin datos falsos ni conteos ficticios (recordsIn/recordsOut indefinidos hasta su ejecución real).
+ */
+export const CANONICAL_STAGE_NODES: Node<MidasNodeData>[] = [
+  {
+    id: 'bronze_raw',
+    type: 'stage',
+    position: { x: 400, y: 240 },
+    data: {
+      id: 'bronze_raw',
+      label: 'Bronze Raw (Iceberg)',
+      description: 'Ingesta cruda inmutable con metadatos de auditoría y esquema Iceberg v2. Pendiente de ejecución.',
+      nodeType: 'stage',
+      subType: 'bronze',
+      status: 'STANDBY',
+      recordsIn: undefined,
+      recordsOut: undefined,
+      latencyMs: undefined,
+      storagePath: 's3://midas-bronze/raw/',
+      catalogTable: 'bronze.raw_dataset',
+      lastUpdated: new Date().toISOString(),
+      details: {
+        format: 'Apache Iceberg v2 Parquet',
+        partition: 'ingestion_date (Daily)',
+        auditColumns: ['_ingested_at', '_source_type', '_schema_fingerprint'],
+      },
+    },
+  },
+  {
+    id: 'silver_cleansing',
+    type: 'stage',
+    position: { x: 760, y: 240 },
+    data: {
+      id: 'silver_cleansing',
+      label: 'Silver Cleanse (Iceberg)',
+      description: 'Limpieza con PySpark, Quality Gate de contratos y bifurcación a cuarentena. Pendiente de ejecución.',
+      nodeType: 'stage',
+      subType: 'silver',
+      status: 'STANDBY',
+      recordsIn: undefined,
+      recordsOut: undefined,
+      latencyMs: undefined,
+      storagePath: 's3://midas-silver/clean/',
+      catalogTable: 'silver.clean_dataset',
+      quarantinedRecords: 0,
+      lastUpdated: new Date().toISOString(),
+      details: {
+        qualityGate: 'Great Expectations & OpenMetadata Contracts',
+        quarantineTable: 'silver.dataset_quarantine',
+        piiDetection: 'Apache Atlas Automated Tagging',
+      },
+    },
+  },
+  {
+    id: 'guardian_monitor',
+    type: 'guardian',
+    position: { x: 760, y: 460 },
+    data: {
+      id: 'guardian_monitor',
+      label: 'Midas Guardian Monitor',
+      description: 'Subsistema de observabilidad activa, auto-sanación y playbooks PB-01 a PB-05. En espera.',
+      nodeType: 'guardian',
+      subType: 'guardian',
+      status: 'STANDBY',
+      recordsIn: 0,
+      recordsOut: 0,
+      latencyMs: undefined,
+      lastUpdated: new Date().toISOString(),
+      guardianDetails: {
+        playbook_id: 'PB-03-STANDBY',
+        action_taken: 'Standby - Monitoreo activo listo para auditar el lote',
+        quarantined_records: 0,
+        message: 'Sin anomalías. Monitor listo para auditar transacciones.',
+      },
+      details: {
+        activePlaybooks: ['PB-01-RETRY', 'PB-02-DEDUP', 'PB-03-QUARANTINE', 'PB-04-SCHEMA', 'PB-05-ANOMALY'],
+        wapPattern: 'Write-Audit-Publish Enforced',
+      },
+    },
+  },
+  {
+    id: 'gold_marts',
+    type: 'stage',
+    position: { x: 1120, y: 240 },
+    data: {
+      id: 'gold_marts',
+      label: 'Gold Marts (Iceberg)',
+      description: 'Marts dimensionales de hechos y dimensiones con vistas analíticas gobernadas. Pendiente de ejecución.',
+      nodeType: 'stage',
+      subType: 'gold',
+      status: 'STANDBY',
+      recordsIn: undefined,
+      recordsOut: undefined,
+      latencyMs: undefined,
+      storagePath: 's3://midas-gold/fact_ventas/',
+      catalogTable: 'gold.fact_ventas',
+      lastUpdated: new Date().toISOString(),
+      details: {
+        dimensions: ['dim_clientes', 'dim_productos', 'dim_tiempo'],
+        queryEngine: 'Trino 440+ con Plugin Apache Ranger',
+        governanceAudit: 'Contratos de Datos Certificados',
+      },
+    },
+  },
+];
+
+/**
+ * Aristas internas entre las etapas del Lakehouse (Bronze -> Silver, Silver -> Gold, Silver -> Guardian, Guardian -> Gold).
+ * Inician en estado 'STANDBY' sin animación de partículas hasta que haya flujo de datos activo.
+ */
+export const CANONICAL_STAGE_EDGES: Edge[] = [
+  {
+    id: 'edge_bronze_silver',
+    source: 'bronze_raw',
+    target: 'silver_cleansing',
+    type: 'dataflow',
+    animated: false,
+    style: { stroke: '#3B82F6', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#3B82F6' },
+    data: { label: 'PySpark Cleanse', volume: 0, recordsPerSecond: 0, status: 'STANDBY' },
+  },
+  {
+    id: 'edge_silver_gold',
+    source: 'silver_cleansing',
+    target: 'gold_marts',
+    type: 'dataflow',
+    animated: false,
+    style: { stroke: '#B8860B', strokeWidth: 2 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#B8860B' },
+    data: { label: 'WAP Verified', volume: 0, recordsPerSecond: 0, status: 'STANDBY', isWap: true },
+  },
+  {
+    id: 'edge_silver_guardian',
+    source: 'silver_cleansing',
+    target: 'guardian_monitor',
+    type: 'dataflow',
+    animated: false,
+    style: { stroke: '#C86A43', strokeWidth: 1.5, strokeDasharray: '4 4' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#C86A43' },
+    data: { label: 'Cuarentena', volume: 0, recordsPerSecond: 0, status: 'STANDBY' },
+  },
+  {
+    id: 'edge_guardian_gold',
+    source: 'guardian_monitor',
+    target: 'gold_marts',
+    type: 'dataflow',
     animated: false,
     style: { stroke: '#D4AF37', strokeWidth: 1.2, strokeDasharray: '3 3' },
     markerEnd: { type: MarkerType.ArrowClosed, color: '#D4AF37' },
-    data: { label: 'Gatekeeper', volume: 0, status: 'HEALTHY' },
+    data: { label: 'Gatekeeper WAP', volume: 0, recordsPerSecond: 0, status: 'STANDBY' },
   },
 ];

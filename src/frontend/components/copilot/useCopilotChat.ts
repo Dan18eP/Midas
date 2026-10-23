@@ -10,13 +10,10 @@ export const DEFAULT_SUGGESTIONS = [
 ];
 
 const WELCOME_CONTENT = [
-  '¡Hola! Soy el **Copiloto Agéntico de Midas**. Introspecciono tus fuentes conectadas y respondo en lenguaje natural con narrativa ejecutiva y gráficos Apache ECharts.',
-  'Fuentes activas:',
-  '- PostgreSQL: `crm_operaciones` (clientes, transacciones)',
-  '- Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)',
-  '- API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)',
+  '¡Hola! Soy el **Copiloto Agéntico de Midas**. Introspecciono las fuentes conectadas a tu sesión activa y respondo en lenguaje natural con narrativa ejecutiva y gráficos Apache ECharts.',
+  'Puedes consultarme sobre tus datos cargados, linaje de métricas o solicitar la materialización de vistas en la capa Gold.',
   '¿Qué analizamos hoy?',
-].join('\n');
+].join('\n\n');
 
 const PHASE_TIMERS = [
   { at: 900, status: 'querying' as CopilotAgentStatus },

@@ -19,7 +19,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { MidasNodeData, MidasNodeSubtype, MidasNodeType } from '@/types/canvas';
+import { MidasNodeData, MidasNodeSubtype, MidasNodeType, NodeStatus } from '@/types/canvas';
 import { TelemetryEventPayload, extractTelemetryRate } from '@/types/telemetry';
 import { useTelemetryStream } from '@/hooks/useTelemetryStream';
 import { useTimeTravel } from '@/hooks/useTimeTravel';
@@ -34,7 +34,7 @@ import { DataFlowEdge } from './edges/DataFlowEdge';
 import { CanvasControls } from './CanvasControls';
 import { NodeInspectionDrawer } from './NodeInspectionDrawer';
 import { TelemetryConnectionBanner } from './TelemetryConnectionBanner';
-import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from './topology/initialTopology';
+import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES, CANONICAL_STAGE_NODES, CANONICAL_STAGE_EDGES } from './topology/initialTopology';
 import type { SecurityNodePolicy, ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 
 const NODE_TYPES: NodeTypes = {
@@ -58,7 +58,7 @@ const NODE_ID_ALIASES: Record<string, string> = {
 
 const CANONICAL_NODE_IDS = new Set<string>(INITIAL_CANVAS_NODES.map((node) => node.id));
 
-/** Banda inferior donde se ubican los nodos recibidos en caliente. */
+/** Banda inferior histórica donde se ubicaban los nodos recibidos en caliente (fallback). */
 const DYNAMIC_NODE_ORIGIN = { x: 40, y: 620 };
 const DYNAMIC_NODE_STEP = { x: 340, y: 190 };
 
@@ -69,13 +69,51 @@ const DYNAMIC_NODE_STEP = { x: 340, y: 190 };
 const LAYER_PARENT_BY_SUBTYPE: Partial<Record<MidasNodeSubtype, string>> = {
   gold: 'silver_cleansing',
   silver: 'bronze_raw',
+  bronze: 'source_postgres',
+  guardian: 'silver_cleansing',
 };
 
-function dynamicNodePosition(index: number): { x: number; y: number } {
+export function dynamicNodePosition(index: number): { x: number; y: number } {
   return {
     x: DYNAMIC_NODE_ORIGIN.x + DYNAMIC_NODE_STEP.x * (index % 3),
     y: DYNAMIC_NODE_ORIGIN.y + DYNAMIC_NODE_STEP.y * Math.floor(index / 3),
   };
+}
+
+/**
+ * Asigna la posición canónica en la columna correspondiente según la capa Medallion.
+ * Fuentes: x = 40
+ * Bronze: x = 400
+ * Silver / Guardian: x = 760
+ * Gold: x = 1120
+ */
+export function getColumnNodePosition(
+  subType: MidasNodeSubtype,
+  currentNodes: Node<MidasNodeData>[]
+): { x: number; y: number } {
+  const isSource =
+    subType === 'postgresql' ||
+    subType === 'excel' ||
+    subType === 'api' ||
+    subType === 'generic';
+
+  let targetX = 1120;
+  if (isSource) targetX = 40;
+  else if (subType === 'bronze') targetX = 400;
+  else if (subType === 'silver' || subType === 'guardian') targetX = 760;
+  else if (subType === 'gold') targetX = 1120;
+
+  // Filtrar nodos pertenecientes a la misma columna visual
+  const colNodes = currentNodes.filter((node) => {
+    const x = node.position?.x ?? 0;
+    return Math.abs(x - targetX) < 180;
+  });
+
+  const maxY = colNodes.reduce((max, node) => Math.max(max, node.position?.y ?? 0), 0);
+  const baseY = isSource ? 60 : 240;
+  const targetY = colNodes.length > 0 ? maxY + 180 : baseY;
+
+  return { x: targetX, y: targetY };
 }
 
 interface DynamicNodeShape {
@@ -183,12 +221,36 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   // Sincronización reactiva con la sesión activa (HU-FRONT-07 / ADR-010)
   useEffect(() => {
     if (initialNodes) {
+      const nodeIds = new Set(initialNodes.map((n) => n.id));
+      const hasSilver = nodeIds.has('silver_cleansing');
+      const hasGuardian = nodeIds.has('guardian_monitor');
+      if (hasSilver && !hasGuardian) {
+        const guardianNode = CANONICAL_STAGE_NODES.find((n) => n.id === 'guardian_monitor');
+        if (guardianNode) {
+          setNodes([...initialNodes, guardianNode]);
+          return;
+        }
+      }
       setNodes(initialNodes);
     }
   }, [initialNodes, setNodes]);
 
   useEffect(() => {
     if (initialEdges) {
+      const edgeIds = new Set(initialEdges.map((e) => e.id));
+      const missingEdges: Edge[] = [];
+      if (!edgeIds.has('edge_silver_guardian')) {
+        const silverGuardian = CANONICAL_STAGE_EDGES.find((e) => e.id === 'edge_silver_guardian');
+        if (silverGuardian) missingEdges.push(silverGuardian);
+      }
+      if (!edgeIds.has('edge_guardian_gold')) {
+        const guardianGold = CANONICAL_STAGE_EDGES.find((e) => e.id === 'edge_guardian_gold');
+        if (guardianGold) missingEdges.push(guardianGold);
+      }
+      if (missingEdges.length > 0) {
+        setEdges([...initialEdges, ...missingEdges]);
+        return;
+      }
       setEdges(initialEdges);
     }
   }, [initialEdges, setEdges]);
@@ -256,10 +318,24 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   // aristas ni métricas.
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const nodesRef = useRef<Node<MidasNodeData>[]>(initialNodes);
+  const edgesRef = useRef<Edge[]>(initialEdges);
+  const topologyDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
+  useEffect(() => {
+    return () => {
+      if (topologyDebounceTimerRef.current) {
+        clearTimeout(topologyDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   // Flush batched telemetry updates to React Flow nodes and edges in a single frame
   const flushBatchUpdates = useCallback(() => {
@@ -291,7 +367,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
       dynamicNodes.push({
         id: nodeId,
         type: shape.nodeType,
-        position: dynamicNodePosition(dynamicOffset + dynamicNodes.length),
+        position: getColumnNodePosition(shape.subType, [...nodesRef.current, ...dynamicNodes]),
         data: {
           id: nodeId,
           label: shape.label,
@@ -312,31 +388,65 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
       });
       knownNodeIds.add(nodeId);
 
-      // Arista derivada de la cadena Medallion canónica (el backend no emite
-      // eventos de conexión). Sólo si el nodo padre ya está en el grafo.
-      const parent = LAYER_PARENT_BY_SUBTYPE[shape.subType];
-      if (parent && knownNodeIds.has(parent)) {
-        dynamicEdges.push({
-          id: `edge_${parent}_${nodeId}`,
-          source: parent,
-          target: nodeId,
-          type: 'dataflow',
-          animated: true,
-          style:
-            shape.subType === 'gold'
-              ? { stroke: '#B8860B', strokeWidth: 2 }
-              : { stroke: '#3B82F6', strokeWidth: 1.5 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: shape.subType === 'gold' ? '#B8860B' : '#3B82F6',
-          },
-          data: {
-            label: shape.subType === 'gold' ? 'WAP Promotion' : 'Dataflow',
-            volume: evt.records_out,
-            status: evt.status ?? 'UNKNOWN',
-            ...(shape.subType === 'gold' ? { isWap: true } : {}),
-          },
-        });
+      // Arista derivada de la cadena Medallion canónica:
+      // Fuentes -> bronze_raw, bronze -> silver, silver -> gold
+      if (shape.nodeType === 'source') {
+        if (knownNodeIds.has('bronze_raw')) {
+          dynamicEdges.push({
+            id: `edge_${nodeId}_bronze`,
+            source: nodeId,
+            target: 'bronze_raw',
+            type: 'dataflow',
+            animated: true,
+            style: { stroke: '#2563EB', strokeWidth: 1.5 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: '#2563EB',
+            },
+            data: {
+              label: evt.records_out ? `${evt.records_out.toLocaleString()} filas/s` : 'Streaming',
+              volume: evt.records_out || 0,
+              status: evt.status ?? 'HEALTHY',
+            },
+          });
+        }
+      } else {
+        const parent = LAYER_PARENT_BY_SUBTYPE[shape.subType];
+        if (parent && knownNodeIds.has(parent)) {
+          dynamicEdges.push({
+            id: `edge_${parent}_${nodeId}`,
+            source: parent,
+            target: nodeId,
+            type: 'dataflow',
+            animated: true,
+            style:
+              shape.subType === 'gold'
+                ? { stroke: '#B8860B', strokeWidth: 2 }
+                : shape.subType === 'guardian'
+                  ? { stroke: '#C86A43', strokeWidth: 1.5, strokeDasharray: '4 4' }
+                  : { stroke: '#3B82F6', strokeWidth: 1.5 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color:
+                shape.subType === 'gold'
+                  ? '#B8860B'
+                  : shape.subType === 'guardian'
+                    ? '#C86A43'
+                    : '#3B82F6',
+            },
+            data: {
+              label:
+                shape.subType === 'gold'
+                  ? 'WAP Promotion'
+                  : shape.subType === 'guardian'
+                    ? 'Cuarentena'
+                    : 'Dataflow',
+              volume: evt.records_out,
+              status: evt.status ?? 'UNKNOWN',
+              ...(shape.subType === 'gold' ? { isWap: true } : {}),
+            },
+          });
+        }
       }
     }
 
@@ -393,50 +503,31 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         let updatedEdge = edge;
         let matched = false;
 
-        // PostgreSQL CRM -> Bronze Raw (Airflow)
-        if (edge.id === 'edge_postgres_bronze' && latestEventsByNode.has('source_postgres')) {
+        // Aristas de fuentes dinámicas o canónicas hacia Bronze Raw (Airflow)
+        if (
+          edge.target === 'bronze_raw' &&
+          (latestEventsByNode.has(edge.source) ||
+            (edge.id === 'edge_postgres_bronze' && latestEventsByNode.has('source_postgres')) ||
+            (edge.id === 'edge_excel_bronze' && latestEventsByNode.has('source_excel')) ||
+            (edge.id === 'edge_api_bronze' && latestEventsByNode.has('source_api')))
+        ) {
           matched = true;
-          const evt = latestEventsByNode.get('source_postgres')!;
+          const evt =
+            latestEventsByNode.get(edge.source) ||
+            latestEventsByNode.get('source_postgres') ||
+            latestEventsByNode.get('source_excel') ||
+            latestEventsByNode.get('source_api')!;
           const rate = extractTelemetryRate(evt);
+          const vol = evt.records_out !== undefined ? evt.records_out : evt.records_in;
           updatedEdge = {
             ...edge,
+            animated: vol > 0 || evt.status === 'RUNNING',
             data: {
               ...edge.data,
-              volume: evt.records_out,
-              recordsPerSecond: rate,
-              label: `${rate.toLocaleString()} filas/s`,
-            },
-          };
-        }
-
-        // Excel -> Bronze Raw (Airflow)
-        if (edge.id === 'edge_excel_bronze' && latestEventsByNode.has('source_excel')) {
-          matched = true;
-          const evt = latestEventsByNode.get('source_excel')!;
-          const rate = extractTelemetryRate(evt);
-          updatedEdge = {
-            ...edge,
-            data: {
-              ...edge.data,
-              volume: evt.records_out,
-              recordsPerSecond: rate,
-              label: `${rate.toLocaleString()} filas/s`,
-            },
-          };
-        }
-
-        // API Webhooks -> Bronze Raw (Airflow)
-        if (edge.id === 'edge_api_bronze' && latestEventsByNode.has('source_api')) {
-          matched = true;
-          const evt = latestEventsByNode.get('source_api')!;
-          const rate = extractTelemetryRate(evt);
-          updatedEdge = {
-            ...edge,
-            data: {
-              ...edge.data,
-              volume: evt.records_out,
-              recordsPerSecond: rate,
-              label: `${rate.toLocaleString()} filas/s`,
+              volume: vol,
+              recordsPerSecond: rate > 0 ? rate : (vol > 0 ? 1000 : 0),
+              status: evt.status || 'HEALTHY',
+              label: `${vol.toLocaleString()} filas/s`,
             },
           };
         }
@@ -496,12 +587,28 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
           updatedEdge = {
             ...edge,
+            animated: true,
             data: {
               ...edge.data,
               volume: qRec,
-              recordsPerSecond: qRec,
+              recordsPerSecond: qRec > 0 ? qRec : 100,
               status: qRec > 0 ? 'DEGRADED' : 'HEALTHY',
-              label: `${qRec} en Cuarentena`,
+              label: qRec > 0 ? `${qRec} en Cuarentena` : 'WAP Audit (0 fallos)',
+            },
+          };
+        }
+
+        // Guardian Monitor -> Gold Marts (WAP Gatekeeper)
+        if (edge.id === 'edge_guardian_gold') {
+          matched = true;
+          updatedEdge = {
+            ...edge,
+            animated: true,
+            data: {
+              ...edge.data,
+              status: 'HEALTHY',
+              label: 'Gatekeeper WAP',
+              recordsPerSecond: 1000,
             },
           };
         }
@@ -531,9 +638,28 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
       // Las aristas derivadas se AÑADEN (id determinista → idempotente).
       const existingEdgeIds = new Set(updated.map((edge) => edge.id));
       const added = dynamicEdges.filter((edge) => !existingEdgeIds.has(edge.id));
+      if (!existingEdgeIds.has('edge_silver_guardian') && (knownNodeIds.has('guardian_monitor') || knownNodeIds.has('silver_cleansing'))) {
+        const silverGuardian = CANONICAL_STAGE_EDGES.find((e) => e.id === 'edge_silver_guardian');
+        if (silverGuardian) added.push(silverGuardian);
+      }
+      if (!existingEdgeIds.has('edge_guardian_gold') && (knownNodeIds.has('guardian_monitor') || knownNodeIds.has('gold_marts'))) {
+        const guardianGold = CANONICAL_STAGE_EDGES.find((e) => e.id === 'edge_guardian_gold');
+        if (guardianGold) added.push(guardianGold);
+      }
       return added.length > 0 ? [...updated, ...added] : updated;
     });
-  }, [setNodes, setEdges]);
+
+    if (onTopologyChange) {
+      if (topologyDebounceTimerRef.current) {
+        clearTimeout(topologyDebounceTimerRef.current);
+      }
+      topologyDebounceTimerRef.current = setTimeout(() => {
+        if (nodesRef.current && edgesRef.current) {
+          onTopologyChange(nodesRef.current, edgesRef.current);
+        }
+      }, 1500);
+    }
+  }, [setNodes, setEdges, onTopologyChange]);
 
   // Handler for each incoming telemetry event: buffers in store & queues for rAF
   const handleIncomingTelemetry = useCallback(
@@ -637,12 +763,24 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           const qRec = snap.recordsQuarantined;
           updatedEdge = {
             ...edge,
+            animated: true,
             data: {
               ...edge.data,
               volume: qRec,
-              recordsPerSecond: qRec,
+              recordsPerSecond: qRec > 0 ? qRec : 100,
               status: qRec > 0 ? 'DEGRADED' : 'HEALTHY',
-              label: `${qRec} en Cuarentena`,
+              label: qRec > 0 ? `${qRec} en Cuarentena` : 'WAP Audit (0 fallos)',
+            },
+          };
+        } else if (edge.id === 'edge_guardian_gold') {
+          updatedEdge = {
+            ...edge,
+            animated: true,
+            data: {
+              ...edge.data,
+              status: 'HEALTHY',
+              label: 'Gatekeeper WAP',
+              recordsPerSecond: 1000,
             },
           };
         }
@@ -797,90 +935,13 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden bg-[#FFFFFF] ${className}`}
+      className={`relative flex h-full w-full flex-col overflow-hidden bg-[#FFFFFF] ${className}`}
       data-testid="pipeline-canvas-container"
     >
-      {/* Controles de Cabecera Izquierda */}
-      <CanvasControls
-        totalNodes={totalNodes}
-        healthyNodes={healthyNodes}
-        onResetLayout={handleResetLayout}
-      />
-
-      {/* Banner Discreto de Estado de Conexión SSE Derecha */}
-      <div className="absolute top-4 right-4 z-20">
-        <TelemetryConnectionBanner
-          status={connectionStatus}
-          lastEventTime={lastEvent?.timestamp}
-          reconnectAttempts={reconnectAttempts}
-          onManualReconnect={connect}
-        />
-      </div>
-
-      {/* Canvas React Flow */}
-      <ReactFlow
-        nodes={enhancedNodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={handleNodeClick}
-        onPaneClick={handlePaneClick}
-        onNodeDragStop={onNodeDragStop}
-        nodeTypes={NODE_TYPES}
-        edgeTypes={EDGE_TYPES}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.3}
-        maxZoom={2.0}
-        attributionPosition="bottom-left"
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#E8E4DC" />
-        <Controls
-          className="!bottom-4 !left-4 !border-[#F0EDE7] !bg-[#FFFFFF] !fill-[#6B6557] [&>button]:!border-[#F0EDE7] [&>button]:!bg-[#FFFFFF] [&>button]:hover:!bg-[#FAFAFA] [&>button]:hover:!fill-[#1C1E21] shadow-sm rounded overflow-hidden"
-          showInteractive={false}
-        />
-        <MiniMap
-          nodeColor={nodeColor}
-          nodeStrokeWidth={3}
-          maskColor="rgba(255, 255, 255, 0.75)"
-          className="!bottom-4 !right-24 !rounded !border !border-[#F0EDE7] !bg-[#FFFFFF] !shadow-sm"
-        />
-      </ReactFlow>
-
-      {/* Barra de Replay Temporal e Inspección Histórica (HU-FRONT-03) */}
-      <TimeTravelScrubber
-        mode={timeTravel.mode}
-        isPlaying={timeTravel.isPlaying}
-        speed={timeTravel.speed}
-        currentTimeMs={timeTravel.currentTimeMs}
-        liveNowMs={timeTravel.liveNowMs}
-        windowStartMs={timeTravel.windowStartMs}
-        windowEndMs={timeTravel.windowEndMs}
-        activeSnapshot={timeTravel.activeSnapshot}
-        relativeOffsetMinutes={timeTravel.relativeOffsetMinutes}
-        relativeOffsetLabel={timeTravel.relativeOffsetLabel}
-        timelinePoints={timeTravel.timelinePoints}
-        historyStatus={timeTravel.historyStatus}
-        historyError={timeTravel.historyError}
-        onPlay={timeTravel.play}
-        onPause={timeTravel.pause}
-        onTogglePlay={timeTravel.togglePlay}
-        onSetSpeed={timeTravel.setSpeed}
-        onSeek={timeTravel.seekTo}
-        onReturnToLive={timeTravel.returnToLive}
-      />
-
-      {/* Panel Lateral de Inspección (Drawer) */}
-      <NodeInspectionDrawer
-        selectedNode={selectedNodeData}
-        onClose={() => setSelectedNodeData(null)}
-      />
-
       {securityRole !== 'admin' && (
         <div
           data-testid="zero-trust-simulation-banner"
-          className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-center border-b border-[#D4AF37]/30 bg-[#FFFFFF]/90 px-3 py-1.5 text-[11px] text-[#1C1E21] backdrop-blur-md shadow-xs"
+          className="z-20 flex shrink-0 items-center justify-center border-b border-[#D4AF37]/30 bg-[#FFFFFF]/95 px-3 py-1.5 text-[11px] text-[#1C1E21] backdrop-blur-md shadow-xs"
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D4AF37]/50 bg-[#FBF8EF] px-2.5 py-0.5 font-mono text-[10px] font-medium text-[#8C6D1F]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#B8860B] animate-pulse" />
@@ -891,6 +952,281 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           </span>
         </div>
       )}
+
+      {/* Barra Superior de Controles de Topología y Estado de Conexión SSE en Vivo */}
+      <div className="z-10 flex shrink-0 flex-wrap items-center justify-between gap-2.5 border-b border-[#F0EDE7] bg-[#FAFAFA]/80 px-4 py-2">
+        <CanvasControls
+          totalNodes={totalNodes}
+          healthyNodes={healthyNodes}
+          onResetLayout={handleResetLayout}
+        />
+
+        <TelemetryConnectionBanner
+          status={connectionStatus}
+          lastEventTime={lastEvent?.timestamp}
+          reconnectAttempts={reconnectAttempts}
+          onManualReconnect={connect}
+        />
+      </div>
+
+      {/* Área Principal del Canvas React Flow (ocupa el espacio restante sin superposición) */}
+      <div className="relative min-h-0 flex-1 w-full overflow-hidden">
+        <ReactFlow
+          nodes={enhancedNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          onNodeDragStop={onNodeDragStop}
+          nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.3}
+          maxZoom={2.0}
+          attributionPosition="bottom-left"
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#E8E4DC" />
+          <Controls
+            className="!bottom-4 !left-4 !border-[#F0EDE7] !bg-[#FFFFFF] !fill-[#6B6557] [&>button]:!border-[#F0EDE7] [&>button]:!bg-[#FFFFFF] [&>button]:hover:!bg-[#FAFAFA] [&>button]:hover:!fill-[#1C1E21] shadow-sm rounded overflow-hidden"
+            showInteractive={false}
+          />
+          <MiniMap
+            nodeColor={nodeColor}
+            nodeStrokeWidth={3}
+            maskColor="rgba(255, 255, 255, 0.75)"
+            className="!bottom-4 !right-4 !rounded !border !border-[#F0EDE7] !bg-[#FFFFFF] !shadow-sm"
+          />
+        </ReactFlow>
+      </div>
+
+      {/* Barra Inferior de Modo Live / Replay Temporal e Inspección Histórica (HU-FRONT-03) */}
+      <div className="z-10 shrink-0 border-t border-[#E8E4DC] bg-[#FAFAFA]/80 px-4 py-2.5 sm:pr-24">
+        <TimeTravelScrubber
+          mode={timeTravel.mode}
+          isPlaying={timeTravel.isPlaying}
+          speed={timeTravel.speed}
+          currentTimeMs={timeTravel.currentTimeMs}
+          liveNowMs={timeTravel.liveNowMs}
+          windowStartMs={timeTravel.windowStartMs}
+          windowEndMs={timeTravel.windowEndMs}
+          activeSnapshot={timeTravel.activeSnapshot}
+          relativeOffsetMinutes={timeTravel.relativeOffsetMinutes}
+          relativeOffsetLabel={timeTravel.relativeOffsetLabel}
+          timelinePoints={timeTravel.timelinePoints}
+          historyStatus={timeTravel.historyStatus}
+          historyError={timeTravel.historyError}
+          onPlay={timeTravel.play}
+          onPause={timeTravel.pause}
+          onTogglePlay={timeTravel.togglePlay}
+          onSetSpeed={timeTravel.setSpeed}
+          onSeek={timeTravel.seekTo}
+          onReturnToLive={timeTravel.returnToLive}
+        />
+      </div>
+
+      {/* Panel Lateral de Inspección (Drawer) */}
+      <NodeInspectionDrawer
+        selectedNode={selectedNodeData}
+        onClose={() => setSelectedNodeData(null)}
+        onNodeUpdate={(updatedData) => {
+          setSelectedNodeData(updatedData);
+          setNodes((current) =>
+            current.map((n) => (n.id === updatedData.id ? { ...n, data: updatedData } : n))
+          );
+          if (updatedData.status === 'RUNNING') {
+            setEdges((current) =>
+              current.map((e) =>
+                e.source === updatedData.id
+                  ? {
+                      ...e,
+                      animated: true,
+                      data: { ...((e.data as object) || {}), status: 'RUNNING', recordsPerSecond: 2500 },
+                    }
+                  : e
+              )
+            );
+          } else if (updatedData.status === 'HEALTHY' || updatedData.status === 'DEGRADED') {
+            setEdges((current) =>
+              current.map((e) =>
+                e.source === updatedData.id
+                  ? {
+                      ...e,
+                      animated: true,
+                      data: {
+                        ...((e.data as object) || {}),
+                        status: updatedData.status,
+                        volume: updatedData.recordsOut || 0,
+                        label: `${(updatedData.recordsOut || 0).toLocaleString()} filas procesadas`,
+                        recordsPerSecond: 1000,
+                      },
+                    }
+                  : e
+              )
+            );
+          }
+        }}
+        onPipelineExecuted={(result, updatedSourceNode) => {
+          const ingested = result.records_ingested !== undefined ? result.records_ingested : (result.records_cleaned + result.records_quarantined);
+          const cleaned = result.records_cleaned;
+          const quarantined = result.records_quarantined;
+          const goldCount = result.gold_records_generated !== undefined ? result.gold_records_generated : cleaned;
+          const finalStatus: NodeStatus = result.status === 'DEGRADED' ? 'DEGRADED' : 'HEALTHY';
+          const nowIso = new Date().toISOString();
+
+          // Resuelve nombres reales de tablas si están en output_tables
+          const bronzeTable = result.output_tables?.find((t) => t.startsWith('bronze.')) || 'bronze.raw';
+          const silverTable = result.output_tables?.find((t) => t.startsWith('silver.')) || 'silver.clean';
+          const goldTable = result.output_tables?.find((t) => t.startsWith('gold.')) || 'gold.fact_ventas';
+
+          const nextNodes = nodesRef.current.map((node) => {
+            if (node.id === updatedSourceNode.id) {
+              return { ...node, data: updatedSourceNode };
+            }
+            if (node.id === 'bronze_raw') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  status: 'HEALTHY' as const,
+                  recordsIn: ingested,
+                  recordsOut: ingested,
+                  catalogTable: bronzeTable,
+                  storagePath: `s3://midas-bronze/${bronzeTable.replace('bronze.', '')}/`,
+                  lastUpdated: nowIso,
+                },
+              };
+            }
+            if (node.id === 'silver_cleansing') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  status: (quarantined > 0 ? 'DEGRADED' : 'HEALTHY') as NodeStatus,
+                  recordsIn: ingested,
+                  recordsOut: cleaned,
+                  quarantinedRecords: quarantined,
+                  catalogTable: silverTable,
+                  storagePath: `s3://midas-silver/${silverTable.replace('silver.', '')}/`,
+                  lastUpdated: nowIso,
+                },
+              };
+            }
+            if (node.id === 'guardian_monitor') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  status: (quarantined > 0 ? 'AUTO_HEALING' : 'HEALTHY') as NodeStatus,
+                  recordsIn: quarantined,
+                  recordsOut: quarantined,
+                  quarantinedRecords: quarantined,
+                  guardianDetails: {
+                    playbook_id: quarantined > 0 ? 'PB-03-QUARANTINE' : 'PB-03-STANDBY',
+                    action_taken: quarantined > 0 ? `Desviando ${quarantined} anomalías a cuarentena` : 'Contrato WAP verificado. Lote 100% íntegro sin cuarentena',
+                    quarantined_records: quarantined,
+                    message: quarantined > 0 ? 'Anomalías aisladas para proteger Gold.' : 'Contrato WAP intacto. Gold protegida contra corrupción contable.',
+                  },
+                  lastUpdated: nowIso,
+                },
+              };
+            }
+            if (node.id === 'gold_marts') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  status: finalStatus,
+                  recordsIn: cleaned,
+                  recordsOut: goldCount,
+                  catalogTable: goldTable,
+                  storagePath: `s3://midas-gold/${goldTable.replace('gold.', '')}/`,
+                  lastUpdated: nowIso,
+                },
+              };
+            }
+            return node;
+          });
+
+          const nextEdges = edgesRef.current.map((edge) => {
+            if (edge.source === updatedSourceNode.id && edge.target === 'bronze_raw') {
+              return {
+                ...edge,
+                animated: true,
+                data: {
+                  ...((edge.data as object) || {}),
+                  status: 'HEALTHY',
+                  volume: ingested,
+                  recordsPerSecond: 1000,
+                  label: `${ingested.toLocaleString()} filas procesadas`,
+                },
+              };
+            }
+            if (edge.id === 'edge_bronze_silver' || (edge.source === 'bronze_raw' && edge.target === 'silver_cleansing')) {
+              return {
+                ...edge,
+                animated: true,
+                data: {
+                  ...((edge.data as object) || {}),
+                  status: 'HEALTHY',
+                  volume: ingested,
+                  recordsPerSecond: 1000,
+                  label: `PySpark Cleanse (${ingested.toLocaleString()} RPS)`,
+                },
+              };
+            }
+            if (edge.id === 'edge_silver_gold' || (edge.source === 'silver_cleansing' && edge.target === 'gold_marts')) {
+              return {
+                ...edge,
+                animated: true,
+                data: {
+                  ...((edge.data as object) || {}),
+                  status: 'HEALTHY',
+                  volume: goldCount,
+                  recordsPerSecond: 1000,
+                  label: `WAP Verified (${goldCount.toLocaleString()} filas)`,
+                  isWap: true,
+                },
+              };
+            }
+            if (edge.id === 'edge_silver_guardian' || (edge.source === 'silver_cleansing' && edge.target === 'guardian_monitor')) {
+              return {
+                ...edge,
+                animated: quarantined > 0,
+                data: {
+                  ...((edge.data as object) || {}),
+                  status: quarantined > 0 ? 'DEGRADED' : 'HEALTHY',
+                  volume: quarantined,
+                  recordsPerSecond: quarantined > 0 ? quarantined : 100,
+                  label: quarantined > 0 ? `${quarantined} en Cuarentena` : 'WAP Audit (0 fallos)',
+                },
+              };
+            }
+            if (edge.id === 'edge_guardian_gold' || (edge.source === 'guardian_monitor' && edge.target === 'gold_marts')) {
+              return {
+                ...edge,
+                animated: true,
+                data: {
+                  ...((edge.data as object) || {}),
+                  status: 'HEALTHY',
+                  volume: 0,
+                  recordsPerSecond: 1000,
+                  label: 'Gatekeeper WAP',
+                },
+              };
+            }
+            return edge;
+          });
+
+          setNodes(nextNodes);
+          setEdges(nextEdges);
+          if (onTopologyChange) {
+            onTopologyChange(nextNodes, nextEdges);
+          }
+        }}
+      />
     </div>
   );
 };

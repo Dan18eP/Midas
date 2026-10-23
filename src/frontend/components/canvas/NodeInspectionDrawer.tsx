@@ -3,12 +3,26 @@ import { X, HardDrive, Clock, Activity, Shield, AlertCircle, FileCode, CheckCirc
 import { MidasNodeData, NODE_STATUS_REGISTRY } from '@/types/canvas';
 import { triggerPipeline } from '@/services/sessionService';
 
+export interface PipelineTriggerResultDTO {
+  run_id: string;
+  connection_id: string;
+  status: string;
+  records_ingested?: number;
+  records_cleaned: number;
+  records_quarantined: number;
+  gold_records_generated?: number;
+  output_tables?: string[];
+  detail?: string;
+}
+
 interface NodeInspectionDrawerProps {
   selectedNode: MidasNodeData | null;
   onClose: () => void;
+  onNodeUpdate?: (updatedNode: MidasNodeData) => void;
+  onPipelineExecuted?: (result: PipelineTriggerResultDTO, updatedSourceNode: MidasNodeData) => void;
 }
 
-export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspectionDrawerProps) => {
+export const NodeInspectionDrawer = memo(({ selectedNode, onClose, onNodeUpdate, onPipelineExecuted }: NodeInspectionDrawerProps) => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<string | null>(null);
 
@@ -20,9 +34,20 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspect
     if (!selectedNode) return;
     setIsExecuting(true);
     setExecutionResult(null);
+
+    // Actualizar visualmente el nodo a estado de ejecución activa
+    const runningNode: MidasNodeData = {
+      ...selectedNode,
+      status: 'RUNNING',
+      lastUpdated: new Date().toISOString(),
+    };
+    if (onNodeUpdate) {
+      onNodeUpdate(runningNode);
+    }
+
     try {
       const rawId = selectedNode.id;
-const details = selectedNode.details as Record<string, any> | undefined;
+      const details = selectedNode.details as Record<string, any> | undefined;
       let connId =
         details?.connectionId ||
         details?.connection_id ||
@@ -30,19 +55,39 @@ const details = selectedNode.details as Record<string, any> | undefined;
       if (!connId) {
         if (rawId.startsWith('conn_')) {
           connId = rawId;
-        } else if (rawId.includes('excel') || selectedNode.subType === 'excel') {
-          connId = 'conn_excel_budget_default';
-        } else if (rawId.includes('postgres') || selectedNode.subType === 'postgresql') {
-          connId = 'conn_pg_crm_default';
-        } else if (rawId.includes('rest') || rawId.includes('api') || selectedNode.subType === 'api') {
-          connId = 'conn_rest_crm_default';
+        } else if (rawId.startsWith('source_')) {
+          connId = rawId.replace('source_', '');
         } else {
-          connId = rawId.startsWith('source_') ? rawId.replace('source_', '') : rawId;
+          connId = rawId;
         }
       }
       const res = await triggerPipeline(connId);
+      const finalStatus = res.status === 'DEGRADED' ? 'DEGRADED' : 'HEALTHY';
+      const ingestedCount = res.records_ingested !== undefined ? res.records_ingested : (res.records_cleaned + res.records_quarantined);
+      const updatedNode: MidasNodeData = {
+        ...selectedNode,
+        status: finalStatus,
+        recordsIn: ingestedCount,
+        recordsOut: res.records_cleaned,
+        quarantinedRecords: res.records_quarantined,
+        lastUpdated: new Date().toISOString(),
+      };
+      if (onNodeUpdate) {
+        onNodeUpdate(updatedNode);
+      }
+      if (onPipelineExecuted) {
+        onPipelineExecuted(res as PipelineTriggerResultDTO, updatedNode);
+      }
       setExecutionResult(`Procesado (${res.status}): ${res.records_cleaned} limpios, ${res.records_quarantined} en cuarentena.`);
     } catch (err) {
+      const failedNode: MidasNodeData = {
+        ...selectedNode,
+        status: 'ERROR',
+        lastUpdated: new Date().toISOString(),
+      };
+      if (onNodeUpdate) {
+        onNodeUpdate(failedNode);
+      }
       setExecutionResult(`Error: ${err instanceof Error ? err.message : 'Fallo en pipeline'}`);
     } finally {
       setIsExecuting(false);
@@ -130,19 +175,31 @@ const details = selectedNode.details as Record<string, any> | undefined;
             <div className="rounded-lg bg-[#F7F7F5] border border-[#F0EDE7] p-2 shadow-inner">
               <span className="text-[10px] text-[#4B4639] uppercase tracking-wider block">Filas Recibidas</span>
               <span className="text-sm font-mono font-bold text-[#1C1E21]">
-                {selectedNode.recordsIn !== undefined ? selectedNode.recordsIn.toLocaleString() : 'N/D'}
+                {selectedNode.recordsIn !== undefined && selectedNode.recordsIn !== null
+                  ? selectedNode.recordsIn.toLocaleString()
+                  : selectedNode.status === 'STANDBY'
+                    ? 'Pendiente'
+                    : 'N/D'}
               </span>
             </div>
             <div className="rounded-lg bg-[#F7F7F5] border border-[#F0EDE7] p-2 shadow-inner">
               <span className="text-[10px] text-[#4B4639] uppercase tracking-wider block">Filas Procesadas</span>
               <span className="text-sm font-mono font-bold text-[#4D7C0F]">
-                {selectedNode.recordsOut !== undefined ? selectedNode.recordsOut.toLocaleString() : 'N/D'}
+                {selectedNode.recordsOut !== undefined && selectedNode.recordsOut !== null
+                  ? selectedNode.recordsOut.toLocaleString()
+                  : selectedNode.status === 'STANDBY'
+                    ? 'Pendiente'
+                    : 'N/D'}
               </span>
             </div>
             <div className="rounded-lg bg-[#F7F7F5] border border-[#F0EDE7] p-2 shadow-inner">
               <span className="text-[10px] text-[#4B4639] uppercase tracking-wider block">Latencia</span>
               <span className="text-sm font-mono font-bold text-[#1C1E21]">
-                {selectedNode.latencyMs !== undefined ? `${selectedNode.latencyMs} ms` : 'N/D'}
+                {selectedNode.latencyMs !== undefined && selectedNode.latencyMs !== null
+                  ? `${selectedNode.latencyMs} ms`
+                  : selectedNode.status === 'STANDBY'
+                    ? 'En espera'
+                    : 'N/D'}
               </span>
             </div>
             <div className="rounded-lg bg-[#F7F7F5] border border-[#F0EDE7] p-2 shadow-inner">

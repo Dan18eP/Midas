@@ -10,7 +10,8 @@ export type NodeStatus =
   | 'ERROR'
   | 'IN_PROGRESS'
   | 'AUTO_HEALING'
-  | 'UNKNOWN';
+  | 'UNKNOWN'
+  | 'STANDBY';
 
 export type AnomalyType =
   | 'F1_DUPLICATE_KEY'
@@ -137,5 +138,14 @@ export const NODE_STATUS_REGISTRY: Record<NodeStatus, NodeStatusConfig> = {
     dotClass: 'bg-[#D4AF37]',
     glowClass: 'shadow-none',
     accessibleDescription: 'Estado del nodo aún no reportado por el Hub de telemetría.',
+  },
+  STANDBY: {
+    label: 'En Espera',
+    bgClass: 'bg-[#F7F7F5]',
+    borderClass: 'border-[#E8E4DC]',
+    textClass: 'text-[#787164]',
+    dotClass: 'bg-[#A0988A]',
+    glowClass: 'shadow-none',
+    accessibleDescription: 'Etapa en espera, lista para procesar tras ejecutar el pipeline.',
   },
 };

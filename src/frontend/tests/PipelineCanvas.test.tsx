@@ -2,7 +2,8 @@ import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { ReactFlowProvider } from '@xyflow/react';
-import { PipelineCanvas } from '../components/canvas/PipelineCanvas';
+import { PipelineCanvas, getColumnNodePosition } from '../components/canvas/PipelineCanvas';
+import { INITIAL_CANVAS_NODES } from '../components/canvas/topology/initialTopology';
 import { SourceNode } from '../components/canvas/nodes/SourceNode';
 import { StageNode } from '../components/canvas/nodes/StageNode';
 import { GuardianNode } from '../components/canvas/nodes/GuardianNode';
@@ -226,5 +227,82 @@ describe('Custom Node Components Unit Verification', () => {
     expect(screen.getByText('No Disponible')).toBeInTheDocument();
     const ndElements = screen.getAllByText('N/D');
     expect(ndElements.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('8. SourceNode renderiza estado RUNNING con pulso de transmisión activo', () => {
+    const runningData: MidasNodeData = {
+      id: 'source_custom',
+      label: 'Walmart Sales CSV',
+      description: 'Fuente recién ingresada',
+      nodeType: 'source',
+      subType: 'excel',
+      status: 'RUNNING',
+      recordsOut: 1500,
+      latencyMs: 14.0,
+    };
+
+    render(
+      <ReactFlowProvider>
+        <SourceNode
+          {...({
+            id: 'source_custom',
+            data: runningData,
+            selected: false,
+            type: 'source',
+            zIndex: 0,
+            isConnectable: true,
+            positionAbsoluteX: 0,
+            positionAbsoluteY: 0,
+            dragging: false,
+            deletable: false,
+            selectable: true,
+            draggable: true,
+          } as any)}
+        />
+      </ReactFlowProvider>
+    );
+
+    expect(screen.getByText('Walmart Sales CSV')).toBeInTheDocument();
+    expect(screen.getByText('En Ejecución')).toBeInTheDocument();
+  });
+
+  it('9. getColumnNodePosition ordena las capas según columnas canónicas Medallion', () => {
+    // Fuentes en columna x: 40
+    const sourcePos = getColumnNodePosition('generic', INITIAL_CANVAS_NODES);
+    expect(sourcePos.x).toBe(40);
+    expect(sourcePos.y).toBeGreaterThanOrEqual(600);
+
+    // Bronze en columna x: 400
+    const bronzePos = getColumnNodePosition('bronze', INITIAL_CANVAS_NODES);
+    expect(bronzePos.x).toBe(400);
+    expect(bronzePos.y).toBe(420);
+
+    // Silver en columna x: 760
+    const silverPos = getColumnNodePosition('silver', INITIAL_CANVAS_NODES);
+    expect(silverPos.x).toBe(760);
+    expect(silverPos.y).toBeGreaterThanOrEqual(420);
+
+    // Gold en columna x: 1120
+    const goldPos = getColumnNodePosition('gold', INITIAL_CANVAS_NODES);
+    expect(goldPos.x).toBe(1120);
+    expect(goldPos.y).toBe(420);
+  });
+
+  it('10. PipelineCanvas distribuye controles, canvas y barra Live/Replay en flujo flex-col sin superposición absoluta', () => {
+    render(<PipelineCanvas autoConnectSSE={false} />);
+
+    const canvasContainer = screen.getByTestId('pipeline-canvas-container');
+    expect(canvasContainer.className).toContain('flex');
+    expect(canvasContainer.className).toContain('flex-col');
+
+    const controlsBar = screen.getByLabelText('Controles del Canvas');
+    expect(controlsBar.className).not.toContain('absolute');
+
+    const scrubberSection = screen.getByLabelText('Barra de Replay Temporal e Inspección Histórica');
+    expect(scrubberSection.className).not.toContain('absolute');
+
+    const reactFlowViewport = screen.getByTestId('mock-react-flow').parentElement;
+    expect(reactFlowViewport?.className).toContain('flex-1');
+    expect(reactFlowViewport?.className).toContain('min-h-0');
   });
 });

@@ -174,7 +174,7 @@ export const TimeTravelScrubber: React.FC<TimeTravelScrubberProps> = memo(({
   return (
     <section
       aria-label="Barra de Replay Temporal e Inspección Histórica"
-      className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[96%] max-w-5xl rounded-xl border border-[#E8E4DC] bg-[#FFFFFF]/95 backdrop-blur-md px-4 py-3 shadow-md transition-all ${className}`}
+      className={`relative z-10 mx-auto w-full max-w-5xl rounded-xl border border-[#E8E4DC] bg-[#FFFFFF]/95 backdrop-blur-md px-4 py-2.5 shadow-sm transition-all ${className}`}
     >
       {/* --- TOP ROW: Status Badges, Clock & Return to Live --- */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2 border-b border-[#F0EDE7]">

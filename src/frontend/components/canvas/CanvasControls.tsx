@@ -14,7 +14,7 @@ export const CanvasControls = memo(({ totalNodes, healthyNodes, onResetLayout }:
   return (
     <div
       aria-label="Controles del Canvas"
-      className="absolute top-4 left-4 z-20 flex items-center gap-2.5 rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-1.5 shadow-xs"
+      className="flex flex-wrap items-center gap-2.5 rounded-lg border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-1.5 shadow-xs"
     >
       {/* Indicador de Topología y Salud */}
       <div className="flex items-center gap-2 border-r border-[#F0EDE7] pr-2.5">

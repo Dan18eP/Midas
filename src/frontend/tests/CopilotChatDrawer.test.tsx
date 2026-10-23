@@ -54,9 +54,9 @@ const DISCOVERY_RESPONSE = {
   intent: 'discovery',
   response: [
     'Puedo ayudarte a explorar estas fuentes:',
-    '- 🗄️ PostgreSQL: crm_operaciones',
-    '- 📁 Excel: Presupuesto_Corporativo_2026.xlsx',
-    '- 🌐 API REST: helpdesk_tickets_live',
+    '- 🗄️ PostgreSQL: `crm_operaciones`',
+    '- 📁 Excel: `Presupuesto_Corporativo_2026.xlsx`',
+    '- 🌐 API REST: `helpdesk_tickets_live`',
   ].join('\n'),
   suggestions: ['Explorar tablas de CRM', 'Analizar cumplimiento de presupuesto', 'Crear nuevo Mart Gold'],
   needs_clarification: false,

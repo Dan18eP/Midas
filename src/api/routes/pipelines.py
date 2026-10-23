@@ -176,7 +176,7 @@ async def trigger_pipeline(
             event_id=f"evt_start_{run_id}",
             pipeline_id=pipe_name,
             node_id=node_source_id,
-            status=NodeStatus.HEALTHY,
+            status=NodeStatus.RUNNING,
             records_in=0,
             records_out=0,
             latency_ms=12.0,
@@ -189,7 +189,7 @@ async def trigger_pipeline(
                 event_id=f"evt_start_alt_{run_id}",
                 pipeline_id=pipe_name,
                 node_id=alt_node_source_id,
-                status=NodeStatus.HEALTHY,
+                status=NodeStatus.RUNNING,
                 records_in=0,
                 records_out=0,
                 latency_ms=12.0,
@@ -281,7 +281,7 @@ async def trigger_pipeline(
             )
         )
 
-        # 3.2 Si hubo anomalias, emitir evento de Guardian Monitor (Auto-Healing / PB-03)
+        # 3.2 Emitir telemetria de Guardian Monitor (Resiliencia / WAP Gatekeeper)
         if records_quarantined_count > 0:
             telemetry_hub.publish_sync(
                 TelemetryEvent(
@@ -296,6 +296,23 @@ async def trigger_pipeline(
                         "playbook_id": "PB-03-QUARANTINE",
                         "action_taken": f"Desviando {records_quarantined_count} transacciones anómalas a cuarentena",
                         "quarantined_records": records_quarantined_count,
+                    },
+                )
+            )
+        else:
+            telemetry_hub.publish_sync(
+                TelemetryEvent(
+                    event_id=f"evt_guardian_{run_id}",
+                    pipeline_id=pipe_name,
+                    node_id="guardian_monitor",
+                    status=NodeStatus.HEALTHY,
+                    records_in=0,
+                    records_out=0,
+                    latency_ms=5.0,
+                    details={
+                        "playbook_id": "PB-03-STANDBY",
+                        "action_taken": "Contrato WAP verificado. Lote 100% íntegro sin cuarentena",
+                        "quarantined_records": 0,
                     },
                 )
             )
@@ -366,6 +383,20 @@ async def trigger_pipeline(
                     "cleaned": records_cleaned_count,
                     "output_table": "gold.fact_ventas",
                 },
+            )
+        )
+
+        # 5.1 Emitir telemetría final para el nodo de origen
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_done_source_{run_id}",
+                pipeline_id=pipe_name,
+                node_id=node_source_id,
+                status=NodeStatus.HEALTHY,
+                records_in=records_ingested_count,
+                records_out=records_cleaned_count,
+                latency_ms=round(elapsed_ms, 2),
+                details={"message": "Ingesta y pipeline completados", "phase": "COMPLETED"},
             )
         )
 
