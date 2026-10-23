@@ -123,6 +123,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Conserva la última topología no vacía de la sesión. Al iniciar una nueva
+  // conversación el usuario sigue trabajando sobre el mismo espacio de datos
+  // (p. ej. el flujo de Walmart) en lugar de volver a la topología demo.
+  const lastTopologyRef = useRef<TopologyStateDTO | null>(null);
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -142,6 +146,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchSessions();
   }, [fetchSessions]);
+
+  useEffect(() => {
+    if (activeTopology && activeTopology.nodes.length > 0) {
+      lastTopologyRef.current = activeTopology;
+    }
+  }, [activeTopology]);
 
   const selectSession = useCallback(
     async (sessionId: string) => {
@@ -193,13 +203,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setError(null);
       try {
+        // Si la nueva conversación no define una topología explícita, hereda la
+        // última topología activa para no perder el flujo de datos ya construido.
+        const topologyToPersist = initialTopology ?? lastTopologyRef.current ?? undefined;
         const newSession = await apiCreateSession({
           title,
-          topology_state: initialTopology,
+          topology_state: topologyToPersist,
         });
         setSessions((prev) => [newSession, ...prev]);
         setActiveSessionId(newSession.session_id);
-        setActiveTopology(initialTopology || null);
+        setActiveTopology(topologyToPersist || null);
         setActiveSession({
           session_id: newSession.session_id,
           user_id: newSession.user_id,
@@ -207,7 +220,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           created_at: newSession.created_at,
           updated_at: newSession.updated_at,
           metadata: newSession.metadata,
-          topology_state: initialTopology || null,
+          topology_state: topologyToPersist || null,
           messages: [],
         });
         setWorkspaceMode('active');

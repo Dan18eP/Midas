@@ -17,6 +17,7 @@ class AgentState(TypedDict, total=False):
     clarification: str
     sources: list[dict[str, Any]]
     schemas: list[dict[str, Any]]
+    available_years: list[int]
     suggestions: list[str]
     sql: str
     query_error: str

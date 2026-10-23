@@ -97,6 +97,11 @@ flowchart TD
   - 🌐 **API REST:** `helpdesk_tickets_live` (Tickets y satisfacción CSAT).
 - **Llamado a la Acción Guiado:** Ofrece 3 botones o sugerencias interactivas:  
   `[Explorar tablas de CRM]` · `[Analizar cumplimiento de presupuesto]` · `[Crear nuevo Mart Gold]`.
+- **Aclaración de año dinámica:** Si una pregunta de ventas no especifica año, el
+  nodo consulta los años distintos realmente presentes en
+  `gold.fact_ventas.anio` y los ofrece como opciones. Si no hay metadatos
+  disponibles, solicita el año sin valores fijos y acepta `todos` para consultar
+  el histórico completo. Nunca se inventan años de demostración.
 
 ### 3.2. `SemanticRetrieverNode`
 - Consulta el glosario de OpenMetadata y recupera la definición canónica de las columnas de las tablas involucradas.
@@ -126,19 +131,37 @@ no se genera ni ejecuta una consulta analítica.
 
 #### Enrutamiento local de modelos (ADR-008 / HU-AI-05)
 
-El `ModelRouter` usa Ollama con `qwen2.5:3b` como proveedor primario y acepta
-únicamente los endpoints locales `http://midas-ollama:11434` o
-`http://host.docker.internal:11434`; el primero es el valor predeterminado. La
-petición local tiene un timeout de 8 segundos. No configura ni intenta
-proveedores cloud.
+El `ModelRouter` usa Gemini (`GEMINI_MODEL`, por defecto
+`gemini-3.1-flash-lite`) cuando `GEMINI_API_KEY` está configurada. Si no hay
+clave o la llamada falla, usa Ollama local con `qwen2.5:3b` en los endpoints
+aprobados `http://midas-ollama:11434` o `http://host.docker.internal:11434`; el
+primero es el valor predeterminado. La petición local tiene un timeout de 8
+segundos. No configura proveedores cloud distintos de Gemini.
 
-Ante indisponibilidad, timeout o SQL inválido de Ollama, genera consultas con
-SQLGlot y plantillas determinísticas. Admite conteos y suma/promedio sobre
-columnas numéricas precertificadas del catálogo activo. Los filtros disponibles
-son `region` (`NORTE`, `SUR`, `CENTRO`), `canal_venta` (`ONLINE`, `TIENDA`,
-`PARTNER`) y `estado` (`CERRADO`, `ABIERTO`), con un filtro por consulta. No
-resuelve consultas agrupadas, por año, cruces ni intenciones ambiguas; en esos
-casos falla sin ejecutar SQL.
+Para las intenciones que coinciden con el contrato analítico soportado, el
+router resuelve primero la consulta con SQLGlot y la plantilla determinística
+certificada, sin invocar al modelo. Para el resto de intenciones consulta
+Gemini u Ollama y valida la salida con el `QueryGuardrail`; si el modelo falla o
+devuelve SQL inválido, reintenta la plantilla determinística y, si tampoco
+aplica, falla sin ejecutar SQL. La plantilla prioriza las tablas Gold
+certificadas (`gold.fact_ventas`, `gold.fct_ventas_diarias`) y usa
+`venta_neta` como métrica canónica para "ventas" o "ingresos"; si la tabla Gold
+no existe, recurre a la tabla Silver de ventas disponible en el catálogo.
+Admite conteos, suma/promedio y filtros por año. También admite una única
+dimensión de agrupación (`region_id`, `mes`, `anio`, `tienda_id`,
+`canal_venta`, `cliente_id` o `dia`) y variantes Top N
+(*"top 5 tiendas por ventas"*), generando `GROUP BY` y orden descendente por la
+métrica. Los filtros de categoría disponibles son `region_id` (`REG-NORTE`,
+`REG-SUR`, `REG-CENTRO`), `canal_venta` (`ONLINE`, `TIENDA`, `PARTNER`) y
+`estado` (`CERRADO`, `ABIERTO`), con un filtro por consulta. Las comparaciones
+entre años, los cruces de tablas y las agrupaciones con más de una dimensión
+siguen fallando sin ejecutar SQL.
+
+Si Trino reporta que una tabla o columna no existe, el cliente **no** sirve
+filas sintéticas en producción: devuelve un error explícito y el agente informa
+que no encontró datos reales. El motor local determinístico de fixtures queda
+restringido a `fallback_for_testing=True` (pruebas unitarias e integración sin
+cluster) y nunca se activa en el flujo conversacional real.
 
 Los prompts de Text-to-Gold para Qwen reciben el catálogo permitido, solicitan
 una única consulta Trino sin prosa y recuerdan las reglas de solo lectura. Toda

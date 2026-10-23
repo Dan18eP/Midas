@@ -76,7 +76,7 @@ def test_frontend_chat_confirmation_publishes_last_validated_query(monkeypatch):
     monkeypatch.setattr(agent, "get_agent_graph", lambda: Graph())
     monkeypatch.setattr(
         "src.agent.tools.dag_generator.publish_pipeline_spec",
-        lambda spec, *, confirmed: published.append((spec, confirmed)) or "s3://midas-governance/airflow-specs/dag_gold_daily_orders.yaml",
+        lambda spec, *, confirmed, session_id=None: published.append((spec, confirmed)) or "s3://midas-governance/airflow-specs/dag_gold_daily_orders.yaml",
     )
     app = FastAPI()
     app.include_router(agent.router)

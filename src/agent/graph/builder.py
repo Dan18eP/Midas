@@ -9,7 +9,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 
-from src.agent.graph.nodes.dialogic import make_introspector, proactive_suggest
+from src.agent.graph.nodes.dialogic import make_introspector, make_proactive_suggest
 from src.agent.graph.nodes.pipeline import QueryExecutor, SqlGenerator, make_analytic_nodes
 from src.agent.graph.nodes.router import route_intent
 from src.agent.state import AgentState
@@ -31,6 +31,7 @@ def build_graph(
     generate_sql: SqlGenerator | None = None,
     execute_query: QueryExecutor | None = None,
     source_provider=None,
+    year_provider=None,
 ):
     """Compila el diálogo y guarda cada turno bajo su thread_id."""
     if generate_sql is None:
@@ -39,7 +40,7 @@ def build_graph(
     graph = StateGraph(AgentState)
     graph.add_node("route_intent", route_intent)
     graph.add_node("introspect_schema", make_introspector(source_provider))
-    graph.add_node("proactive_suggest", proactive_suggest)
+    graph.add_node("proactive_suggest", make_proactive_suggest(year_provider))
     graph.add_node("generate_sql", generate)
     graph.add_node("validate_guardrails", validate)
     graph.add_node("execute_query", execute)

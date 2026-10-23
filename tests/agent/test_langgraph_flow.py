@@ -17,11 +17,15 @@ def test_greeting_lists_sources_and_three_suggestions():
 
 
 def test_sales_without_year_asks_for_options_before_sql():
-    graph = build_graph(InMemorySaver(), generate_sql=lambda *_: "SELECT 1")
+    graph = build_graph(
+        InMemorySaver(),
+        generate_sql=lambda *_: "SELECT 1",
+        year_provider=lambda: [2010, 2011, 2012],
+    )
 
     result = invoke_turn(graph, "session-1", "Quiero ver las ventas")
 
-    assert "2024, 2025 o 2026" in result["response"]
+    assert "Años disponibles en tus datos: 2010, 2011, 2012" in result["response"]
     assert "sql" not in result
 
 
@@ -103,13 +107,36 @@ def test_clarification_keeps_the_pending_query_context():
             "kind": "catalog",
             "tables": [{"table": "silver.crm_transacciones", "columns": ["region"]}],
         }],
+        year_provider=lambda: [2010, 2011, 2012],
     )
 
     first = invoke_turn(graph, "session-clarify", "Quiero ver las ventas")
-    second = invoke_turn(graph, "session-clarify", "2026")
+    second = invoke_turn(graph, "session-clarify", "2011")
 
-    assert "2024, 2025 o 2026" in first["response"]
-    assert seen_queries == ["Quiero ver las ventas 2026"]
+    assert "Años disponibles en tus datos: 2010, 2011, 2012" in first["response"]
+    assert seen_queries == ["Quiero ver las ventas 2011"]
+    assert second["pending_query"] == ""
+    assert second["messages"][-1].type == "ai"
+
+
+def test_clarification_accepts_all_years_option():
+    seen_queries = []
+    graph = build_graph(
+        InMemorySaver(),
+        generate_sql=lambda question, _: seen_queries.append(question) or "SELECT region FROM silver.crm_transacciones",
+        execute_query=lambda _: [],
+        source_provider=lambda: [{
+            "name": "Trino",
+            "kind": "catalog",
+            "tables": [{"table": "silver.crm_transacciones", "columns": ["region"]}],
+        }],
+        year_provider=lambda: [2010, 2011, 2012],
+    )
+
+    invoke_turn(graph, "session-all-years", "Quiero ver las ventas")
+    second = invoke_turn(graph, "session-all-years", "todos")
+
+    assert seen_queries == ["Quiero ver las ventas"]
     assert second["pending_query"] == ""
     assert second["messages"][-1].type == "ai"
 

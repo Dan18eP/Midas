@@ -4,10 +4,20 @@ import { useEffect } from 'react';
 import { Bot, Maximize2, Minimize2, RotateCcw, Wifi, X } from 'lucide-react';
 import { ChatConversation } from './ChatConversation';
 import { useCopilotChatContext } from './CopilotChatContext';
+import { useSession } from '@/context/SessionContext';
 
 export function CopilotChatDrawer() {
   const { drawerOpen, expanded, toggleDrawer, closeDrawer, toggleExpanded, startNewChat, status } =
     useCopilotChatContext();
+  const { startNewSession } = useSession();
+
+  // "Nueva conversación" debe reiniciar tanto el hilo del Copiloto como la
+  // sesión activa del workspace; si solo se reinicia el chat, el siguiente
+  // mensaje crea una sesión huérfana en el historial.
+  const handleStartNewChat = () => {
+    startNewSession();
+    startNewChat();
+  };
 
   useEffect(() => {
     if (!drawerOpen) return undefined;
@@ -65,7 +75,7 @@ export function CopilotChatDrawer() {
             </span>
             <button
               type="button"
-              onClick={startNewChat}
+              onClick={handleStartNewChat}
               title="Nueva conversación"
               aria-label="Nueva conversación"
               data-testid="copilot-new-chat"

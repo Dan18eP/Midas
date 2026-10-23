@@ -209,3 +209,40 @@ def test_trino_client_execute_query_sync_deterministic_fallback():
     )
     assert result.row_count > 0
     assert "region" in result.columns
+
+
+def test_trino_client_production_missing_entity_never_returns_fixtures(monkeypatch):
+    """En producción una tabla inexistente debe fallar, no devolver filas sintéticas."""
+    from src.core.query_engine import trino_client as trino_module
+
+    class BrokenClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise RuntimeError("Table silver.crm_transacciones does not exist")
+
+        def get(self, *args, **kwargs):
+            raise RuntimeError("unexpected GET")
+
+    monkeypatch.setattr(
+        trino_module.httpx,
+        "Client",
+        lambda *args, **kwargs: BrokenClient(),
+    )
+    client_trino = TrinoClient(
+        host="localhost",
+        port=8082,
+        fallback_for_testing=False,
+    )
+
+    with pytest.raises(RuntimeError, match="no existe"):
+        client_trino.execute_query_sync(
+            sql="SELECT region FROM silver.crm_transacciones",
+        )

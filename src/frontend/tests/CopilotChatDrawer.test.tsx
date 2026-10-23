@@ -1,11 +1,12 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CopilotChatDrawer,
   CopilotChatProvider,
   CopilotChatWidget,
   DEFAULT_SUGGESTIONS,
+  useCopilotChat,
 } from '../components/copilot';
 import { TEXT_TO_GOLD_CONFIRMATION } from '../components/copilot/textToGold';
 import { normalizeEChartsOption, optionToTable } from '../components/copilot/chartOptions';
@@ -347,6 +348,50 @@ describe('Text-to-Gold · Botón de aprobación de pipeline en Airflow', () => {
       expect(screen.getAllByTestId('chat-message-assistant').length).toBe(2);
     });
     expect(screen.queryByTestId('text-to-gold-card')).not.toBeInTheDocument();
+  });
+});
+
+describe('useCopilotChat · Unicidad del hilo conversacional', () => {
+  it('13. Envía el primer turno con el hilo recién seleccionado, sin usar el identificador previo', async () => {
+    fetchMock.mockReturnValue(jsonResponse({ ...DISCOVERY_RESPONSE, thread_id: 'sess_recien_creada' }));
+
+    const { result } = renderHook(() => useCopilotChat());
+    const previousThreadId = result.current.threadId;
+
+    act(() => {
+      result.current.setThreadId('sess_recien_creada');
+    });
+
+    await act(async () => {
+      await result.current.send('Primer mensaje de la conversación');
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.thread_id).toBe('sess_recien_creada');
+    expect(body.thread_id).not.toBe(previousThreadId);
+    expect(result.current.threadId).toBe('sess_recien_creada');
+  });
+
+  it('14. Mantiene el mismo hilo entre turnos consecutivos y adopta el del backend', async () => {
+    fetchMock
+      .mockReturnValueOnce(jsonResponse({ ...DISCOVERY_RESPONSE, thread_id: 'sess_backend' }))
+      .mockReturnValueOnce(jsonResponse({ ...DISCOVERY_RESPONSE, thread_id: 'sess_backend' }));
+
+    const { result } = renderHook(() => useCopilotChat());
+
+    await act(async () => {
+      await result.current.send('Primer turno');
+    });
+    await act(async () => {
+      await result.current.send('Segundo turno');
+    });
+
+    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(firstBody.thread_id).toBeTruthy();
+    expect(secondBody.thread_id).toBe('sess_backend');
+    expect(result.current.threadId).toBe('sess_backend');
   });
 });
 

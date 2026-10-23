@@ -11,6 +11,26 @@ from src.agent.tools.text_to_sql import TextToSqlGenerator
 
 CATALOG = [
     {
+        "table": "gold.fact_ventas",
+        "columns": [
+            "fecha",
+            "anio",
+            "mes",
+            "dia",
+            "region_id",
+            "tienda_id",
+            "cliente_id",
+            "canal_venta",
+            "venta_bruta",
+            "total_descuento",
+            "total_devoluciones",
+            "venta_neta",
+            "pedidos_validos",
+            "ticket_promedio",
+            "tasa_devolucion",
+        ],
+    },
+    {
         "table": "silver.crm_transacciones",
         "columns": ["transaccion_id", "monto", "region", "canal_venta"],
     },
@@ -38,7 +58,7 @@ def test_router_uses_local_qwen_and_validates_its_sql(monkeypatch):
     monkeypatch.setattr("src.agent.models.model_router.urlopen", fake_urlopen)
     generator = TextToSqlGenerator(ModelRouter())
 
-    sql = generator("Muestra ventas por región", CATALOG)
+    sql = generator("Muestra las regiones disponibles", CATALOG)
 
     assert requests[0][0] == "http://midas-ollama:11434/api/generate"
     assert requests[0][1]["model"] == "qwen2.5:3b"
@@ -54,37 +74,73 @@ def test_router_uses_ast_fallback_when_ollama_is_offline(monkeypatch):
 
     sql = generator("¿Cuántos registros hay de ventas?", CATALOG)
 
-    assert sql == "SELECT COUNT(*) AS total_registros FROM silver.crm_transacciones LIMIT 1000"
+    assert sql == "SELECT COUNT(*) AS total_registros FROM gold.fact_ventas LIMIT 1000"
 
 
-def test_router_uses_fallback_when_ollama_sql_is_invalid(monkeypatch):
-    class Response:
-        def __enter__(self):
-            return self
+def test_router_prefers_deterministic_sql_for_supported_questions(monkeypatch):
+    def unexpected_model_call(*_args, **_kwargs):
+        raise AssertionError("El modelo no debe invocarse para una intención soportada")
 
-        def __exit__(self, *_):
-            return False
-
-        def read(self):
-            return b'{"response": "DELETE FROM silver.crm_transacciones"}'
-
-    monkeypatch.setattr("src.agent.models.model_router.urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr("src.agent.models.model_router.urlopen", unexpected_model_call)
     generator = TextToSqlGenerator(ModelRouter())
 
     sql = generator("¿Cuántos registros hay de ventas?", CATALOG)
 
     assert "COUNT(*)" in sql
+    assert "gold.fact_ventas" in sql
 
 
-def test_fallback_rejects_ambiguous_intents():
-    with pytest.raises(ValueError, match="intención"):
-        deterministic_sql("Explora las ventas por región", CATALOG)
+def test_fallback_rejects_comparisons_between_years():
+    with pytest.raises(ValueError, match="plantilla"):
+        deterministic_sql("Compara las ventas de 2011 y 2012", CATALOG)
 
 
-def test_fallback_applies_a_precertified_category_filter():
+def test_fallback_applies_a_precertified_region_filter():
     sql = deterministic_sql("Cuenta ventas de la región norte", CATALOG)
 
-    assert "WHERE region = 'NORTE'" in sql
+    assert "WHERE region_id = 'REG-NORTE'" in sql
+    assert "SUM(venta_neta)" in sql
+
+
+def test_fallback_groups_sales_by_region():
+    sql = deterministic_sql("Ventas por región en 2011", CATALOG)
+
+    assert "SELECT region_id AS region_id, SUM(venta_neta)" in sql
+    assert "FROM gold.fact_ventas" in sql
+    assert "WHERE anio = 2011" in sql
+    assert "GROUP BY region_id" in sql
+    assert "ORDER BY venta_neta DESC" in sql
+
+
+def test_fallback_groups_sales_by_month():
+    sql = deterministic_sql("Ventas por mes en 2011", CATALOG)
+
+    assert "GROUP BY mes" in sql
+    assert "SUM(venta_neta)" in sql
+    assert "WHERE anio = 2011" in sql
+    assert "ORDER BY mes ASC" in sql
+
+
+def test_fallback_supports_top_n_entities():
+    sql = deterministic_sql("Top 5 tiendas por ventas en 2011", CATALOG)
+
+    assert "SELECT tienda_id AS tienda_id, SUM(venta_neta)" in sql
+    assert "GROUP BY tienda_id" in sql
+    assert "ORDER BY venta_neta DESC" in sql
+    assert "LIMIT 5" in sql
+
+
+def test_fallback_rejects_more_than_one_grouping_dimension():
+    with pytest.raises(ValueError, match="una dimensión"):
+        deterministic_sql("Ventas por región y mes en 2011", CATALOG)
+
+
+def test_fallback_uses_canonical_net_sales_metric():
+    sql = deterministic_sql("¿Cuál es el total de ventas 2011?", CATALOG)
+
+    assert "SUM(venta_neta) AS sum_venta_neta" in sql
+    assert "FROM gold.fact_ventas" in sql
+    assert "WHERE anio = 2011" in sql
 
 
 def test_fallback_latency_is_under_ten_milliseconds():

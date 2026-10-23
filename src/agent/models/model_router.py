@@ -28,12 +28,51 @@ _MODEL = "qwen2.5:3b"
 _SUPPORTED_NUMERIC_COLUMNS = {
     "monto",
     "monto_neto",
+    "monto_bruto",
+    "venta_neta",
+    "venta_bruta",
+    "total_neto",
+    "total_bruto",
+    "total_descuento",
+    "total_devoluciones",
+    "pedidos_validos",
+    "total_pedidos",
+    "pedidos_devueltos",
+    "ticket_promedio",
+    "tasa_devolucion",
     "meta_ingreso_presupuestada",
     "costo_operativo_fijo",
     "gasto_marketing",
     "tiempo_respuesta_minutos",
     "calificacion_satisfaccion",
+    "importe",
+    "valor",
+    "precio",
 }
+
+_SALES_RE = re.compile(
+    r"\b(ventas?|ingresos?|facturaci[oó]n|revenue)\b", re.IGNORECASE
+)
+_COUNT_ROW_TERMS = (
+    "cuantos registros",
+    "cuántos registros",
+    "cuantas filas",
+    "cuántas filas",
+    "numero de registros",
+    "número de registros",
+    "conteo",
+    "count",
+)
+_DIMENSION_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("region", "región"), ("region_id", "region")),
+    (("mes",), ("mes",)),
+    (("año", "ano", "anio"), ("anio", "año")),
+    (("tienda", "tiendas", "sucursal", "sucursales"), ("tienda_id", "tienda")),
+    (("canal", "canales"), ("canal_venta", "canal")),
+    (("cliente", "clientes"), ("cliente_id", "cliente")),
+    (("dia", "día", "dias", "días"), ("dia", "fecha")),
+    (("estado", "estados"), ("estado",)),
+)
 
 
 class ModelRouter:
@@ -71,7 +110,15 @@ class ModelRouter:
         catalog: Sequence[Mapping[str, object]],
         system_prompt: str,
     ) -> str:
-        """Usa Gemini (u Ollama) o genera un SELECT deterministico de respaldo."""
+        """Prioriza la plantilla determinística certificada y usa el LLM para el resto."""
+        try:
+            return deterministic_sql(question, catalog)
+        except ValueError:
+            logger.debug(
+                "La intención no coincide con el contrato determinístico; "
+                "se consultará al modelo."
+            )
+
         if self._api_key:
             try:
                 candidate = self._call_gemini(system_prompt, question)
@@ -97,9 +144,9 @@ class ModelRouter:
             f"Responde EXCLUSIVAMENTE con la sentencia SQL ejecutable en Trino (sin explicaciones ni bloques markdown adicionales):"
         )
         candidates = [
+            self._gemini_model,
             "gemini-3.8-flash",
             "gemini-3.8-flash-lite",
-            self._gemini_model,
             "gemini-3.7-flash",
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",
@@ -173,55 +220,62 @@ def deterministic_sql(
     question: str,
     catalog: Sequence[Mapping[str, object]],
 ) -> str:
-    """Resuelve conteo, suma o promedio con una plantilla SQLGlot fija."""
+    """Resuelve conteos, sumas, promedios y agrupaciones simples con SQLGlot."""
     normalized_question = question.casefold()
     unsupported_detail = (
-        "compara", "comparar", "versus", " contra ", "cruza", "tendencia", "trend",
-        " por ",
-        " en enero", " en febrero", " en marzo", " en abril", " en mayo", " en junio",
-        " en julio", " en agosto", " en septiembre", " en octubre", " en noviembre", " en diciembre",
+        "compara",
+        "comparar",
+        "versus",
+        " contra ",
+        "cruza",
+        "tendencia",
+        "trend",
+        " en enero",
+        " en febrero",
+        " en marzo",
+        " en abril",
+        " en mayo",
+        " en junio",
+        " en julio",
+        " en agosto",
+        " en septiembre",
+        " en octubre",
+        " en noviembre",
+        " en diciembre",
     )
     if any(word in f" {normalized_question} " for word in unsupported_detail):
-        # Multi-table and grouped requests need a model or a dedicated template.
         raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
+
     year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
     year_val = year_match.group(1) if year_match else None
     tables = _allowed_tables(catalog)
-    table = next(
-        (entry for entry in tables if entry[0].casefold() in normalized_question),
-        None,
-    )
-    if table is None:
-        hints = {
-            "transaccion": ("transaccion", "venta", "ingreso"),
-            "presupuesto": ("presupuesto", "meta"),
-            "costos": ("costo", "gasto"),
-            "tickets": ("ticket", "soporte", "satisfaccion", "satisfacción"),
-        }
-        for marker, words in hints.items():
-            if any(word in normalized_question for word in words):
-                table = next((entry for entry in tables if marker in entry[0].casefold()), None)
-                if table:
-                    break
-    if table is None:
-        raise ValueError("El fallback no encontró una tabla silver/gold permitida.")
-
+    table = _select_table(normalized_question, tables)
     table_name, columns = table
-    if any(word in normalized_question for word in ("promedio", "average", "avg")):
-        operation = "AVG"
-    elif any(word in normalized_question for word in ("cuánt", "cuant", "cuenta", "count", "registros", "number of")):
-        operation = "COUNT"
-    elif any(word in normalized_question for word in ("suma", "total", "sum", "ventas", "ingresos")):
-        operation = "SUM"
-    else:
-        raise ValueError("La intención no coincide con una plantilla analítica aprobada.")
+
+    dimension = _dimension_requested(normalized_question)
+    dimension_column = None
+    if dimension:
+        dimension_column = next((column for column in dimension if column in columns), None)
+        if dimension_column is None:
+            raise ValueError("La dimensión solicitada no está disponible en la tabla activa.")
+
+    operation, metric = _resolve_operation(normalized_question, columns)
+    top_n = _requested_top_n(normalized_question) if dimension_column else None
 
     if operation == "COUNT":
-        expression = "COUNT(*) AS total_registros"
+        metric_alias = "total_registros"
+        expression = f"COUNT(*) AS {metric_alias}"
     else:
-        column = _numeric_column(normalized_question, columns)
-        expression = f"{operation}({column}) AS {operation.casefold()}_{column}"
-    query = sqlglot.parse_one(f"SELECT {expression} FROM {table_name}", read="trino")
+        metric_alias = (
+            metric if dimension_column else f"{operation.casefold()}_{metric}"
+        )
+        expression = f"{operation}({metric}) AS {metric_alias}"
+
+    projection = expression
+    if dimension_column:
+        projection = f"{dimension_column} AS {dimension_column}, {expression}"
+
+    query = sqlglot.parse_one(f"SELECT {projection} FROM {table_name}", read="trino")
     filter_term = _category_filter(normalized_question, columns)
     if filter_term:
         column, value = filter_term
@@ -230,11 +284,27 @@ def deterministic_sql(
         )
     if year_val:
         if "anio" in columns:
-            query = query.where(exp.EQ(this=exp.column("anio"), expression=exp.Literal.number(int(year_val))))
+            query = query.where(
+                exp.EQ(this=exp.column("anio"), expression=exp.Literal.number(int(year_val)))
+            )
         elif "año" in columns:
-            query = query.where(exp.EQ(this=exp.column("año"), expression=exp.Literal.number(int(year_val))))
+            query = query.where(
+                exp.EQ(this=exp.column("año"), expression=exp.Literal.number(int(year_val)))
+            )
         elif "fecha" in columns:
-            query = query.where(exp.Like(this=exp.column("fecha"), expression=exp.Literal.string(f"{year_val}%")))
+            query = query.where(
+                exp.Like(this=exp.column("fecha"), expression=exp.Literal.string(f"{year_val}%"))
+            )
+    if dimension_column:
+        query = query.group_by(exp.column(dimension_column))
+        if top_n:
+            query = query.order_by(exp.Ordered(this=exp.column(metric_alias), desc=True))
+            query = query.limit(top_n)
+        elif dimension_column in ("mes", "anio", "año", "dia", "fecha"):
+            # Las series temporales deben conservar el orden cronológico.
+            query = query.order_by(exp.Ordered(this=exp.column(dimension_column), desc=False))
+        else:
+            query = query.order_by(exp.Ordered(this=exp.column(metric_alias), desc=True))
     return validate_query(query.sql(dialect="trino"), catalog)
 
 
@@ -251,47 +321,215 @@ def _allowed_tables(
     return tables
 
 
-def _numeric_column(question: str, columns: set[str]) -> str:
-    synonyms = {
-        "venta": "monto",
-        "ingreso": "monto",
-        "revenue": "monto",
-        "costos": "costo_operativo_fijo",
-        "gastos": "gasto_marketing",
-        "satisfaccion": "calificacion_satisfaccion",
-        "satisfacción": "calificacion_satisfaccion",
-    }
-    for word, column in synonyms.items():
-        if word in question and column in columns:
+def _select_table(
+    question: str,
+    tables: list[tuple[str, set[str]]],
+) -> tuple[str, set[str]]:
+    """Prioriza tablas Gold certificadas y resuelve la tabla de la intención."""
+    explicit = next(
+        (entry for entry in tables if entry[0].casefold() in question),
+        None,
+    )
+    if explicit:
+        return explicit
+
+    if _SALES_RE.search(question):
+        for preferred in ("gold.fact_ventas", "gold.fct_ventas_diarias"):
+            table = next(
+                (entry for entry in tables if entry[0].casefold() == preferred),
+                None,
+            )
+            if table:
+                return table
+        table = next(
+            (
+                entry
+                for entry in tables
+                if entry[0].casefold().startswith("gold.")
+                and _sales_metric(entry[1]) is not None
+            ),
+            None,
+        )
+        if table:
+            return table
+        table = next(
+            (entry for entry in tables if "transaccion" in entry[0].casefold()),
+            None,
+        )
+        if table:
+            return table
+
+    hints = (
+        (("cliente", "clientes"), ("cliente",)),
+        (("ticket", "soporte", "satisfaccion", "satisfacción"), ("ticket", "soporte", "helpdesk")),
+        (("presupuesto", "meta"), ("presupuesto", "meta")),
+        (("costo", "gasto"), ("costo", "gasto")),
+        (("transaccion", "transacción"), ("transaccion", "transacción")),
+    )
+    for words, markers in hints:
+        if any(word in question for word in words):
+            table = next(
+                (
+                    entry
+                    for entry in tables
+                    if any(marker in entry[0].casefold() for marker in markers)
+                ),
+                None,
+            )
+            if table:
+                return table
+
+    numeric_tables = [entry for entry in tables if entry[1] & _SUPPORTED_NUMERIC_COLUMNS]
+    if len(numeric_tables) == 1:
+        return numeric_tables[0]
+    if len(tables) == 1:
+        return tables[0]
+    raise ValueError("El fallback no encontró una tabla silver/gold permitida.")
+
+
+def _sales_metric(columns: set[str]) -> str | None:
+    for column in ("venta_neta", "total_neto", "monto_neto", "monto", "importe", "valor"):
+        if column in columns:
             return column
+    return None
+
+
+def _resolve_operation(
+    question: str,
+    columns: set[str],
+) -> tuple[str, str | None]:
+    if any(term in question for term in _COUNT_ROW_TERMS):
+        return "COUNT", None
+    if "pedido" in question:
+        if "pedidos_validos" in columns:
+            return "SUM", "pedidos_validos"
+        if "total_pedidos" in columns:
+            return "SUM", "total_pedidos"
+    if _SALES_RE.search(question):
+        metric = _sales_metric(columns)
+        if metric is None:
+            raise ValueError("La tabla activa no expone una métrica de ventas canónica.")
+        if any(word in question for word in ("promedio", "average", "avg", "media")):
+            return "AVG", metric
+        return "SUM", metric
+    if re.search(r"\bcu[aá]nt[oa]s?\b", question):
+        return "COUNT", None
+    if any(word in question for word in ("promedio", "average", "avg", "media")):
+        return "AVG", _numeric_column(question, columns)
+    if any(
+        word in question
+        for word in ("suma", "sum", "total", "sumatoria", "agregado")
+    ):
+        return "SUM", _numeric_column(question, columns)
+    raise ValueError("La intención no coincide con una plantilla analítica aprobada.")
+
+
+def _numeric_column(question: str, columns: set[str]) -> str:
+    explicit_metrics = (
+        ("venta neta", ("venta_neta", "total_neto", "monto_neto")),
+        ("ventas netas", ("venta_neta", "total_neto", "monto_neto")),
+        ("venta bruta", ("venta_bruta", "monto_bruto", "total_bruto")),
+        ("ventas brutas", ("venta_bruta", "monto_bruto", "total_bruto")),
+        ("devoluciones", ("total_devoluciones", "devolucion", "devoluciones")),
+        ("devolucion", ("total_devoluciones", "devolucion", "devoluciones")),
+        ("devolución", ("total_devoluciones", "devolucion", "devoluciones")),
+        ("descuentos", ("total_descuento", "descuento", "descuentos")),
+        ("descuento", ("total_descuento", "descuento", "descuentos")),
+        ("ticket promedio", ("ticket_promedio",)),
+        ("ticket", ("ticket_promedio",)),
+        ("pedidos validos", ("pedidos_validos", "total_pedidos")),
+        ("pedidos válidos", ("pedidos_validos", "total_pedidos")),
+        ("pedidos", ("pedidos_validos", "total_pedidos", "pedidos")),
+        ("tasa de devolucion", ("tasa_devolucion",)),
+        ("tasa de devolución", ("tasa_devolucion",)),
+        ("costos", ("costo_operativo_fijo", "costo")),
+        ("costo", ("costo_operativo_fijo", "costo")),
+        ("gastos", ("gasto_marketing", "gasto")),
+        ("satisfaccion", ("calificacion_satisfaccion",)),
+        ("satisfacción", ("calificacion_satisfaccion",)),
+    )
+    for phrase, candidates in explicit_metrics:
+        if phrase in question:
+            for candidate in candidates:
+                if candidate in columns:
+                    return candidate
+
+    if _SALES_RE.search(question):
+        metric = _sales_metric(columns)
+        if metric:
+            return metric
+
     for column in sorted(_SUPPORTED_NUMERIC_COLUMNS, key=len, reverse=True):
         if column in columns and re.search(rf"\b{re.escape(column)}\b", question):
             return column
+
     candidates = columns & _SUPPORTED_NUMERIC_COLUMNS
     if len(candidates) == 1:
-        return candidates.pop()
+        return next(iter(candidates))
     raise ValueError("La columna métrica no está indicada de forma inequívoca.")
+
+
+def _dimension_requested(question: str) -> tuple[str, ...] | None:
+    found: list[tuple[str, ...]] = []
+    if " por " in question:
+        tail = question.split(" por ", 1)[1]
+        for segment in re.split(r"\b(?:y|e)\b|,", tail):
+            for keywords, candidates in _DIMENSION_SYNONYMS:
+                if any(
+                    re.search(rf"\b{re.escape(keyword)}\b", segment)
+                    for keyword in keywords
+                ):
+                    found.append(candidates)
+                    break
+
+    if not found and re.search(r"\b(top|principales|mayores|mejores|con\s+m[aá]s|con\s+mayor)\b", question):
+        for keywords, candidates in _DIMENSION_SYNONYMS:
+            if any(re.search(rf"\b{re.escape(keyword)}\b", question) for keyword in keywords):
+                found.append(candidates)
+                break
+
+    unique: list[tuple[str, ...]] = []
+    for candidates in found:
+        if candidates not in unique:
+            unique.append(candidates)
+    if len(unique) > 1:
+        raise ValueError("El fallback solo admite una dimensión de agrupación por consulta.")
+    return unique[0] if unique else None
+
+
+def _requested_top_n(question: str) -> int | None:
+    match = re.search(r"\b(?:top|primeros?|primeras?)\s+(\d+)\b", question)
+    if match is None:
+        match = re.search(r"\b(\d+)\s+(?:mejores|mayores|principales)\b", question)
+    if match is None:
+        return None
+    return min(max(int(match.group(1)), 1), 100)
 
 
 def _category_filter(question: str, columns: set[str]) -> tuple[str, str] | None:
     """Aplica solo filtros de categoría con valores precertificados."""
-    options = {
-        "region": {"norte": "NORTE", "sur": "SUR", "centro": "CENTRO"},
-        "canal_venta": {"online": "ONLINE", "tienda": "TIENDA", "partner": "PARTNER"},
-        "estado": {"cerrado": "CERRADO", "abierto": "ABIERTO"},
-    }
+    options: list[tuple[str, dict[str, str]]] = []
+    if "region_id" in columns:
+        options.append(
+            ("region_id", {"norte": "REG-NORTE", "sur": "REG-SUR", "centro": "REG-CENTRO"})
+        )
+    elif "region" in columns:
+        options.append(("region", {"norte": "NORTE", "sur": "SUR", "centro": "CENTRO"}))
+    if "canal_venta" in columns:
+        canal_values = {"online": "ONLINE", "partner": "PARTNER"}
+        if re.search(r"\bcanal\s+tienda\b", question):
+            canal_values["canal tienda"] = "TIENDA"
+        options.append(("canal_venta", canal_values))
+    if "estado" in columns:
+        options.append(("estado", {"cerrado": "CERRADO", "abierto": "ABIERTO"}))
+
     matches = [
         (column, values[value])
-        for column, values in options.items()
-        if column in columns
+        for column, values in options
         for value in values
-        if re.search(rf"\b{value}\b", question)
+        if re.search(rf"\b{re.escape(value)}\b", question)
     ]
     if len(matches) > 1:
         raise ValueError("El fallback no admite varios filtros en una consulta.")
-    if not matches and any(
-        re.search(rf"\b{term}\b", question)
-        for term in (*options, "norte", "sur", "centro", "online", "tienda", "partner", "cerrado", "abierto")
-    ):
-        raise ValueError("El filtro solicitado no está disponible en el catálogo activo.")
     return matches[0] if matches else None
+

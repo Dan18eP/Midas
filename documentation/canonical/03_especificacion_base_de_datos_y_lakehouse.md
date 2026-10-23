@@ -102,6 +102,16 @@ La verdadera potencia del Lakehouse se evidencia en la capa Gold, donde se cruza
 - **Cruza:** Clientes y transacciones de **PostgreSQL** con satisfacción y tiempos de respuesta de la **API REST**.
 - Permite al Copiloto responder preguntas ejecutivas complejas: *"¿Los clientes de la región Norte con tickets de soporte abiertos tienen menor volumen de compra que el presupuesto del Excel?"*.
 
+### 5.3. Tablas de Hechos de Ventas Certificadas
+El pipeline medallón materializa dos tablas Iceberg Gold consultables desde Trino:
+
+- **`gold.fact_ventas`**: grano diario por `(fecha, region_id, tienda_id, cliente_id, canal_venta)`.
+  - Dimensiones: `fecha`, `anio`, `mes`, `dia`, `region_id`, `tienda_id`, `cliente_id`, `canal_venta`.
+  - Métricas canónicas: `venta_bruta`, `total_descuento`, `total_devoluciones`, `venta_neta`, `pedidos_validos`, `ticket_promedio`, `pedidos_devueltos`, `tasa_devolucion`.
+- **`gold.fct_ventas_diarias`**: misma estructura y métricas canónicas, materializada como tabla de hechos diaria particionada por `(anio, mes)`.
+
+`venta_neta` es la cifra oficial para responder preguntas sobre "ventas" o "ingresos", conforme a la fórmula canónica de `documentation/canonical/04`.
+
 ---
 
 ## 6. Tablas Operativas en PostgreSQL (`midas-postgres`)

@@ -51,7 +51,7 @@ export interface CopilotChatController {
   drawerOpen: boolean;
   expanded: boolean;
   unread: number;
-  send: (text: string) => Promise<void>;
+  send: (text: string, threadIdOverride?: string) => Promise<void>;
   approvePipeline: (messageId: string) => Promise<void>;
   openDrawer: () => void;
   closeDrawer: () => void;
@@ -70,7 +70,14 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [unread, setUnread] = useState(0);
-  const [threadId, setThreadId] = useState<string>(() => createId('session'));
+  const [threadId, setThreadIdState] = useState<string>(() => createId('session'));
+  // El ref mantiene el hilo vigente de forma síncrona para que un `send` disparado
+  // justo después de `setThreadId` no reutilice el identificador anterior.
+  const threadIdRef = useRef(threadId);
+  const setThreadId = useCallback((id: string) => {
+    threadIdRef.current = id;
+    setThreadIdState(id);
+  }, []);
   const [activeRole, setActiveRoleState] = useState<string>(() => options?.activeRole || 'director_general');
   const activeRoleRef = useRef(activeRole);
   activeRoleRef.current = activeRole;
@@ -112,9 +119,17 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   );
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, threadIdOverride?: string) => {
       const content = text.trim();
       if (!content) return;
+
+      // Un turno pertenece siempre a un único hilo conversacional. Si el llamador
+      // acaba de crear/seleccionar una sesión, ese identificador manda sobre el
+      // estado (posiblemente aún no renderizado) del hook.
+      const activeThreadId = threadIdOverride?.trim() || threadIdRef.current;
+      if (activeThreadId !== threadIdRef.current) {
+        setThreadId(activeThreadId);
+      }
 
       appendMessage(resolveUserMessage(content));
       setStatus('thinking');
@@ -129,9 +144,16 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       try {
         const payload = await sendChatMessage({
           message: content,
-          threadId,
+          threadId: activeThreadId,
           userRole: activeRoleRef.current,
         });
+        // El backend es la fuente de verdad del hilo (por ejemplo, si él generó
+        // el identificador). Adoptarlo evita crear una sesión nueva en el turno
+        // siguiente.
+        const responseThreadId = payload.thread_id?.trim();
+        if (responseThreadId && responseThreadId !== activeThreadId) {
+          setThreadId(responseThreadId);
+        }
         const assistantMessage: CopilotMessage = {
           id: createId('assistant'),
           role: 'assistant',
@@ -149,7 +171,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         appendMessage(assistantMessage);
         setSuggestions(payload.suggestions && payload.suggestions.length > 0 ? payload.suggestions : DEFAULT_SUGGESTIONS);
         setStatus('idle');
-        onTurnCompleteRef.current?.(threadId);
+        onTurnCompleteRef.current?.(responseThreadId || activeThreadId);
       } catch (cause) {
         if ((cause as Error)?.name === 'AbortError') return;
         clearPhaseTimers();
@@ -165,7 +187,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         setStatus('error');
       }
     },
-    [appendMessage, clearPhaseTimers, resolveUserMessage, threadId],
+    [appendMessage, clearPhaseTimers, resolveUserMessage, setThreadId],
   );
 
   const approvePipeline = useCallback(
@@ -210,7 +232,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
     setMessages([createWelcomeMessage()]);
     setSuggestions(DEFAULT_SUGGESTIONS);
     setStatus('idle');
-  }, [clearPhaseTimers]);
+  }, [clearPhaseTimers, setThreadId]);
 
   const loadSessionMessages = useCallback(
     (newMessages: CopilotMessage[], newThreadId: string) => {
@@ -219,7 +241,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage()]);
       setStatus('idle');
     },
-    [clearPhaseTimers]
+    [clearPhaseTimers, setThreadId]
   );
 
   wasOpenRef.current = drawerOpen;

@@ -123,43 +123,98 @@ def get_agent_graph() -> Any:
                 except Exception as pg_exc:
                     logger.debug("No se pudieron cargar conexiones activas de PostgreSQL: %s", pg_exc)
 
-                # 2. Consultar el catalogo de Trino (Iceberg y tablas sincronizadas)
-                try:
-                    query = (
-                        "SELECT table_schema, table_name, column_name "
-                        "FROM information_schema.columns "
-                        "WHERE table_schema IN ('silver', 'gold', 'public') "
-                        "ORDER BY table_schema, table_name, ordinal_position"
+                # 2. Consultar el catalogo de Trino solo por esquemas realmente existentes.
+                #    Consultar todos los esquemas de golpe falla si uno (p.ej. silver) no
+                #    fue materializado todavía, y dejaba al agente sin las tablas Gold.
+                def add_catalog_table(schema: str, table: str, columns: List[str]) -> None:
+                    source_name = (
+                        "Capa Gold (Marts)"
+                        if schema == "gold"
+                        else "Capa Silver"
                     )
-                    res = trino_client.execute_query_sync(sql=query)
-                    if res and res.data:
-                        schema_tables: Dict[str, Dict[str, List[str]]] = {}
-                        for row in res.data:
-                            sch = str(row.get("table_schema", "")).lower()
-                            tbl = str(row.get("table_name", "")).lower()
-                            col = str(row.get("column_name", "")).lower()
-                            if not sch or not tbl:
-                                continue
-                            if sch not in schema_tables:
-                                schema_tables[sch] = {}
-                            if tbl not in schema_tables[sch]:
-                                schema_tables[sch][tbl] = []
-                            if col and col not in schema_tables[sch][tbl]:
-                                schema_tables[sch][tbl].append(col)
+                    source = grouped_sources.setdefault(
+                        source_name,
+                        {"name": source_name, "kind": "Iceberg", "tables": []},
+                    )
+                    full_table = f"{schema}.{table}"
+                    existing = {
+                        item.get("table") if isinstance(item, dict) else item
+                        for item in source["tables"]
+                    }
+                    if full_table not in existing:
+                        source["tables"].append(
+                            {"table": full_table, "columns": columns}
+                        )
 
-                        for sch, tables_dict in schema_tables.items():
-                            for tbl, cols in tables_dict.items():
-                                t_full = f"{sch}.{tbl}"
-                                s_name = "Capa Gold (Marts)" if sch == "gold" else ("Capa Silver" if sch == "silver" else "PostgreSQL Operacional")
-                                s_kind = "Iceberg" if sch in ("silver", "gold") else "PostgreSQL"
-                                if s_name not in grouped_sources:
-                                    grouped_sources[s_name] = {"name": s_name, "kind": s_kind, "tables": []}
-                                # Agregar tabla si no existe ya
-                                existing_tables = [t.get("table") if isinstance(t, dict) else t for t in grouped_sources[s_name]["tables"]]
-                                if t_full not in existing_tables:
-                                    grouped_sources[s_name]["tables"].append({"table": t_full, "columns": cols})
+                try:
+                    schema_res = trino_client.execute_query_sync(
+                        sql=(
+                            "SELECT schema_name "
+                            "FROM iceberg.information_schema.schemata"
+                        )
+                    )
+                    available_schemas = {
+                        str(row.get("schema_name", "")).lower()
+                        for row in (schema_res.data or [])
+                    }
+                    for schema in ("silver", "gold"):
+                        if schema not in available_schemas:
+                            continue
+                        try:
+                            res = trino_client.execute_query_sync(
+                                sql=(
+                                    "SELECT table_name, column_name "
+                                    "FROM iceberg.information_schema.columns "
+                                    f"WHERE table_schema = '{schema}' "
+                                    "ORDER BY table_name, ordinal_position"
+                                )
+                            )
+                        except Exception as schema_exc:
+                            logger.debug(
+                                "No se pudo introspeccionar iceberg.%s: %s",
+                                schema,
+                                schema_exc,
+                            )
+                            continue
+                        schema_tables: Dict[str, List[str]] = {}
+                        for row in res.data or []:
+                            table = str(row.get("table_name", "")).lower()
+                            column = str(row.get("column_name", "")).lower()
+                            if not table:
+                                continue
+                            schema_tables.setdefault(table, [])
+                            if column and column not in schema_tables[table]:
+                                schema_tables[table].append(column)
+                        for table, columns in schema_tables.items():
+                            add_catalog_table(schema, table, columns)
                 except Exception as exc:
                     logger.debug("No se pudo consultar information_schema de Trino: %s.", exc)
+
+                # 3. Contrato Gold canónico: garantiza que el fallback determinístico
+                #    siempre pueda resolver ventas reales aunque la introspección falle.
+                canonical_gold = {
+                    "fact_ventas": [
+                        "fecha", "anio", "mes", "dia", "region_id", "tienda_id",
+                        "cliente_id", "canal_venta", "venta_bruta",
+                        "total_descuento", "total_devoluciones", "venta_neta",
+                        "pedidos_validos", "ticket_promedio", "pedidos_devueltos",
+                        "tasa_devolucion",
+                    ],
+                    "fct_ventas_diarias": [
+                        "fecha", "anio", "mes", "dia", "region_id", "tienda_id",
+                        "cliente_id", "canal_venta", "venta_bruta",
+                        "total_descuento", "total_devoluciones", "venta_neta",
+                        "pedidos_validos", "ticket_promedio", "pedidos_devueltos",
+                        "tasa_devolucion",
+                    ],
+                    "dim_tiendas_regiones": [
+                        "tienda_id", "nombre_tienda", "region_id",
+                        "region_geografica", "ciudad", "canal_predominante",
+                        "gerente_regional", "activa",
+                    ],
+                }
+                for table, columns in canonical_gold.items():
+                    add_catalog_table("gold", table, columns)
 
                 if grouped_sources:
                     return list(grouped_sources.values())
@@ -195,6 +250,28 @@ def get_agent_graph() -> Any:
                     },
                 ]
 
+            def available_sales_years() -> List[int]:
+                """Lee los años reales de Gold para la aclaración conversacional."""
+                try:
+                    res = trino_client.execute_query_sync(
+                        sql=(
+                            "SELECT DISTINCT anio FROM gold.fact_ventas "
+                            "WHERE anio IS NOT NULL ORDER BY anio"
+                        ),
+                        timeout_sec=3.0,
+                    )
+                except Exception as exc:
+                    logger.debug("No se pudieron leer los años disponibles en Gold: %s", exc)
+                    return []
+                years = set()
+                for row in res.data or []:
+                    raw = row.get("anio")
+                    try:
+                        years.add(int(raw))
+                    except (TypeError, ValueError):
+                        continue
+                return sorted(years)
+
             pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("DATABASE_URL")
             checkpointer = None
             if pg_url and "postgresql" in pg_url:
@@ -212,6 +289,7 @@ def get_agent_graph() -> Any:
                 checkpointer=checkpointer,
                 execute_query=default_trino_executor,
                 source_provider=live_catalog_source_provider,
+                year_provider=available_sales_years,
             )
             logger.info("LangGraph conversational state machine compiled successfully with Trino executor.")
         except Exception as exc:

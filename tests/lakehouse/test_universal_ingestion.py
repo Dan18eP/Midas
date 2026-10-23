@@ -357,3 +357,37 @@ def test_universal_ingestion_engine_orchestration_and_drift_alert():
     alert_events = [e for e in published_events if e["event_type"] == "QUALITY_ALERT"]
     assert len(alert_events) == 1
     assert alert_events[0]["payload"]["alert"] == "SCHEMA_DRIFT_DETECTED"
+
+
+def test_ingest_source_sin_registros_reales_falla_en_produccion():
+    """Producción no debe inventar filas sintéticas cuando la fuente no es legible.
+
+    El fallback sintético usaba la fecha actual y contaminaba Gold con años que no
+    existen en el CSV de origen (por ejemplo, 2026 en un dataset 2010-2012).
+    """
+    engine = UniversalIngestionEngine(fallback_for_testing=False)
+
+    with pytest.raises(ValueError, match="no genera datos sintéticos"):
+        engine.ingest_source(
+            source_type="CSV",
+            source_config={"file_path": "ruta/que/no/existe.csv"},
+            connection_id="conn_csv_inexistente",
+            persist=False,
+        )
+
+
+def test_ingest_source_fallback_sintetico_solo_en_modo_testing():
+    """El fallback sintético se conserva únicamente para pruebas controladas."""
+    engine = UniversalIngestionEngine(fallback_for_testing=True)
+
+    result = engine.ingest_source(
+        source_type="CSV",
+        source_config={"file_path": "ruta/que/no/existe.csv"},
+        connection_id="conn_csv_testing",
+        persist=False,
+    )
+
+    assert result.records_count == 3
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    payloads = [json.loads(record["_raw_payload"]) for record in result.records]
+    assert all(payload["fecha"] == today for payload in payloads)

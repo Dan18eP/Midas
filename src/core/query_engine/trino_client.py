@@ -467,15 +467,18 @@ class TrinoClient:
                                 or "cannot be resolved" in safe_error.lower()
                                 or "mismatched input" in safe_error.lower()
                             ):
-                                logger.warning("Trino query execution incompatibility (%s). Serving from canonical deterministic engine.", safe_error)
-                                self.ensure_iceberg_schemas()
-                                return self._execute_deterministic_local_engine(
-                                    sql=effective_sql,
-                                    catalog=target_catalog,
-                                    schema_name=target_schema,
-                                    start_time=start_time,
-                                    cost_est=cost_est,
-                                    security_policy=policy_decision.to_dict(),
+                                if self.fallback_for_testing:
+                                    logger.warning("Trino query execution incompatibility (%s). Serving from deterministic test engine.", safe_error)
+                                    return self._execute_deterministic_local_engine(
+                                        sql=effective_sql,
+                                        catalog=target_catalog,
+                                        schema_name=target_schema,
+                                        start_time=start_time,
+                                        cost_est=cost_est,
+                                        security_policy=policy_decision.to_dict(),
+                                    )
+                                raise RuntimeError(
+                                    "Trino Query Error: la tabla o columna solicitada no existe en el catálogo real."
                                 )
                             raise RuntimeError(f"Trino Query Error ({query_id}): {safe_error}")
 
@@ -511,15 +514,10 @@ class TrinoClient:
             if not self.fallback_for_testing:
                 safe_err = mask_sensitive_credentials(str(sync_err))
                 if "does not exist" in safe_err.lower() or "not found" in safe_err.lower():
-                    logger.warning("Trino execution fallback for missing entity: %s", safe_err)
-                    return self._execute_deterministic_local_engine(
-                        sql=effective_sql,
-                        catalog=target_catalog,
-                        schema_name=target_schema,
-                        start_time=start_time,
-                        cost_est=cost_est,
-                        security_policy=policy_decision.to_dict(),
-                    )
+                    logger.warning("Trino execution error for missing entity: %s", safe_err)
+                    raise RuntimeError(
+                        "Trino Query Error: la tabla o columna solicitada no existe en el catálogo real."
+                    ) from sync_err
                 raise ConnectionError(f"No fue posible conectar con el coordinador Trino en {self.base_url}: {safe_err}") from sync_err
 
         return self._execute_deterministic_local_engine(
