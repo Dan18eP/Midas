@@ -64,14 +64,46 @@ _COUNT_ROW_TERMS = (
     "count",
 )
 _DIMENSION_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-    (("region", "región"), ("region_id", "region")),
-    (("mes",), ("mes",)),
-    (("año", "ano", "anio"), ("anio", "año")),
+    (("region", "región", "regiones", "regiónes"), ("region_id", "region")),
+    (("mes", "meses"), ("mes",)),
+    (("año", "ano", "anio", "años", "anos"), ("anio", "año")),
     (("tienda", "tiendas", "sucursal", "sucursales"), ("tienda_id", "tienda")),
     (("canal", "canales"), ("canal_venta", "canal")),
     (("cliente", "clientes"), ("cliente_id", "cliente")),
     (("dia", "día", "dias", "días"), ("dia", "fecha")),
     (("estado", "estados"), ("estado",)),
+)
+
+# Palabras que piden una agrupación/orden aunque no usen la forma "por <dimensión>".
+_RANKING_RE = re.compile(
+    r"\b(ranking|r[aá]nking|top|mejor|mejores|peor|peores|mayor|mayores|menor|menores|"
+    r"principal|principales|con\s+m[aá]s|con\s+mayor|con\s+menor)\b",
+    re.IGNORECASE,
+)
+
+# Métricas explícitas: deben resolver antes que la detección genérica de "ventas".
+_METRIC_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("venta neta", ("venta_neta", "total_neto", "monto_neto")),
+    ("ventas netas", ("venta_neta", "total_neto", "monto_neto")),
+    ("venta bruta", ("venta_bruta", "monto_bruto", "total_bruto")),
+    ("ventas brutas", ("venta_bruta", "monto_bruto", "total_bruto")),
+    ("devoluciones", ("total_devoluciones", "devolucion", "devoluciones")),
+    ("devolucion", ("total_devoluciones", "devolucion", "devoluciones")),
+    ("devolución", ("total_devoluciones", "devolucion", "devoluciones")),
+    ("descuentos", ("total_descuento", "descuento", "descuentos")),
+    ("descuento", ("total_descuento", "descuento", "descuentos")),
+    ("ticket promedio", ("ticket_promedio",)),
+    ("ticket", ("ticket_promedio",)),
+    ("pedidos validos", ("pedidos_validos", "total_pedidos")),
+    ("pedidos válidos", ("pedidos_validos", "total_pedidos")),
+    ("pedidos", ("pedidos_validos", "total_pedidos", "pedidos")),
+    ("tasa de devolucion", ("tasa_devolucion",)),
+    ("tasa de devolución", ("tasa_devolucion",)),
+    ("costos", ("costo_operativo_fijo", "costo")),
+    ("costo", ("costo_operativo_fijo", "costo")),
+    ("gastos", ("gasto_marketing", "gasto")),
+    ("satisfaccion", ("calificacion_satisfaccion",)),
+    ("satisfacción", ("calificacion_satisfaccion",)),
 )
 
 
@@ -394,12 +426,39 @@ def _sales_metric(columns: set[str]) -> str | None:
     return None
 
 
+def _explicit_metric(question: str, columns: set[str]) -> str | None:
+    """Devuelve la métrica nombrada explícitamente, si existe en la tabla."""
+    for phrase, candidates in _METRIC_SYNONYMS:
+        if phrase in question:
+            for candidate in candidates:
+                if candidate in columns:
+                    return candidate
+    return None
+
+
 def _resolve_operation(
     question: str,
     columns: set[str],
 ) -> tuple[str, str | None]:
     if any(term in question for term in _COUNT_ROW_TERMS):
         return "COUNT", None
+
+    # La métrica explícita manda sobre la detección genérica de "venta(s)".
+    # Ej.: "canal de venta con mejor ticket promedio" debe usar ticket_promedio,
+    # no venta_neta.
+    explicit_metric = _explicit_metric(question, columns)
+    if explicit_metric is not None:
+        uses_average = any(
+            word in question for word in ("promedio", "average", "avg", "media")
+        )
+        if uses_average or explicit_metric in (
+            "ticket_promedio",
+            "tasa_devolucion",
+            "calificacion_satisfaccion",
+        ):
+            return "AVG", explicit_metric
+        return "SUM", explicit_metric
+
     if "pedido" in question:
         if "pedidos_validos" in columns:
             return "SUM", "pedidos_validos"
@@ -425,34 +484,9 @@ def _resolve_operation(
 
 
 def _numeric_column(question: str, columns: set[str]) -> str:
-    explicit_metrics = (
-        ("venta neta", ("venta_neta", "total_neto", "monto_neto")),
-        ("ventas netas", ("venta_neta", "total_neto", "monto_neto")),
-        ("venta bruta", ("venta_bruta", "monto_bruto", "total_bruto")),
-        ("ventas brutas", ("venta_bruta", "monto_bruto", "total_bruto")),
-        ("devoluciones", ("total_devoluciones", "devolucion", "devoluciones")),
-        ("devolucion", ("total_devoluciones", "devolucion", "devoluciones")),
-        ("devolución", ("total_devoluciones", "devolucion", "devoluciones")),
-        ("descuentos", ("total_descuento", "descuento", "descuentos")),
-        ("descuento", ("total_descuento", "descuento", "descuentos")),
-        ("ticket promedio", ("ticket_promedio",)),
-        ("ticket", ("ticket_promedio",)),
-        ("pedidos validos", ("pedidos_validos", "total_pedidos")),
-        ("pedidos válidos", ("pedidos_validos", "total_pedidos")),
-        ("pedidos", ("pedidos_validos", "total_pedidos", "pedidos")),
-        ("tasa de devolucion", ("tasa_devolucion",)),
-        ("tasa de devolución", ("tasa_devolucion",)),
-        ("costos", ("costo_operativo_fijo", "costo")),
-        ("costo", ("costo_operativo_fijo", "costo")),
-        ("gastos", ("gasto_marketing", "gasto")),
-        ("satisfaccion", ("calificacion_satisfaccion",)),
-        ("satisfacción", ("calificacion_satisfaccion",)),
-    )
-    for phrase, candidates in explicit_metrics:
-        if phrase in question:
-            for candidate in candidates:
-                if candidate in columns:
-                    return candidate
+    explicit = _explicit_metric(question, columns)
+    if explicit is not None:
+        return explicit
 
     if _SALES_RE.search(question):
         metric = _sales_metric(columns)
@@ -482,7 +516,7 @@ def _dimension_requested(question: str) -> tuple[str, ...] | None:
                     found.append(candidates)
                     break
 
-    if not found and re.search(r"\b(top|principales|mayores|mejores|con\s+m[aá]s|con\s+mayor)\b", question):
+    if not found and _RANKING_RE.search(question):
         for keywords, candidates in _DIMENSION_SYNONYMS:
             if any(re.search(rf"\b{re.escape(keyword)}\b", question) for keyword in keywords):
                 found.append(candidates)
@@ -502,6 +536,14 @@ def _requested_top_n(question: str) -> int | None:
     if match is None:
         match = re.search(r"\b(\d+)\s+(?:mejores|mayores|principales)\b", question)
     if match is None:
+        match = re.search(
+            r"\b(\d+)\s+\w+\s+con\s+(?:mayor|menor|mejor|peor)\b", question
+        )
+    if match is None:
+        # Preguntas del tipo "¿qué región tuvo el mayor...?" o "¿cuál es el
+        # canal con mejor...?" esperan un único ganador.
+        if re.search(r"\b(?:mejor|peor|mayor|menor)\b", question):
+            return 1
         return None
     return min(max(int(match.group(1)), 1), 100)
 

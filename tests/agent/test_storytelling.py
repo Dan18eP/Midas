@@ -91,3 +91,39 @@ def test_storytelling_result_keeps_chart_and_lineage_structured():
     assert result["narrative"].startswith("## Hallazgo principal")
     assert result["echarts_option"]["series"][0]["type"] == "bar"
     assert result["metrics_summary"][0]["value"] == 120
+
+
+def test_narrative_includes_dimension_label_next_to_metric():
+    narrative = build_narrative(
+        [
+            {"region_id": "REG-CENTRO", "venta_neta": 980238836.56},
+            {"region_id": "REG-NORTE", "venta_neta": 848406800.25},
+        ]
+    )
+
+    assert "region_id=REG-CENTRO · venta_neta" in narrative
+    assert "region_id=REG-NORTE · venta_neta" in narrative
+
+
+def test_metrics_summary_keeps_dimension_context_and_excludes_dimension_as_metric():
+    result = synthesize_storytelling(
+        [{"canal_venta": "ONLINE", "ticket_promedio": 1033660.39}]
+    )
+
+    metric = result["metrics_summary"][0]
+    assert metric["label"] == "canal_venta=ONLINE · ticket_promedio"
+    assert metric["source_column"] == "ticket_promedio"
+    assert metric["dimensions"] == {"canal_venta": "ONLINE"}
+    assert all(item["source_column"] != "canal_venta" for item in result["metrics_summary"])
+
+
+def test_numeric_time_dimension_is_not_reported_as_metric():
+    result = synthesize_storytelling(
+        [{"mes": 1, "venta_neta": 120.0}, {"mes": 2, "venta_neta": 150.0}]
+    )
+
+    assert [item["source_column"] for item in result["metrics_summary"]] == [
+        "venta_neta",
+        "venta_neta",
+    ]
+    assert result["metrics_summary"][0]["dimensions"] == {"mes": 1}

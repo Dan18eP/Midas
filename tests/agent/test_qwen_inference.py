@@ -39,6 +39,8 @@ CATALOG = [
 
 
 def test_router_uses_local_qwen_and_validates_its_sql(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     requests = []
 
     class Response:
@@ -130,6 +132,41 @@ def test_fallback_supports_top_n_entities():
     assert "LIMIT 5" in sql
 
 
+def test_fallback_understands_ranking_wording_without_por_dimension():
+    sql = deterministic_sql("Hazme un ranking de regiones por venta neta en 2011", CATALOG)
+
+    assert "SELECT region_id AS region_id, SUM(venta_neta)" in sql
+    assert "GROUP BY region_id" in sql
+    assert "ORDER BY venta_neta DESC" in sql
+
+
+def test_fallback_prefers_explicit_ticket_metric_and_canal_dimension():
+    sql = deterministic_sql(
+        "¿Qué canal de venta tuvo mejor ticket promedio en 2012?", CATALOG
+    )
+
+    assert "SELECT canal_venta AS canal_venta, AVG(ticket_promedio)" in sql
+    assert "GROUP BY canal_venta" in sql
+    assert "ORDER BY ticket_promedio DESC" in sql
+    assert "LIMIT 1" in sql
+
+
+def test_fallback_superlative_uses_sum_and_single_winner():
+    sql = deterministic_sql("¿Cuál es la región con mayor venta neta en 2011?", CATALOG)
+
+    assert "SELECT region_id AS region_id, SUM(venta_neta)" in sql
+    assert "GROUP BY region_id" in sql
+    assert "ORDER BY venta_neta DESC" in sql
+    assert "LIMIT 1" in sql
+
+
+def test_fallback_keeps_explicit_limit_before_superlative():
+    sql = deterministic_sql("Dame las 3 regiones con mayor venta neta en 2011", CATALOG)
+
+    assert "GROUP BY region_id" in sql
+    assert "LIMIT 3" in sql
+
+
 def test_fallback_rejects_more_than_one_grouping_dimension():
     with pytest.raises(ValueError, match="una dimensión"):
         deterministic_sql("Ventas por región y mes en 2011", CATALOG)
@@ -167,7 +204,10 @@ def test_router_accepts_localhost_and_env_variable(monkeypatch):
     assert router_127._base_url == "http://127.0.0.1:11434"
 
 
-def test_router_rejects_external_cloud_endpoints():
+def test_router_rejects_external_cloud_endpoints(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
     with pytest.raises(ValueError, match="endpoints locales aprobados"):
         ModelRouter(base_url="https://api.openai.com/v1")
 

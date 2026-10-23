@@ -151,7 +151,12 @@ Admite conteos, suma/promedio y filtros por año. También admite una única
 dimensión de agrupación (`region_id`, `mes`, `anio`, `tienda_id`,
 `canal_venta`, `cliente_id` o `dia`) y variantes Top N
 (*"top 5 tiendas por ventas"*), generando `GROUP BY` y orden descendente por la
-métrica. Los filtros de categoría disponibles son `region_id` (`REG-NORTE`,
+métrica. También reconoce formulaciones de ranking sin la forma
+`"por <dimensión>"` (por ejemplo, *"ranking de regiones por venta neta"*) y
+superlativos (*"la región con mayor venta neta"*, *"el canal con mejor ticket
+promedio"*), aplicando `LIMIT 1` cuando la pregunta espera un único ganador. Una
+métrica explícita como `ticket_promedio` tiene prioridad sobre la detección
+genérica de ventas. Los filtros de categoría disponibles son `region_id` (`REG-NORTE`,
 `REG-SUR`, `REG-CENTRO`), `canal_venta` (`ONLINE`, `TIENDA`, `PARTNER`) y
 `estado` (`CERRADO`, `ABIERTO`), con un filtro por consulta. Las comparaciones
 entre años, los cruces de tablas y las agrupaciones con más de una dimensión
@@ -181,11 +186,15 @@ salida, incluida la del fallback, pasa por el mismo `QueryGuardrail`: solo
     `#F59E0B`, `#1E293B`).
   - `metrics_summary`: lista de cifras observadas con etiqueta, valor original,
     columna de origen e índice de fila para que el cliente pueda abrir el drawer
-    de linaje correspondiente.
+    de linaje correspondiente. Cuando la fila tiene dimensiones de agrupación
+    (`region_id`, `canal_venta`, `mes`, etc.), la etiqueta las incluye
+    (`region_id=REG-NORTE · venta_neta`) y el objeto expone `dimensions` con sus
+    valores para conservar el contexto del hallazgo.
 - El generador narrativo no calcula cifras nuevas. Cada número en `narrative`
   debe copiarse literalmente de un valor numérico presente en las filas de
   Trino; conteos, porcentajes, diferencias y promedios no observados no se
-  agregan.
+  agregan. Cada hallazgo incluye la etiqueta de dimensión junto a la métrica
+  para que la cifra sea interpretable sin abrir el gráfico.
 - El sintetizador de gráficos decide el tipo a partir de los valores y nombres
   de columnas, en este orden: una dimensión temporal con valores numéricos usa
   línea con área; dos columnas numéricas usan dispersión; una categoría
