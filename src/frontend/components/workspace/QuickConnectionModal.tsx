@@ -227,8 +227,10 @@ export function QuickConnectionModal({
 
       const existingNodes = activeTopology?.nodes || [];
       const existingEdges = activeTopology?.edges || [];
+      // Reimportar la misma fuente debe actualizar su nodo, no duplicarlo.
+      const nodesWithoutDuplicate = existingNodes.filter((node) => node.id !== nodeId);
       const newTopology: TopologyStateDTO = {
-        nodes: [...existingNodes, newNode],
+        nodes: [...nodesWithoutDuplicate, newNode],
         edges: existingEdges,
       };
 

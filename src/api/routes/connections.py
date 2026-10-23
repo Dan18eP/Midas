@@ -307,10 +307,16 @@ async def upload_source_file(
     try:
         registered = registry.register_connection(create_dto)
     except ValueError as val_err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(val_err),
-        )
+        # Reimportar el mismo archivo con el mismo nombre es una operación
+        # idempotente: se reutiliza la conexión existente. El binario ya fue
+        # sobrescrito en data/uploads con la versión más reciente.
+        existing = registry.get_connection(conn_name)
+        if existing is None or existing.source_type != effective_source_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(val_err),
+            )
+        registered = existing
 
     cid = registered.connection_id
     storage_path = f"s3://midas-bronze/sources/{cid}/raw/{clean_filename}"

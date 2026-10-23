@@ -383,6 +383,31 @@ def test_upload_file_csv_success():
     assert saved.name == "Ventas Octubre 2026 CSV"
 
 
+def test_upload_same_file_twice_reuses_existing_connection():
+    """Reimportar el mismo archivo con el mismo nombre no debe fallar por duplicado."""
+    client = TestClient(app)
+    csv_content = b"id,producto,precio\n1,Laptop,1200.50\n"
+
+    first = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("Walmart_Sales_normalized_v2.csv", io.BytesIO(csv_content), "text/csv")},
+        data={"name": "Walmart_Sales_normalized_v2"},
+    )
+    assert first.status_code == 201
+    first_data = first.json()
+
+    second = client.post(
+        "/api/v1/connections/upload",
+        files={"file": ("Walmart_Sales_normalized_v2.csv", io.BytesIO(csv_content), "text/csv")},
+        data={"name": "Walmart_Sales_normalized_v2"},
+    )
+    assert second.status_code == 201
+    second_data = second.json()
+
+    assert second_data["connection_id"] == first_data["connection_id"]
+    assert second_data["name"] == "Walmart_Sales_normalized_v2"
+
+
 def test_upload_file_excel_success():
     """Valida la carga multipart/form-data de un archivo Excel (.xlsx) y extracción de hojas."""
     import openpyxl
