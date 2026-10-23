@@ -5,7 +5,11 @@ from urllib.error import URLError
 import pytest
 
 from src.agent.guardrails.query_guardrail import QueryValidationError, validate_query
-from src.agent.models.model_router import ModelRouter, deterministic_sql
+from src.agent.models.model_router import (
+    ModelRouter,
+    deterministic_sql,
+    validate_sql_alignment,
+)
 from src.agent.tools.text_to_sql import TextToSqlGenerator
 
 
@@ -140,6 +144,14 @@ def test_fallback_understands_ranking_wording_without_por_dimension():
     assert "ORDER BY venta_neta DESC" in sql
 
 
+def test_fallback_selects_sales_table_for_ticket_metric_without_venta_word():
+    sql = deterministic_sql("Ticket promedio por región en 2012", CATALOG)
+
+    assert "FROM gold.fact_ventas" in sql
+    assert "AVG(ticket_promedio)" in sql
+    assert "GROUP BY region_id" in sql
+
+
 def test_fallback_prefers_explicit_ticket_metric_and_canal_dimension():
     sql = deterministic_sql(
         "¿Qué canal de venta tuvo mejor ticket promedio en 2012?", CATALOG
@@ -165,6 +177,95 @@ def test_fallback_keeps_explicit_limit_before_superlative():
 
     assert "GROUP BY region_id" in sql
     assert "LIMIT 3" in sql
+
+
+def test_fallback_understands_vendio_mas_superlative():
+    sql = deterministic_sql("¿Qué región vendió más en 2011?", CATALOG)
+
+    assert "SELECT region_id AS region_id, SUM(venta_neta)" in sql
+    assert "GROUP BY region_id" in sql
+    assert "ORDER BY venta_neta DESC" in sql
+    assert "LIMIT 1" in sql
+
+
+def test_fallback_orders_worst_superlative_ascending():
+    sql = deterministic_sql("¿Qué tienda vende menos en 2011?", CATALOG)
+
+    assert "GROUP BY tienda_id" in sql
+    assert "ORDER BY venta_neta ASC" in sql
+    assert "LIMIT 1" in sql
+
+
+def test_fallback_delegates_unknown_dimension_instead_of_returning_global_total():
+    with pytest.raises(ValueError, match="dimensión"):
+        deterministic_sql("Ventas por producto en 2011", CATALOG)
+
+
+def test_fallback_delegates_unknown_superlative_dimension():
+    with pytest.raises(ValueError, match="dimensión"):
+        deterministic_sql("¿Cuál es el producto más vendido?", CATALOG)
+
+
+def test_fallback_delegates_unsupported_business_metric():
+    with pytest.raises(ValueError, match="métrica"):
+        deterministic_sql("Margen de ventas por región en 2011", CATALOG)
+
+
+def test_fallback_delegates_relative_time_questions():
+    with pytest.raises(ValueError, match="plantilla"):
+        deterministic_sql("¿Cuánto vendimos el año pasado?", CATALOG)
+
+
+def test_alignment_rejects_global_total_for_grouped_question():
+    error = validate_sql_alignment(
+        "Ventas por región en 2011",
+        "SELECT SUM(venta_neta) AS venta_neta FROM gold.fact_ventas WHERE anio = 2011",
+    )
+
+    assert error is not None
+    assert "GROUP BY" in error
+
+
+def test_alignment_accepts_grouped_question():
+    error = validate_sql_alignment(
+        "Ventas por región en 2011",
+        "SELECT region_id, SUM(venta_neta) AS venta_neta FROM gold.fact_ventas "
+        "WHERE anio = 2011 GROUP BY region_id",
+    )
+
+    assert error is None
+
+
+def test_alignment_rejects_ranking_without_order():
+    error = validate_sql_alignment(
+        "Top 5 tiendas por ventas en 2011",
+        "SELECT tienda_id, SUM(venta_neta) AS venta_neta FROM gold.fact_ventas "
+        "WHERE anio = 2011 GROUP BY tienda_id",
+    )
+
+    assert error is not None
+    assert "ORDER BY" in error
+
+
+def test_alignment_rejects_missing_second_dimension():
+    error = validate_sql_alignment(
+        "Ventas por región y producto",
+        "SELECT region, SUM(monto_neto) AS venta FROM gold.fact_ventas GROUP BY region",
+    )
+
+    assert error is not None
+    assert "dimensiones" in error
+
+
+def test_alignment_rejects_wrong_ticket_metric():
+    error = validate_sql_alignment(
+        "¿Qué canal de venta tuvo mejor ticket promedio en 2012?",
+        "SELECT canal_venta, AVG(venta_neta) AS ticket FROM gold.fact_ventas "
+        "WHERE anio = 2012 GROUP BY canal_venta ORDER BY ticket DESC LIMIT 1",
+    )
+
+    assert error is not None
+    assert "ticket" in error
 
 
 def test_fallback_rejects_more_than_one_grouping_dimension():

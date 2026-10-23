@@ -68,6 +68,15 @@
 - Se limpiaron los duplicados existentes y las 4 filas residuales `anio=2026` de `gold.fct_ventas_diarias`.
 - Gold quedo reconciliado con el CSV real: 2010 = 2.160 filas / 2.288.886.120,41; 2011 = 2.340 filas / 2.448.200.007,35; 2012 = 1.935 filas / 2.000.132.859,35.
 
+### 3.4. Confianza del router y alineacion SQL-pregunta
+
+- El router deterministico ya no devuelve un total global cuando la pregunta pide un desglose (`por`, `según`, `desglose`, `distribución`, `cada`, `evolución`) pero no reconoce una dimension certificada. En ese caso delega al LLM.
+- Tampoco responde con la plantilla si la pregunta pide metricas no soportadas (margen, utilidad, ratio, conteos distintos), comparaciones (`vs`, diferencia) o fechas relativas (año pasado, mes anterior, hoy).
+- Se agregaron variantes generales: "qué region vendio mas", "qué tienda vende menos", "ventas de cada tienda", "evolución mensual", "ticket promedio por region" y "top 5 regiones con mas ventas".
+- `validate_sql_alignment` revisa el AST de cualquier SQL generado por el LLM: exige `GROUP BY` si hay intencion de desglose, exige las dimensiones reconocidas, exige `ORDER BY` en rankings y exige la metrica correcta para ticket promedio.
+- Si Gemini devuelve un SQL que no conserva el desglose, se reintenta una vez con la correccion explicita. Si tampoco cumple, el agente falla sin ejecutar un total incorrecto.
+- Preguntas con dimensiones no disponibles en los datos (por ejemplo, "ventas por producto" cuando no existe columna producto) no inventan resultados: se delega al LLM y, si no hay columna valida, el agente informa que no pudo generar una consulta segura.
+
 ### 4. Prioridad deterministica sobre el LLM
 
 - Para intenciones soportadas por la plantilla certificada, `ModelRouter` devuelve la consulta deterministica sin invocar a Gemini/Ollama.
@@ -86,6 +95,12 @@ Consultas ejecutadas contra el catalogo Gold real:
 | `Ventas por mes en 2011` | 12 filas, grafico `line` en orden enero->diciembre |
 | `Top 5 tiendas por ventas en 2011` | 5 filas, grafico `bar` |
 | `Que canal de venta tuvo mejor ticket promedio en 2012?` | 1 fila, `canal_venta=TIENDA · ticket_promedio = 1.033.660,39` |
+| `Que tienda vendio mas en 2011?` | 1 fila, `tienda_id=WMT-004` |
+| `Cual es la region con peor venta neta en 2010?` | 1 fila, `region_id=REG-SUR`, orden ascendente |
+| `Ticket promedio por region en 2012` | 3 filas, `region_id=... · ticket_promedio`, grafico `bar` |
+| `Evolucion mensual de ventas en 2011` | 12 filas, grafico `line` |
+| `Ventas por region y canal en 2011` | Delegado a Gemini; 3 filas con ambas dimensiones |
+| `Ventas por producto en 2011` | Sin columna `producto`; no inventa datos y falla de forma segura |
 | `Quiero ver las ventas` | Anios reales: `2010, 2011, 2012` + opcion `todos` |
 
 Pruebas automatizadas ejecutadas dentro de la imagen `midas-api` (Python 3.11):
@@ -95,8 +110,7 @@ python -m pytest tests/agent/test_qwen_inference.py tests/agent/test_storytellin
   tests/lakehouse/test_silver_to_gold.py -q
 ```
 
-Resultado: **41 passed**. Suite backend funcional: **308 pruebas pasando** (306 en la corrida
-completa y 2 pruebas de latencia de Ranger re-ejecutadas aisladas). Los 9 tests de
+Resultado: **53 passed**. Suite backend funcional completa: **321 passed**. Los 9 tests de
 infraestructura que fallan lo hacen porque el contenedor `midas-api` no monta
 `docker-compose.yml`, `docker/`, `scripts/` ni `.env.example`, no por los cambios funcionales.
 
