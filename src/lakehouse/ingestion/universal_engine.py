@@ -73,10 +73,19 @@ class UniversalIngestionEngine:
         minio_client: Optional[Any] = None,
         telemetry_publisher: Optional[Callable[[Dict[str, Any]], None]] = None,
         baseline_fingerprints: Optional[Dict[str, str]] = None,
+        fallback_for_testing: Optional[bool] = None,
     ):
         self.minio_client = minio_client
         self.telemetry_publisher = telemetry_publisher
         self.baselines: Dict[str, str] = baseline_fingerprints or {}
+        if fallback_for_testing is not None:
+            self.fallback_for_testing = fallback_for_testing
+        else:
+            self.fallback_for_testing = (
+                os.getenv("MIDAS_TEST_MODE", "").lower() in ("true", "1", "yes")
+                or os.getenv("MIDAS_TESTING") == "1"
+                or "PYTEST_CURRENT_TEST" in os.environ
+            )
 
     def generate_batch_id(self, prefix: str = "batch") -> str:
         """Genera un identificador único y cronológico de lote."""
@@ -497,7 +506,7 @@ class UniversalIngestionEngine:
                             for item in raw_items
                         ]
                 except Exception as exc:
-                    logger.warning("No se pudo leer archivo CSV local (%s): %s. Generando lote sintetico.", file_path, exc)
+                    logger.warning("No se pudo leer archivo CSV local (%s): %s", file_path, exc)
         elif "EXCEL" in stype:
             file_path = source_config.get("file_path") or source_config.get("path")
             sheet = source_config.get("sheet") or source_config.get("sheet_name") or 0
@@ -507,7 +516,7 @@ class UniversalIngestionEngine:
                     sheet_target = connector.sheet_names[0] if isinstance(sheet, int) else sheet
                     return self.ingest_from_excel(connector, sheet_name=sheet_target, batch_id=bid, connection_id=cid, persist=persist)
                 except Exception as exc:
-                    logger.warning("No se pudo leer archivo Excel local (%s): %s. Generando lote sintetico.", file_path, exc)
+                    logger.warning("No se pudo leer archivo Excel local (%s): %s", file_path, exc)
         elif "POSTGRES" in stype:
             conn_url = source_config.get("connection_url") or (os.getenv(source_config.get("url_env", "")) if source_config.get("url_env") else None) or source_config.get("url_env")
             tbl = source_config.get("table") or "crm_transacciones"
@@ -517,7 +526,7 @@ class UniversalIngestionEngine:
                     connector = PostgresSourceConnector(connection_url=conn_url, source_name=cid)
                     return self.ingest_from_postgres(connector, table_name=tbl, batch_id=bid, schema_name=sch, connection_id=cid, persist=persist)
                 except Exception as exc:
-                    logger.warning("No se pudo conectar a PostgreSQL (%s): %s. Generando lote sintetico.", tbl, exc)
+                    logger.warning("No se pudo conectar a PostgreSQL (%s): %s", tbl, exc)
         elif "REST" in stype:
             base_url = source_config.get("base_url") or source_config.get("url") or source_config.get("endpoint_url")
             endpoint = source_config.get("endpoint") or ""
@@ -526,11 +535,18 @@ class UniversalIngestionEngine:
                     connector = RestApiSourceConnector(base_url=base_url)
                     return self.ingest_from_rest(connector, endpoint=endpoint, batch_id=bid, connection_id=cid, persist=persist)
                 except Exception as exc:
-                    logger.warning("No se pudo conectar a REST API (%s): %s. Generando lote sintetico.", base_url, exc)
+                    logger.warning("No se pudo conectar a REST API (%s): %s", base_url, exc)
 
-        # 3. Si no se generaron registros (modo desarrollo/testing sin conectores vivos),
-        # generar lote canonico con envoltura Bronze completa
+        # 3. Sin registros reales: en produccion se falla de forma explicita.
+        # Generar filas sinteticas con la fecha actual contaminaba Gold con años
+        # inexistentes en las fuentes (por ejemplo 2026 en un CSV 2010-2012).
         if not records:
+            if not self.fallback_for_testing:
+                raise ValueError(
+                    f"No se pudieron extraer registros reales de la fuente '{origin}' ({stype}). "
+                    "Verifica que la ruta del archivo o la conexión sean accesibles y que el "
+                    "contenido no esté vacío. Midas no genera datos sintéticos en producción."
+                )
             synthetic_items = [
                 {
                     "id": f"TRX-{cid[-4:]}-01",

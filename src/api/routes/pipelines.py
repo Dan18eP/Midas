@@ -320,13 +320,18 @@ async def trigger_pipeline(
                         else:
                             rec["fecha"] = val_year
                         break
-                if "fecha" not in rec and "mes" in rec and str(rec.get("mes", "")).isdigit():
-                    rec["fecha"] = f"2026-{int(rec['mes']):02d}-01"
+        # En pruebas no se debe escribir en el catálogo Iceberg operativo: los
+        # tests de API no deben contaminar gold.fact_ventas con datos sintéticos.
+        is_test_env = (
+            os.getenv("MIDAS_TEST_MODE", "").lower() in ("true", "1", "yes")
+            or os.getenv("MIDAS_TESTING") == "1"
+            or "PYTEST_CURRENT_TEST" in os.environ
+        )
 
         gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
         gold_result = gold_transformer.transform_and_aggregate_sales(
             silver_records=silver_data,
-            persist_iceberg=True,
+            persist_iceberg=not is_test_env,
         )
 
         # 4.1 Registrar linaje activo en OpenMetadata si está disponible
