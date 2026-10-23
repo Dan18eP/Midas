@@ -32,7 +32,13 @@ def make_analytic_nodes(
             message = state.get("user_message", "")
             # Detiene los intentos de anular las reglas antes de llamar al modelo.
             assert_safe_prompt(message)
-            sql = generate_sql(message, schemas)
+            import inspect
+            sig = inspect.signature(generate_sql)
+            inf_mode = state.get("inference_mode", "cloud")
+            if "inference_mode" in sig.parameters:
+                sql = generate_sql(message, schemas, inference_mode=inf_mode)
+            else:
+                sql = generate_sql(message, schemas)
         except PromptInjectionError as error:
             return {"query_error": str(error)}
         except Exception:

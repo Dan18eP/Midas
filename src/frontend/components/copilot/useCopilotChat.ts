@@ -46,6 +46,8 @@ export interface CopilotChatController {
   status: CopilotAgentStatus;
   suggestions: string[];
   threadId: string;
+  inferenceMode: 'local' | 'cloud';
+  setInferenceMode: (mode: 'local' | 'cloud') => void;
   activeRole?: string;
   setActiveRole: (role: string) => void;
   drawerOpen: boolean;
@@ -67,6 +69,9 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   const [messages, setMessages] = useState<CopilotMessage[]>(() => [createWelcomeMessage()]);
   const [status, setStatus] = useState<CopilotAgentStatus>('idle');
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
+  const [inferenceMode, setInferenceMode] = useState<'local' | 'cloud'>('cloud');
+  const inferenceModeRef = useRef(inferenceMode);
+  inferenceModeRef.current = inferenceMode;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -131,6 +136,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
           message: content,
           threadId,
           userRole: activeRoleRef.current,
+          inferenceMode: inferenceModeRef.current,
         });
         const assistantMessage: CopilotMessage = {
           id: createId('assistant'),
@@ -230,6 +236,8 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       status,
       suggestions,
       threadId,
+      inferenceMode,
+      setInferenceMode,
       activeRole,
       setActiveRole,
       drawerOpen,
@@ -251,6 +259,8 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       status,
       suggestions,
       threadId,
+      inferenceMode,
+      setInferenceMode,
       activeRole,
       setActiveRole,
       drawerOpen,

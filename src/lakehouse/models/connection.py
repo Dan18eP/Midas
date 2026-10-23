@@ -34,6 +34,19 @@ class SourceConnectionCreate(BaseModel):
     source_type: SourceType = Field(..., description="Tipo de fuente: POSTGRES, EXCEL, CSV, REST")
     config_payload: Dict[str, Any] = Field(default_factory=dict, description="Parámetros de conexión específicos")
 
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def normalize_source_type(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_upper = v.upper().strip()
+            if v_upper in ("API", "REST_API", "WEBHOOK"):
+                return SourceType.REST
+            if v_upper in ("POSTGRESQL", "PG", "POSTGRES"):
+                return SourceType.POSTGRES
+            if v_upper in ("XLSX", "XLS"):
+                return SourceType.EXCEL
+        return v
+
     @field_validator("name")
     @classmethod
     def validate_name_not_blank(cls, v: str) -> str:

@@ -50,7 +50,7 @@ def _generate_suggestions(sources: list[dict[str, Any]]) -> list[str]:
 
     seen = set()
     unique = [s for s in suggestions if not (s in seen or seen.add(s))]
-    return unique[:4]
+    return unique[:3]
 
 
 def make_introspector(

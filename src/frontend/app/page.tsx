@@ -37,6 +37,8 @@ import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySide
 import { WelcomeHero } from '@/components/workspace/WelcomeHero';
 import { listSourceConnections } from '@/services/sessionService';
 import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '@/components/canvas/topology/initialTopology';
+import { SessionAnalyticsView } from '@/components/analytics/SessionAnalyticsView';
+import { Layers, BarChart3 } from 'lucide-react';
 
 const PipelineCanvas = dynamic(
   () => import('@/components/canvas/PipelineCanvas').then((mod) => mod.PipelineCanvas),
@@ -56,6 +58,7 @@ const PipelineCanvas = dynamic(
 function MidasConsoleWorkspace() {
   const [selectedRole, setSelectedRole] = useState<ZeroTrustRole>('admin');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeMainView, setActiveMainView] = useState<'canvas' | 'analytics'>('canvas');
 
   // HU-FRONT-08: las identidades reales provienen del catálogo del backend.
   const [roleDefinitions, setRoleDefinitions] = useState<SecurityRoleDefinition[]>([]);
@@ -219,6 +222,34 @@ function MidasConsoleWorkspace() {
           </div>
         </div>
 
+        {/* Selector de Vista Principal: Pipeline Canvas vs Centro de Analítica */}
+        <div className="flex items-center rounded-lg border border-[#E8E4DC] bg-[#F7F7F5] p-0.5 text-xs shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setActiveMainView('canvas')}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
+              activeMainView === 'canvas'
+                ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
+                : 'text-[#787164] hover:text-[#1C1E21]'
+            }`}
+          >
+            <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
+            Pipeline Lakehouse
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMainView('analytics')}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
+              activeMainView === 'analytics'
+                ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
+                : 'text-[#787164] hover:text-[#1C1E21]'
+            }`}
+          >
+            <BarChart3 className="h-3.5 w-3.5 text-[#2563EB]" />
+            Analítica de Datos
+          </button>
+        </div>
+
         {/* Frontera HU-FRONT-03: Time-Travel Replay Status */}
         <div className="hidden lg:flex items-center bg-[#F7F7F5] border border-[#E8E4DC] rounded-md px-2.5 py-1 text-xs shadow-inner gap-2">
           <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono font-medium">Time-Travel Replay:</span>
@@ -271,14 +302,19 @@ function MidasConsoleWorkspace() {
                     <p className="text-xs text-[#A0988A]">Registra una fuente de datos para habilitar el chat y la topologia.</p>
                   </div>
                 </div>
+              ) : activeMainView === 'analytics' ? (
+                <SessionAnalyticsView
+                  sessionId={activeSessionId || 'default'}
+                  activeNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
+                />
               ) : (
-              <PipelineCanvas
-                securityRole={selectedRole}
-                securityPolicy={securityPolicy}
-                initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
-                initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
-                onTopologyChange={activeSessionId ? saveTopology : undefined}
-              />
+                <PipelineCanvas
+                  securityRole={selectedRole}
+                  securityPolicy={securityPolicy}
+                  initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
+                  initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
+                  onTopologyChange={activeSessionId ? saveTopology : undefined}
+                />
               )}
             </section>
           )}

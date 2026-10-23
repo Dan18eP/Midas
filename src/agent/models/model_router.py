@@ -70,21 +70,41 @@ class ModelRouter:
         question: str,
         catalog: Sequence[Mapping[str, object]],
         system_prompt: str,
+        inference_mode: str | None = None,
     ) -> str:
-        """Usa Gemini (u Ollama) o genera un SELECT deterministico de respaldo."""
-        if self._api_key:
+        """Usa el proveedor de inferencia según la soberanía de datos del usuario:
+        - 'local': Strictly Qwen 2.5: 3B local en Ollama (Zero-Trust, confidencialidad total).
+        - 'cloud': Gemini Cloud API Key (alto rendimiento).
+        - 'auto' / None: Gemini si hay API key, con fallback local.
+        """
+        mode = (inference_mode or "auto").lower()
+
+        # Si el usuario eligió modo local estricto Zero-Trust (confidencial)
+        if mode in ("local", "zero-trust", "confidential"):
             try:
-                candidate = self._call_gemini(system_prompt, question)
+                candidate = self._call_ollama(system_prompt, question)
                 candidate = _clean_sql_output(candidate)
                 return validate_query(candidate, catalog)
             except Exception as exc:
-                logger.warning("Fallo al generar SQL con Gemini: %s. Intentando respaldo...", exc)
+                logger.warning("Fallo en Ollama local Qwen: %s. Empleando fallback determinístico de catálogo...", exc)
+                return deterministic_sql(question, catalog)
 
+        # Modo Cloud o Auto con API Key
+        if mode in ("cloud", "gemini") or (mode == "auto" and self._api_key):
+            if self._api_key:
+                try:
+                    candidate = self._call_gemini(system_prompt, question)
+                    candidate = _clean_sql_output(candidate)
+                    return validate_query(candidate, catalog)
+                except Exception as exc:
+                    logger.warning("Fallo al generar SQL con Gemini Cloud: %s. Intentando respaldo local...", exc)
+
+        # Fallback a Ollama y determinístico
         try:
             candidate = self._call_ollama(system_prompt, question)
             candidate = _clean_sql_output(candidate)
             return validate_query(candidate, catalog)
-        except (OSError, TimeoutError, ValueError, KeyError, HTTPException, Exception):
+        except Exception:
             return deterministic_sql(question, catalog)
 
     def _call_gemini(self, system_prompt: str, question: str) -> str:
@@ -97,9 +117,9 @@ class ModelRouter:
             f"Responde EXCLUSIVAMENTE con la sentencia SQL ejecutable en Trino (sin explicaciones ni bloques markdown adicionales):"
         )
         candidates = [
+            self._gemini_model,
             "gemini-3.8-flash",
             "gemini-3.8-flash-lite",
-            self._gemini_model,
             "gemini-3.7-flash",
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",

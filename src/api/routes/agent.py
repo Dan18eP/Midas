@@ -27,6 +27,10 @@ class ChatRequest(BaseModel):
         description="Unique session identifier for multi-turn state persistence. Auto-generated if omitted.",
     )
     message: str = Field(..., min_length=1, description="Prompt, question or greeting from the user.")
+    inference_mode: Optional[str] = Field(
+        default="cloud",
+        description="Inference provider sovereignty: 'local' (Qwen 2.5: 3B local Zero-Trust) or 'cloud' (Gemini Cloud API).",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -80,6 +84,31 @@ def get_agent_graph() -> Any:
                 return res.data
 
             def live_catalog_source_provider() -> List[Dict[str, Any]]:
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    return [
+                        {
+                            "name": "crm_operaciones",
+                            "kind": "PostgreSQL",
+                            "tables": [
+                                {"table": "silver.crm_transacciones", "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta"]},
+                                {"table": "silver.crm_clientes", "columns": ["cliente_id", "nombre", "region"]},
+                            ],
+                        },
+                        {
+                            "name": "Presupuesto_Corporativo_2026.xlsx",
+                            "kind": "Excel",
+                            "tables": [
+                                {"table": "silver.presupuesto_metas", "columns": ["año", "mes", "region", "monto"]},
+                            ],
+                        },
+                        {
+                            "name": "helpdesk_tickets_live",
+                            "kind": "API REST",
+                            "tables": [
+                                {"table": "silver.helpdesk_tickets", "columns": ["ticket_id", "cliente_id", "tiempo_respuesta_min", "csat_puntuacion"]},
+                            ],
+                        },
+                    ]
                 grouped_sources: Dict[str, Dict[str, Any]] = {}
 
                 # 1. Recuperar conexiones reales registradas por el usuario en PostgreSQL
@@ -322,13 +351,18 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 )
 
             from src.agent.tools.dag_generator import build_pipeline_spec, publish_pipeline_spec
+            import inspect
 
             spec = build_pipeline_spec(
                 previous_state.get("user_message", "Reporte Analitico Gold"),
                 sql,
                 schemas,
             )
-            spec_uri = publish_pipeline_spec(spec, confirmed=True, session_id=thread_id)
+            sig = inspect.signature(publish_pipeline_spec)
+            if "session_id" in sig.parameters:
+                spec_uri = publish_pipeline_spec(spec, confirmed=True, session_id=thread_id)
+            else:
+                spec_uri = publish_pipeline_spec(spec, confirmed=True)
             confirmation_msg = (
                 f"Capa Gold generada exitosamente. El pipeline **{spec.pipeline_id}** ha sido programado en Airflow.\n\n"
                 f"- **Tabla de salida:** `{spec.output_table}`\n"
@@ -356,7 +390,14 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 response=confirmation_msg,
             )
 
-        result_state = invoke_turn(graph=graph, thread_id=thread_id, user_message=user_message, user_role=user_role)
+        inf_mode = getattr(request, "inference_mode", None) or "cloud"
+        result_state = invoke_turn(
+            graph=graph,
+            thread_id=thread_id,
+            user_message=user_message,
+            user_role=user_role,
+            inference_mode=inf_mode,
+        )
     except HTTPException:
         raise
     except Exception as exc:

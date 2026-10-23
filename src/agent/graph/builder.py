@@ -69,6 +69,7 @@ def invoke_turn(
     thread_id: str,
     user_message: str,
     user_role: str = "director_general",
+    inference_mode: str = "cloud",
 ) -> AgentState:
     """Envía un turno y lo guarda en la sesión indicada con su rol Zero-Trust."""
     if not thread_id.strip():
@@ -80,6 +81,7 @@ def invoke_turn(
             "messages": [HumanMessage(content=user_message)],
             "user_message": user_message,
             "user_role": user_role,
+            "inference_mode": inference_mode,
         },
         {"configurable": {"thread_id": thread_id}},
     )

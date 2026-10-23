@@ -452,6 +452,7 @@ class UniversalIngestionEngine:
         connection_id: Optional[str] = None,
         batch_id: Optional[str] = None,
         persist: bool = True,
+        fallback_for_testing: Optional[bool] = None,
     ) -> IngestionResult:
         """
         Punto de entrada universal para ejecutar la ingesta multi-fuente
@@ -528,9 +529,25 @@ class UniversalIngestionEngine:
                 except Exception as exc:
                     logger.warning("No se pudo conectar a REST API (%s): %s. Generando lote sintetico.", base_url, exc)
 
-        # 3. Si no se generaron registros (modo desarrollo/testing sin conectores vivos),
-        # generar lote canonico con envoltura Bronze completa
+        # 3. Si no se generaron registros:
+        # En producción se debe fallar ruidosamente si no hay datos reales.
+        # El fallback sintético se conserva estrictamente para pruebas aisladas.
         if not records:
+            is_test_mode = (
+                fallback_for_testing
+                if fallback_for_testing is not None
+                else (
+                    os.getenv("MIDAS_TEST_MODE", "").lower() in ("true", "1", "yes")
+                    or os.getenv("MIDAS_TESTING") == "1"
+                    or "PYTEST_CURRENT_TEST" in os.environ
+                )
+            )
+            if not is_test_mode:
+                raise ValueError(
+                    f"No se pudieron extraer registros reales para la conexión '{cid}' ({stype}). "
+                    f"Verifique la configuración o la existencia del archivo de origen."
+                )
+
             synthetic_items = [
                 {
                     "id": f"TRX-{cid[-4:]}-01",

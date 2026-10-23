@@ -60,6 +60,65 @@ class PipelineStatusResponse(BaseModel):
     last_updated: str = Field(..., description="Marca temporal ISO-8601 de la última telemetría")
 
 
+CANONICAL_ALIASES: Dict[str, str] = {
+    "postgres": "conn_pg_crm_default",
+    "postgresql": "conn_pg_crm_default",
+    "crm": "conn_pg_crm_default",
+    "excel": "conn_excel_budget_default",
+    "budget": "conn_excel_budget_default",
+    "csv": "conn_excel_budget_default",
+    "api": "conn_rest_crm_default",
+    "rest": "conn_rest_crm_default",
+    "helpdesk": "conn_rest_crm_default",
+}
+
+
+def resolve_connection(
+    connection_id: str, registry: SourceConnectionRegistry
+) -> Optional[SourceConnectionResponse]:
+    """Resuelve una conexión de forma resiliente aceptando:
+    - ID canónico exacto (ej. conn_pg_crm_default, conn_csv_walmart_sales_2c7736)
+    - Prefijos de nodo de canvas (ej. source_postgres, source_conn_...)
+    - Alias funcionales (postgres, excel, api, etc.)
+    - Búsqueda por nombre de dataset o coincidencia parcial
+    """
+    if not connection_id:
+        return None
+
+    # 1. Búsqueda directa o vía registry
+    conn = registry.get_connection(connection_id)
+    if conn:
+        return conn
+
+    # 2. Alias directo canónico
+    clean_id = connection_id.lower().strip()
+    if clean_id in CANONICAL_ALIASES:
+        conn = registry.get_connection(CANONICAL_ALIASES[clean_id])
+        if conn:
+            return conn
+
+    # 3. Remover prefijo 'source_' si está presente
+    if connection_id.startswith("source_"):
+        stripped = connection_id[len("source_"):]
+        conn = registry.get_connection(stripped)
+        if conn:
+            return conn
+        if stripped.lower() in CANONICAL_ALIASES:
+            conn = registry.get_connection(CANONICAL_ALIASES[stripped.lower()])
+            if conn:
+                return conn
+
+    # 4. Búsqueda en list_connections por nombre o slug
+    all_conns = registry.list_connections()
+    for c in all_conns:
+        if c.name.strip().lower() == clean_id:
+            return c
+        if clean_id in c.connection_id.lower() or c.connection_id.lower() in clean_id:
+            return c
+
+    return None
+
+
 @router.post(
     "/{connection_id}/trigger",
     response_model=PipelineTriggerResponse,
@@ -73,9 +132,8 @@ async def trigger_pipeline(
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineTriggerResponse:
     """Ejecuta el pipeline completo y emite telemetría viva al Canvas."""
-    conn = registry.get_connection(connection_id)
-    if not conn and connection_id.startswith("source_"):
-        conn = registry.get_connection(connection_id.replace("source_", ""))
+    incoming_id = connection_id
+    conn = resolve_connection(connection_id, registry)
     if not conn:
         cid_lower = connection_id.lower()
         if "excel" in cid_lower or "budget" in cid_lower or "presupuesto" in cid_lower:
@@ -99,10 +157,12 @@ async def trigger_pipeline(
             detail=f"La conexión '{connection_id}' no existe en el catálogo.",
         )
 
+    actual_conn_id = conn.connection_id
     start_time = time.perf_counter()
-    run_id = f"run_{connection_id}_{uuid.uuid4().hex[:6]}"
-    node_source_id = f"source_{connection_id}"
-    pipe_name = f"dag_pipeline_{connection_id}"
+    run_id = f"run_{actual_conn_id}_{uuid.uuid4().hex[:6]}"
+    node_source_id = f"source_{actual_conn_id}"
+    pipe_name = f"dag_pipeline_{actual_conn_id}"
+    alt_node_source_id = incoming_id if incoming_id.startswith("source_") else f"source_{incoming_id}"
 
     # 1. Notificar inicio de ejecución a través del Hub de Telemetría (SSE)
     telemetry_hub.publish_sync(
@@ -110,13 +170,26 @@ async def trigger_pipeline(
             event_id=f"evt_start_{run_id}",
             pipeline_id=pipe_name,
             node_id=node_source_id,
-            status=NodeStatus.HEALTHY,
+            status=NodeStatus.RUNNING,
             records_in=0,
             records_out=0,
             latency_ms=12.0,
             details={"message": f"Iniciando pipeline para {conn.name}", "phase": "INGESTION"},
         )
     )
+    if alt_node_source_id != node_source_id:
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_start_alt_{run_id}",
+                pipeline_id=pipe_name,
+                node_id=alt_node_source_id,
+                status=NodeStatus.RUNNING,
+                records_in=0,
+                records_out=0,
+                latency_ms=12.0,
+                details={"message": f"Iniciando pipeline para {conn.name}", "phase": "INGESTION"},
+            )
+        )
 
     try:
         # Inicializar cliente MinIO si está disponible
@@ -126,6 +199,43 @@ async def trigger_pipeline(
             minio_cli = m_candidate if m_candidate.check_health(timeout_sec=0.2) else None
         except Exception:
             minio_cli = None
+
+        # 1.5 Publicar contrato de fuente a MinIO para descubrimiento dinámico de Airflow
+        if minio_cli is not None:
+            try:
+                import yaml
+                source_contract = {
+                    "kind": "connection",
+                    "conn_id": actual_conn_id,
+                    "name": conn.name,
+                    "source_type": conn.source_type.value,
+                    "cron_schedule": "@daily",
+                    "config": conn.config_payload,
+                }
+                minio_cli.put_object(
+                    bucket="midas-governance",
+                    object_name=f"source-contracts/spec_{actual_conn_id}.yaml",
+                    data=yaml.dump(source_contract).encode("utf-8"),
+                    content_type="application/x-yaml",
+                )
+            except Exception as spec_exc:
+                logger.debug("No se pudo publicar contrato de gobernanza a MinIO: %s", spec_exc)
+
+        # 1.6 Notificar o disparar Airflow DAG si el servicio está disponible
+        try:
+            import urllib.request
+            airflow_url = os.getenv("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
+            dag_url = f"{airflow_url}/api/v1/dags/dag_ingest_{actual_conn_id}/dagRuns"
+            req = urllib.request.Request(
+                dag_url,
+                data=json.dumps({"conf": {"source_id": actual_conn_id, "run_id": run_id}}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Authorization": "Basic YWlyZmxvdzphaXJmbG93"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=0.5):
+                logger.info("Airflow DAG disparado exitosamente para %s", actual_conn_id)
+        except Exception:
+            pass
 
         # 2. Extracción / Ingesta Universal a Bronze con persistencia
         ingestion_engine = UniversalIngestionEngine(minio_client=minio_cli)
@@ -161,7 +271,7 @@ async def trigger_pipeline(
         except Exception:
             shield = None
 
-        transformer = BronzeToSilverTransformer(pii_shield=shield)
+        transformer = BronzeToSilverTransformer(minio_client=minio_cli, pii_shield=shield)
         transform_result = transformer.process_batch(
             records=records_bronze,
             source_name=conn.name,
@@ -170,6 +280,7 @@ async def trigger_pipeline(
             amount_fields=None,
             date_fields=None,
             dedup_key_fields=None,
+            persist_to_storage=True,
         )
 
         records_cleaned_count = transform_result.valid_count
@@ -337,7 +448,7 @@ async def get_pipeline_status(
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineStatusResponse:
     """Consulta el estado del nodo y alertas para la conexión."""
-    conn = registry.get_connection(connection_id)
+    conn = resolve_connection(connection_id, registry)
     if not conn:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
