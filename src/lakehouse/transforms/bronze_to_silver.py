@@ -140,8 +140,9 @@ class BronzeToSilverTransformer:
         pk_cols = primary_key_fields or [
             "transaccion_id",
             "id_orden",
-            "id_registro",
+            "id_pedido",
             "pedido_id",
+            "id_registro",
             "cliente_id",
             "id",
             "codigo",

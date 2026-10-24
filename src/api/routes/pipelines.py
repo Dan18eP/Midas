@@ -224,7 +224,7 @@ async def trigger_pipeline(
         # 1.6 Notificar o disparar Airflow DAG si el servicio está disponible
         try:
             import urllib.request
-            airflow_url = os.getenv("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
+            airflow_url = os.getenv("AIRFLOW_BASE_URL", "http://midas-airflow-webserver:8080")
             dag_url = f"{airflow_url}/api/v1/dags/dag_ingest_{actual_conn_id}/dagRuns"
             req = urllib.request.Request(
                 dag_url,
