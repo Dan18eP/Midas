@@ -193,30 +193,30 @@ def deterministic_sql(
     question: str,
     catalog: Sequence[Mapping[str, object]],
 ) -> str:
-    """Resuelve conteo, suma o promedio con una plantilla SQLGlot fija."""
+    """Genera SQL determinístico adaptativo para Trino sobre cualquier esquema de datos."""
     normalized_question = question.casefold()
-    unsupported_detail = (
-        "compara", "comparar", "versus", " contra ", "cruza", "tendencia", "trend",
-        " por ",
-        " en enero", " en febrero", " en marzo", " en abril", " en mayo", " en junio",
-        " en julio", " en agosto", " en septiembre", " en octubre", " en noviembre", " en diciembre",
-    )
-    if any(word in f" {normalized_question} " for word in unsupported_detail):
-        # Multi-table and grouped requests need a model or a dedicated template.
+
+    if any(word in normalized_question for word in ("compara", "comparar", "versus", " contra ", "cruza", "tendencia", "trend", "explora")):
         raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
-    year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
-    year_val = year_match.group(1) if year_match else None
+
     tables = _allowed_tables(catalog)
+    if not tables:
+        raise ValueError("El catálogo no contiene tablas permitidas.")
+
+    # 1. Identificar la tabla objetivo (por mención en la pregunta o la primera disponible)
     table = next(
         (entry for entry in tables if entry[0].casefold() in normalized_question),
         None,
     )
     if table is None:
         hints = {
-            "transaccion": ("transaccion", "venta", "ingreso"),
+            "transaccion": ("transaccion", "venta", "ingreso", "pedido"),
             "presupuesto": ("presupuesto", "meta"),
             "costos": ("costo", "gasto"),
             "tickets": ("ticket", "soporte", "satisfaccion", "satisfacción"),
+            "proveedor": ("proveedor", "supplier", "compra"),
+            "bodega": ("bodega", "warehouse", "stock", "inventario"),
+            "riwi": ("riwi", "supply"),
         }
         for marker, words in hints.items():
             if any(word in normalized_question for word in words):
@@ -224,30 +224,84 @@ def deterministic_sql(
                 if table:
                     break
     if table is None:
-        raise ValueError("El fallback no encontró una tabla silver/gold permitida.")
+        table = tables[0]
 
     table_name, columns = table
+
+    # 2. Si el usuario pide resumir o explorar los datos directamente
+    is_summary_request = any(
+        w in normalized_question
+        for w in ("resum", "muestr", "explor", "primeros", "ver datos", "que datos", "qué datos")
+    ) and not any(w in normalized_question for w in ("suma", "total", "promedio", "cuánt", "cuant"))
+
+    if is_summary_request:
+        return validate_query(f"SELECT * FROM {table_name} LIMIT 20", catalog)
+
+    # 3. Detectar si hay intención de agrupación (" por ")
+    group_col = None
+    if " por " in normalized_question:
+        after_por = normalized_question.split(" por ", 1)[1].strip()
+        tokens = re.findall(r"[a-záéíóúñ_]+", after_por)
+        for token in tokens:
+            matched_col = next(
+                (c for c in columns if token in c or c in token),
+                None,
+            )
+            if matched_col:
+                group_col = matched_col
+                break
+
+    # Si no se detectó por token, buscar columnas categóricas comunes mencionadas
+    if not group_col and " por " in normalized_question:
+        cat_candidates = [
+            c for c in columns
+            if any(k in c for k in ("region", "ciudad", "bodega", "proveedor", "producto", "categoria", "canal", "tienda", "estado", "warehouse", "supplier", "category"))
+        ]
+        if cat_candidates:
+            group_col = cat_candidates[0]
+
+    # 4. Determinar la operación de agregación
     if any(word in normalized_question for word in ("promedio", "average", "avg")):
         operation = "AVG"
-    elif any(word in normalized_question for word in ("cuánt", "cuant", "cuenta", "count", "registros", "number of")):
+    elif any(word in normalized_question for word in ("cuánt", "cuant", "cuenta", "count", "registros", "number of", "cantidad de pedidos")):
         operation = "COUNT"
-    elif any(word in normalized_question for word in ("suma", "total", "sum", "ventas", "ingresos")):
+    else:
         operation = "SUM"
-    else:
-        raise ValueError("La intención no coincide con una plantilla analítica aprobada.")
 
+    # 5. Determinar la columna métrica
+    num_col = None
+    if operation != "COUNT":
+        try:
+            num_col = _numeric_column(normalized_question, columns)
+        except Exception:
+            # Fallback a la primera columna numérica detectable
+            candidates = [
+                c for c in columns
+                if any(k in c for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "stock", "horas", "unitprice", "quantity", "importe"))
+            ]
+            if candidates:
+                num_col = candidates[0]
+            else:
+                operation = "COUNT"
+
+    # 6. Construir la expresión analítica
     if operation == "COUNT":
-        expression = "COUNT(*) AS total_registros"
+        agg_expr = "COUNT(*) AS total_registros"
     else:
-        column = _numeric_column(normalized_question, columns)
-        expression = f"{operation}({column}) AS {operation.casefold()}_{column}"
-    query = sqlglot.parse_one(f"SELECT {expression} FROM {table_name}", read="trino")
-    filter_term = _category_filter(normalized_question, columns)
-    if filter_term:
-        column, value = filter_term
-        query = query.where(
-            exp.EQ(this=exp.column(column), expression=exp.Literal.string(value))
-        )
+        agg_expr = f"{operation}({num_col}) AS {operation.lower()}_{num_col}"
+
+    year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
+    year_val = year_match.group(1) if year_match else None
+
+    # Consulta agrupada
+    if group_col:
+        sql = f"SELECT {group_col}, {agg_expr} FROM {table_name}"
+    else:
+        sql = f"SELECT {agg_expr} FROM {table_name}"
+
+    query = sqlglot.parse_one(sql, read="trino")
+
+    # Filtros temporales
     if year_val:
         if "anio" in columns:
             query = query.where(exp.EQ(this=exp.column("anio"), expression=exp.Literal.number(int(year_val))))
@@ -255,6 +309,16 @@ def deterministic_sql(
             query = query.where(exp.EQ(this=exp.column("año"), expression=exp.Literal.number(int(year_val))))
         elif "fecha" in columns:
             query = query.where(exp.Like(this=exp.column("fecha"), expression=exp.Literal.string(f"{year_val}%")))
+
+    # Filtro categórico adicional
+    filter_term = _category_filter(normalized_question, columns)
+    if filter_term:
+        col, val = filter_term
+        query = query.where(exp.EQ(this=exp.column(col), expression=exp.Literal.string(val)))
+
+    if group_col:
+        query = query.group_by(exp.column(group_col)).order_by(exp.var("2"), desc=True).limit(20)
+
     return validate_query(query.sql(dialect="trino"), catalog)
 
 

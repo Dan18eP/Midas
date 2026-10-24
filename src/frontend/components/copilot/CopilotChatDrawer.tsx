@@ -74,7 +74,7 @@ export function CopilotChatDrawer() {
             </span>
             <button
               type="button"
-              onClick={startNewChat}
+              onClick={() => startNewChat()}
               title="Nueva conversación"
               aria-label="Nueva conversación"
               data-testid="copilot-new-chat"

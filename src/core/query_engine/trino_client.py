@@ -531,6 +531,52 @@ class TrinoClient:
             security_policy=policy_decision.to_dict(),
         )
 
+    def execute_ddl_sync(
+        self,
+        sql: str,
+        catalog: Optional[str] = None,
+        schema_name: Optional[str] = None,
+        timeout_sec: float = 20.0,
+    ) -> bool:
+        """
+        Ejecuta sentencias DDL (CREATE SCHEMA, CREATE TABLE AS SELECT) directamente en Trino sin guardrails de solo lectura.
+        """
+        target_catalog = catalog or self.default_catalog
+        target_schema = schema_name or "gold"
+        headers = {
+            "X-Trino-User": self.user,
+            "X-Trino-Catalog": target_catalog,
+            "X-Trino-Schema": target_schema,
+            "X-Trino-Source": "midas-api-ddl",
+        }
+        start_time = time.perf_counter()
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=timeout_sec) as sync_cli:
+                resp = sync_cli.post("/v1/statement", content=sql.encode("utf-8"), headers=headers)
+                if resp.status_code != 200:
+                    return False
+                poll_data = resp.json()
+                next_uri = poll_data.get("nextUri")
+                while next_uri:
+                    if (time.perf_counter() - start_time) >= timeout_sec:
+                        return False
+                    poll_resp = sync_cli.get(next_uri)
+                    if poll_resp.status_code != 200:
+                        break
+                    poll_data = poll_resp.json()
+                    next_uri = poll_data.get("nextUri")
+                    stats = poll_data.get("stats", {})
+                    if stats.get("state") == "FAILED":
+                        logger.warning("Trino DDL Error: %s", poll_data.get("error", {}).get("message"))
+                        return False
+                    if stats.get("state") == "FINISHED":
+                        return True
+                    time.sleep(0.3)
+                return True
+        except Exception as exc:
+            logger.warning("Error ejecutando DDL en Trino: %s", exc)
+            return False
+
     def _execute_deterministic_local_engine(
         self,
         sql: str,

@@ -9,14 +9,47 @@ export const DEFAULT_SUGGESTIONS = [
   'Crear nuevo Mart Gold',
 ];
 
-const WELCOME_CONTENT = [
-  '¡Hola! Soy el **Copiloto Agéntico de Midas**. Introspecciono tus fuentes conectadas y respondo en lenguaje natural con narrativa ejecutiva y gráficos Apache ECharts.',
-  'Fuentes activas:',
-  '- PostgreSQL: `crm_operaciones` (clientes, transacciones)',
-  '- Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)',
-  '- API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)',
-  '¿Qué analizamos hoy?',
-].join('\n');
+export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: string; source_type?: string }>): CopilotMessage {
+  const hasSources = connectedSources && connectedSources.length > 0;
+  const lines = [
+    '¡Hola! Soy el **Copiloto Agéntico de Midas**.',
+    'Estoy conectado a los datos de tu sesión activa para responder en lenguaje natural con narrativa ejecutiva, gráficos interactivos y generación de tablas Gold personalizadas.',
+  ];
+
+  if (hasSources) {
+    lines.push('\n**Fuentes conectadas en esta sesión:**');
+    connectedSources.slice(0, 5).forEach((s) => {
+      lines.push(`- **${s.source_type || 'Fuente'}**: \`${s.name}\``);
+    });
+    lines.push('\n¿Qué análisis deseas realizar hoy? Puedes pedirme:');
+    lines.push('- *Resumir los registros de mi dataset*');
+    lines.push('- *Generar un desglose agrupado por categoría o fecha*');
+    lines.push('- *Materializar este reporte como tabla Gold diaria*');
+  } else {
+    lines.push('\nFuentes activas:');
+    lines.push('- PostgreSQL: `crm_operaciones` (clientes, transacciones)');
+    lines.push('- Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)');
+    lines.push('- API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)');
+    lines.push('¿Qué analizamos hoy?');
+  }
+
+  const suggestions = hasSources
+    ? [
+        `Resumir datos de ${connectedSources[0].name.slice(0, 20)}`,
+        'Consultar totales agrupados',
+        'Definir nuevo Mart Gold',
+      ]
+    : DEFAULT_SUGGESTIONS;
+
+  return {
+    id: createId('welcome'),
+    role: 'assistant',
+    content: lines.join('\n'),
+    timestamp: new Date().toISOString(),
+    intent: 'discovery',
+    suggestions,
+  };
+}
 
 const PHASE_TIMERS = [
   { at: 900, status: 'querying' as CopilotAgentStatus },
@@ -30,15 +63,8 @@ function createId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${messageCounter}`;
 }
 
-function createWelcomeMessage(): CopilotMessage {
-  return {
-    id: createId('welcome'),
-    role: 'assistant',
-    content: WELCOME_CONTENT,
-    timestamp: new Date().toISOString(),
-    intent: 'discovery',
-    suggestions: DEFAULT_SUGGESTIONS,
-  };
+export function createWelcomeMessage(connectedSources?: Array<{ name: string; source_type?: string }>): CopilotMessage {
+  return createDynamicWelcomeMessage(connectedSources);
 }
 
 export interface CopilotChatController {
@@ -59,8 +85,8 @@ export interface CopilotChatController {
   closeDrawer: () => void;
   toggleDrawer: () => void;
   toggleExpanded: () => void;
-  startNewChat: () => void;
-  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string) => void;
+  startNewChat: (sources?: Array<{ name: string; source_type?: string }>) => void;
+  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>) => void;
   setThreadId: (id: string) => void;
   setOnTurnComplete?: (callback: (threadId: string) => void) => void;
 }
@@ -210,19 +236,19 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
 
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
 
-  const startNewChat = useCallback(() => {
+  const startNewChat = useCallback((sources?: Array<{ name: string; source_type?: string }>) => {
     clearPhaseTimers();
     setThreadId(createId('session'));
-    setMessages([createWelcomeMessage()]);
+    setMessages([createWelcomeMessage(sources)]);
     setSuggestions(DEFAULT_SUGGESTIONS);
     setStatus('idle');
   }, [clearPhaseTimers]);
 
   const loadSessionMessages = useCallback(
-    (newMessages: CopilotMessage[], newThreadId: string) => {
+    (newMessages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>) => {
       clearPhaseTimers();
       setThreadId(newThreadId);
-      setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage()]);
+      setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage(sources)]);
       setStatus('idle');
     },
     [clearPhaseTimers]

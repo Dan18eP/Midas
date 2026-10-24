@@ -60,6 +60,25 @@ def build_echarts_option(rows: list[dict[str, object]]) -> dict[str, object]:
                 "series": [{"name": column, "type": "bar", "data": [_chart_value(row.get(column)) for row in rows]}],
             }
         )
+    elif numeric and rows:
+        # Visualización de KPI / métricas agregadas individuales o múltiples
+        col_labels = [str(c).replace("_col0", "Métrica Total").replace("_", " ").title() for c in numeric]
+        option.update(
+            {
+                "tooltip": {"trigger": "axis"},
+                "xAxis": {"type": "category", "data": col_labels},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {
+                        "name": "Valor Registrado",
+                        "type": "bar",
+                        "barWidth": "45%",
+                        "data": [_chart_value(rows[0].get(c)) for c in numeric],
+                        "itemStyle": {"color": "#B8860B", "borderRadius": [4, 4, 0, 0]},
+                    }
+                ],
+            }
+        )
     else:
         return _empty_option(option)
 

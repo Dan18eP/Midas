@@ -85,27 +85,26 @@ export const CANONICAL_STAGE_NODES: Node<MidasNodeData>[] = [
     },
   },
 
-  // --- MEDALLION: GOLD LAYER ---
+  // --- MEDALLION: GOLD LAYER (Por Definir / Asistida por Copiloto) ---
   {
     id: 'gold_marts',
     type: 'stage',
     position: { x: 1120, y: 240 },
     data: {
       id: 'gold_marts',
-      label: 'Gold Marts (Iceberg)',
-      description: 'Marts dimensionales de hechos y dimensiones con vistas analíticas gobernadas.',
+      label: 'Gold Marts (Por Definir)',
+      description: 'Marts y vistas analíticas personalizables. Interactúa con el Copiloto para crear tu capa Gold.',
       nodeType: 'stage',
       subType: 'gold',
-      status: 'HEALTHY',
+      status: 'STANDBY',
       recordsIn: undefined,
       recordsOut: undefined,
       latencyMs: undefined,
-      storagePath: 's3://midas-gold/fact_ventas/',
-      catalogTable: 'gold.fact_ventas',
+      storagePath: 's3://midas-gold/marts/',
+      catalogTable: 'gold.personalizado',
       details: {
-        dimensions: ['dim_clientes', 'dim_productos', 'dim_tiempo'],
-        queryEngine: 'Trino 440+ con Plugin Apache Ranger',
-        governanceAudit: '100% Contratos de Datos Certificados',
+        definition: 'Espera definición interactiva o aprobación desde el Copiloto',
+        governanceAudit: 'Contratos declarativos WAP en Airflow',
       },
     },
   },
@@ -265,3 +264,105 @@ export const INITIAL_CANVAS_EDGES: Edge[] = [
     data: { label: 'Gatekeeper', volume: 0, status: 'STANDBY' },
   },
 ];
+
+/**
+ * Construye la topología viva del Canvas a partir de las fuentes reales registradas.
+ */
+export function buildCanvasTopologyFromConnections(
+  connections: Array<{ connection_id: string; name: string; source_type: string }>
+): { nodes: Node<MidasNodeData>[]; edges: Edge[] } {
+  if (!connections || connections.length === 0) {
+    return { nodes: INITIAL_CANVAS_NODES, edges: INITIAL_CANVAS_EDGES };
+  }
+
+  const sourceNodes: Node<MidasNodeData>[] = connections.map((conn, idx) => {
+    const sType = (conn.source_type || 'CSV').toLowerCase();
+    const subType = sType.includes('postgres')
+      ? 'postgresql'
+      : sType.includes('excel')
+      ? 'excel'
+      : sType.includes('rest') || sType.includes('api')
+      ? 'api'
+      : 'csv';
+
+    return {
+      id: `source_${conn.connection_id}`,
+      type: 'source',
+      position: { x: 40, y: 100 + idx * 160 },
+      data: {
+        id: `source_${conn.connection_id}`,
+        connectionId: conn.connection_id,
+        label: conn.name,
+        description: `Fuente ${conn.source_type} conectada al Lakehouse.`,
+        nodeType: 'source',
+        subType: subType as any,
+        status: 'STANDBY',
+        recordsIn: undefined,
+        recordsOut: undefined,
+        latencyMs: undefined,
+        details: {
+          connector: `Universal Ingestion (${conn.source_type})`,
+          connectionId: conn.connection_id,
+        },
+      },
+    };
+  });
+
+  const nodes: Node<MidasNodeData>[] = [...sourceNodes, ...CANONICAL_STAGE_NODES];
+
+  const sourceEdges: Edge[] = connections.map((conn) => ({
+    id: `edge_${conn.connection_id}_bronze`,
+    source: `source_${conn.connection_id}`,
+    target: 'bronze_raw',
+    type: 'dataflow',
+    animated: false,
+    style: { stroke: '#94A3B8', strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#94A3B8' },
+    data: { label: undefined, volume: 0, status: 'STANDBY' },
+  }));
+
+  const stageEdges: Edge[] = [
+    {
+      id: 'edge_bronze_silver',
+      source: 'bronze_raw',
+      target: 'silver_cleansing',
+      type: 'dataflow',
+      animated: false,
+      style: { stroke: '#94A3B8', strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#94A3B8' },
+      data: { label: undefined, volume: 0, status: 'STANDBY' },
+    },
+    {
+      id: 'edge_silver_gold',
+      source: 'silver_cleansing',
+      target: 'gold_marts',
+      type: 'dataflow',
+      animated: false,
+      style: { stroke: '#94A3B8', strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#94A3B8' },
+      data: { label: 'WAP Verified', volume: 0, status: 'STANDBY', isWap: true },
+    },
+    {
+      id: 'edge_silver_guardian',
+      source: 'silver_cleansing',
+      target: 'guardian_monitor',
+      type: 'dataflow',
+      animated: false,
+      style: { stroke: '#94A3B8', strokeWidth: 1.5, strokeDasharray: '4 4' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#94A3B8' },
+      data: { label: 'Cuarentena', volume: 0, status: 'STANDBY' },
+    },
+    {
+      id: 'edge_guardian_gold',
+      source: 'guardian_monitor',
+      target: 'gold_marts',
+      type: 'dataflow',
+      animated: false,
+      style: { stroke: '#94A3B8', strokeWidth: 1.2, strokeDasharray: '3 3' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#94A3B8' },
+      data: { label: 'Gatekeeper', volume: 0, status: 'STANDBY' },
+    },
+  ];
+
+  return { nodes, edges: [...sourceEdges, ...stageEdges] };
+}

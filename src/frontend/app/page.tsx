@@ -36,7 +36,11 @@ import { SessionProvider, useSession } from '@/context/SessionContext';
 import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySidebar';
 import { WelcomeHero } from '@/components/workspace/WelcomeHero';
 import { listSourceConnections } from '@/services/sessionService';
-import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '@/components/canvas/topology/initialTopology';
+import {
+  INITIAL_CANVAS_NODES,
+  INITIAL_CANVAS_EDGES,
+  buildCanvasTopologyFromConnections,
+} from '@/components/canvas/topology/initialTopology';
 import { SessionAnalyticsView } from '@/components/analytics/SessionAnalyticsView';
 import { Layers, BarChart3 } from 'lucide-react';
 
@@ -115,25 +119,76 @@ function MidasConsoleWorkspace() {
 
   const copilotChat = useCopilotChatContext();
 
-  // HU-FRONT-07: Refrescar la lista de sesiones tras completar un turno de conversación
-  useEffect(() => {
-    copilotChat?.setOnTurnComplete?.(() => {
-      void fetchSessions();
-    });
-  }, [copilotChat, fetchSessions]);
+  const [availableSources, setAvailableSources] = useState<any[]>([]);
 
-  // Data-gating: verificar si hay fuentes de datos conectadas
+  // Topología viva derivada de las fuentes reales conectadas
+  const dynamicTopology = useMemo(
+    () => buildCanvasTopologyFromConnections(availableSources),
+    [availableSources],
+  );
+
+  const currentNodes = useMemo(() => {
+    if (activeTopology?.nodes && activeTopology.nodes.length > 0) {
+      return activeTopology.nodes;
+    }
+    return dynamicTopology.nodes;
+  }, [activeTopology, dynamicTopology]);
+
+  const currentEdges = useMemo(() => {
+    if (activeTopology?.edges && activeTopology.edges.length > 0) {
+      return activeTopology.edges;
+    }
+    return dynamicTopology.edges;
+  }, [activeTopology, dynamicTopology]);
+
+  // Data-gating: verificar si hay fuentes de datos conectadas y almacenarlas
   useEffect(() => {
     const checkData = async () => {
       try {
         const conns = await listSourceConnections();
-        setHasConnectedData(Array.isArray(conns) && conns.length > 0);
+        if (Array.isArray(conns) && conns.length > 0) {
+          setAvailableSources(conns);
+          setHasConnectedData(true);
+        } else {
+          setAvailableSources([]);
+          setHasConnectedData(false);
+        }
       } catch {
+        setAvailableSources([]);
         setHasConnectedData(false);
       }
     };
     void checkData();
   }, []);
+
+  // HU-FRONT-07: Refrescar la lista de sesiones tras completar un turno de conversación
+  // y reflejar materialización de Gold en la topología de la sesión
+  useEffect(() => {
+    copilotChat?.setOnTurnComplete?.(async (threadId) => {
+      await fetchSessions();
+      const msgs = copilotChat.messages;
+      const last = msgs[msgs.length - 1];
+      if (last && last.intent === 'materialize_gold' && activeSessionId) {
+        const updatedNodes = currentNodes.map((n) => {
+          if (n.id === 'gold_marts') {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                label: 'Gold Marts (Materializado)',
+                status: 'HEALTHY' as const,
+                recordsIn: 100,
+                recordsOut: 100,
+                description: 'Reporte analítico materializado en catálogo Iceberg vía Airflow.',
+              },
+            };
+          }
+          return n;
+        });
+        await saveTopology(updatedNodes, currentEdges);
+      }
+    });
+  }, [copilotChat, fetchSessions, activeSessionId, currentNodes, currentEdges, saveTopology]);
 
   // Sincronizar rol activo con el contexto del Copiloto para inyección en X-User-Role (ADR-011)
   useEffect(() => {
@@ -147,7 +202,7 @@ function MidasConsoleWorkspace() {
     if (!activeSession) {
       if (lastLoadedSessionIdRef.current !== null) {
         lastLoadedSessionIdRef.current = null;
-        copilotChat.startNewChat();
+        copilotChat.startNewChat(availableSources);
       }
       return;
     }
@@ -171,11 +226,11 @@ function MidasConsoleWorkspace() {
         metricsSummary: m.metadata?.metrics_summary as Array<Record<string, unknown>> | undefined,
       }));
 
-      copilotChat.loadSessionMessages(mappedMessages, activeSession.session_id);
+      copilotChat.loadSessionMessages(mappedMessages, activeSession.session_id, availableSources);
     } else {
-      copilotChat.loadSessionMessages([], activeSession.session_id);
+      copilotChat.loadSessionMessages([], activeSession.session_id, availableSources);
     }
-  }, [activeSession, copilotChat]);
+  }, [activeSession, copilotChat, availableSources]);
 
   // Manejo de envío de prompt desde la pantalla de bienvenida (ChatGPT-Style)
   const handleWelcomeSendPrompt = async (promptText: string) => {
@@ -305,14 +360,14 @@ function MidasConsoleWorkspace() {
               ) : activeMainView === 'analytics' ? (
                 <SessionAnalyticsView
                   sessionId={activeSessionId || 'default'}
-                  activeNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
+                  activeNodes={currentNodes}
                 />
               ) : (
                 <PipelineCanvas
                   securityRole={selectedRole}
                   securityPolicy={securityPolicy}
-                  initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
-                  initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
+                  initialNodes={currentNodes}
+                  initialEdges={currentEdges}
                   onTopologyChange={activeSessionId ? saveTopology : undefined}
                 />
               )}

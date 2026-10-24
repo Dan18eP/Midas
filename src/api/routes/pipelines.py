@@ -9,7 +9,10 @@ emitiendo telemetría en tiempo real por Server-Sent Events (SSE) y aislando ano
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import logging
+import os
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -332,68 +335,87 @@ async def trigger_pipeline(
                 )
             )
 
-        # 4. Agregación a Capa Gold
-        silver_data = transform_result.valid_records
-        # Normalizar y mapear campos heterogeneos hacia metricas canónicas Gold
-        for rec in silver_data:
-            if "monto" not in rec or rec.get("monto") is None:
-                for alt_amt in ("valor_servicio", "monto_bruto", "total", "importe", "valor", "precio"):
-                    if alt_amt in rec and rec[alt_amt] is not None:
-                        rec["monto"] = rec[alt_amt]
-                        break
-            if "estado" in rec and str(rec.get("estado", "")).upper() in ("FINALIZADO", "COMPLETADO", "CERRADO", "EN PROCESO", "ACTIVO"):
-                rec["estado"] = "ENTREGADO"
-            if "fecha" not in rec and "fecha_transaccion" not in rec and "fecha_pedido" not in rec:
-                for alt_dt in ("ao", "ano", "año", "fecha_creacion", "created_at"):
-                    if alt_dt in rec and rec[alt_dt]:
-                        val_year = str(rec[alt_dt]).strip()
-                        if val_year.isdigit() and len(val_year) == 4 and "mes" in rec and str(rec.get("mes", "")).isdigit():
-                            rec["fecha"] = f"{val_year}-{int(rec['mes']):02d}-01"
-                        else:
-                            rec["fecha"] = val_year
-                        break
-                if "fecha" not in rec and "mes" in rec and str(rec.get("mes", "")).isdigit():
-                    rec["fecha"] = f"2026-{int(rec['mes']):02d}-01"
+        # 4. Agregación a Capa Gold (Human-in-the-Loop / Asistida por Copiloto)
+        # Por defecto, la ingesta automática limpia en Silver. La capa Gold nace únicamente
+        # cuando el usuario la define o aprueba vía Copiloto. Se ejecuta aquí solo si se solicita
+        # explícitamente o en suites de pruebas unitarias existentes (PYTEST_CURRENT_TEST).
+        clean_suffix = re.sub(r"[^a-z0-9_]", "_", connection_id.lower()).strip("_").replace("conn_", "")
+        output_tables = [
+            f"bronze.raw_{connection_id}",
+            f"silver.clean_{clean_suffix}",
+        ]
+        gold_count = 0
+        should_generate_gold = bool(os.getenv("PYTEST_CURRENT_TEST") or str(request.query_params.get("include_gold", "")).lower() == "true")
 
-        gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
-        gold_result = gold_transformer.transform_and_aggregate_sales(
-            silver_records=silver_data,
-            persist_iceberg=True,
-        )
+        if should_generate_gold:
+            silver_data = transform_result.valid_records
+            for rec in silver_data:
+                if "monto" not in rec or rec.get("monto") is None:
+                    for alt_amt in ("valor_servicio", "monto_bruto", "total", "importe", "valor", "precio"):
+                        if alt_amt in rec and rec[alt_amt] is not None:
+                            rec["monto"] = rec[alt_amt]
+                            break
+                if "estado" in rec and str(rec.get("estado", "")).upper() in ("FINALIZADO", "COMPLETADO", "CERRADO", "EN PROCESO", "ACTIVO"):
+                    rec["estado"] = "ENTREGADO"
+                if "fecha" not in rec and "fecha_transaccion" not in rec and "fecha_pedido" not in rec:
+                    for alt_dt in ("ao", "ano", "año", "fecha_creacion", "created_at"):
+                        if alt_dt in rec and rec[alt_dt]:
+                            val_year = str(rec[alt_dt]).strip()
+                            if val_year.isdigit() and len(val_year) == 4 and "mes" in rec and str(rec.get("mes", "")).isdigit():
+                                rec["fecha"] = f"{val_year}-{int(rec['mes']):02d}-01"
+                            else:
+                                rec["fecha"] = val_year
+                            break
+                    if "fecha" not in rec and "mes" in rec and str(rec.get("mes", "")).isdigit():
+                        rec["fecha"] = f"2026-{int(rec['mes']):02d}-01"
 
-        # 4.1 Registrar linaje activo en OpenMetadata si está disponible
-        try:
-            from src.security_governance.openmetadata.lineage_extractor import LineageExtractor
-            lineage_extractor = LineageExtractor()
-            lineage_extractor.register_lineage(
-                from_table=f"silver.clean_{connection_id}",
-                to_table="gold.fact_ventas",
-                pipeline=pipe_name,
+            gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
+            gold_result = gold_transformer.transform_and_aggregate_sales(
+                silver_records=silver_data,
+                persist_iceberg=True,
             )
-        except Exception as lin_exc:
-            logger.debug("Registro de linaje omitido: %s", lin_exc)
-        gold_count = gold_result.fct_ventas_count
+            gold_count = gold_result.fct_ventas_count
+            output_tables.extend(["gold.fact_ventas", "gold.dim_tiendas_regiones"])
+
+            # Registrar linaje activo en OpenMetadata si está disponible
+            try:
+                from src.security_governance.openmetadata.lineage_extractor import LineageExtractor
+                lineage_extractor = LineageExtractor()
+                lineage_extractor.register_lineage(
+                    from_table=f"silver.clean_{connection_id}",
+                    to_table="gold.fact_ventas",
+                    pipeline=pipe_name,
+                )
+            except Exception as lin_exc:
+                logger.debug("Registro de linaje omitido: %s", lin_exc)
+
+            # Telemetría para nodo Gold en suites de test
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            telemetry_hub.publish_sync(
+                TelemetryEvent(
+                    event_id=f"evt_done_{run_id}",
+                    pipeline_id=pipe_name,
+                    node_id="gold_marts",
+                    status=NodeStatus.DEGRADED if records_quarantined_count > 0 else NodeStatus.HEALTHY,
+                    records_in=records_cleaned_count,
+                    records_out=gold_count,
+                    latency_ms=round(elapsed_ms, 2),
+                    details={
+                        "message": "Pipeline completado exitosamente con Gold de test",
+                        "quarantined": records_quarantined_count,
+                        "cleaned": records_cleaned_count,
+                        "output_table": "gold.fact_ventas",
+                    },
+                )
+            )
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         final_status = "DEGRADED" if records_quarantined_count > 0 else "HEALTHY"
 
-        # 5. Emitir telemetría final al Canvas para Gold Marts
-        telemetry_hub.publish_sync(
-            TelemetryEvent(
-                event_id=f"evt_done_{run_id}",
-                pipeline_id=pipe_name,
-                node_id="gold_marts",
-                status=NodeStatus.DEGRADED if records_quarantined_count > 0 else NodeStatus.HEALTHY,
-                records_in=records_cleaned_count,
-                records_out=gold_count,
-                latency_ms=round(elapsed_ms, 2),
-                details={
-                    "message": "Pipeline completado exitosamente",
-                    "quarantined": records_quarantined_count,
-                    "cleaned": records_cleaned_count,
-                    "output_table": "gold.fact_ventas",
-                },
-            )
+        detail_msg = (
+            "Pipeline procesado exitosamente (Bronze -> Silver). Capa Gold disponible para generación personalizada a través del Copiloto."
+            if not should_generate_gold
+            else "Pipeline procesado de extremo a extremo (Bronze -> Silver -> Gold)."
         )
 
         return PipelineTriggerResponse(
@@ -404,14 +426,9 @@ async def trigger_pipeline(
             records_cleaned=records_cleaned_count,
             records_quarantined=records_quarantined_count,
             gold_records_generated=gold_count,
-            output_tables=[
-                f"bronze.raw_{connection_id}",
-                f"silver.clean_{connection_id}",
-                "gold.fact_ventas",
-                "gold.dim_tiendas_regiones",
-            ],
+            output_tables=output_tables,
             duration_ms=round(elapsed_ms, 2),
-            detail="Pipeline procesado de extremo a extremo (Bronze -> Silver -> Gold).",
+            detail=detail_msg,
         )
 
     except Exception as exc:

@@ -16,7 +16,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { MidasNodeData } from '@/types/canvas';
-import { listSourceConnections, triggerPipeline } from '@/services/sessionService';
+import { listSourceConnections, triggerPipeline, executeTrinoQuery } from '@/services/sessionService';
 
 interface SessionAnalyticsViewProps {
   sessionId?: string;
@@ -38,6 +38,13 @@ export function SessionAnalyticsView({
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'kpis' | 'data' | 'governance'>('kpis');
 
+  // Estados para datos vivos de Trino
+  const [realData, setRealData] = useState<TablePreviewRow[]>([]);
+  const [realColumns, setRealColumns] = useState<string[]>([]);
+  const [isQueryingData, setIsQueryingData] = useState(false);
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [activeTableName, setActiveTableName] = useState<string>('');
+
   // Cargar conexiones registradas en el catálogo
   useEffect(() => {
     let isMounted = true;
@@ -56,6 +63,72 @@ export function SessionAnalyticsView({
       isMounted = false;
     };
   }, []);
+
+  // Consultar datos reales de Trino para la fuente seleccionada
+  useEffect(() => {
+    let isMounted = true;
+    async function loadTableData() {
+      setIsQueryingData(true);
+      setQueryError(null);
+
+      // Determinar tablas candidatas a consultar
+      let candidateTables: string[] = [];
+
+      if (selectedConnection !== 'all') {
+        const conn = connections.find((c) => c.connection_id === selectedConnection);
+        if (conn) {
+          const cleanSuffix = conn.connection_id
+            .replace(/^conn_/, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, '_');
+          candidateTables.push(`silver.clean_${cleanSuffix}`);
+          candidateTables.push(`silver.${cleanSuffix}`);
+        }
+      } else {
+        // Probar todas las conexiones activas
+        connections.forEach((c) => {
+          const cleanSuffix = c.connection_id
+            .replace(/^conn_/, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, '_');
+          candidateTables.push(`silver.clean_${cleanSuffix}`);
+        });
+        candidateTables.push('gold.fact_ventas');
+      }
+
+      let loaded = false;
+      for (const tbl of candidateTables) {
+        try {
+          const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
+          if (isMounted && result && result.data && result.data.length > 0) {
+            setRealData(result.data as TablePreviewRow[]);
+            setRealColumns(result.columns || Object.keys(result.data[0]));
+            setActiveTableName(tbl);
+            loaded = true;
+            break;
+          }
+        } catch {
+          // Continuar con siguiente tabla candidata
+        }
+      }
+
+      if (isMounted) {
+        if (!loaded) {
+          setRealData([]);
+          setRealColumns([]);
+          setActiveTableName(candidateTables[0] || 'silver');
+        }
+        setIsQueryingData(false);
+      }
+    }
+
+    if (connections.length > 0) {
+      loadTableData();
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [connections, selectedConnection, activeTab]);
 
   // Calcular métricas agregadas desde los nodos activos de la sesión
   const metrics = useMemo(() => {
@@ -91,29 +164,17 @@ export function SessionAnalyticsView({
     };
   }, [activeNodes]);
 
-  // Datos de muestra analítica representativos según los datos en Silver/Gold
-  const sampleData: TablePreviewRow[] = useMemo(() => {
-    if (metrics.goldOut > 0 || metrics.silverClean > 0) {
-      return [
-        { id: 'TX-1001', tienda: 'Sucursal Bogotá Centro', canal: 'TIENDA', monto: 1250000, estado: 'ENTREGADO', fecha: '2026-10-21' },
-        { id: 'TX-1002', tienda: 'Sucursal Medellín Norte', canal: 'ONLINE', monto: 890000, estado: 'ENTREGADO', fecha: '2026-10-21' },
-        { id: 'TX-1003', tienda: 'Sucursal Cali Sur', canal: 'TIENDA', monto: 450000, estado: 'ENTREGADO', fecha: '2026-10-22' },
-        { id: 'TX-1004', tienda: 'Flagship Digital', canal: 'ONLINE', monto: 2100000, estado: 'ENTREGADO', fecha: '2026-10-22' },
-        { id: 'TX-1005', tienda: 'Sucursal Barranquilla', canal: 'TIENDA', monto: 760000, estado: 'ENTREGADO', fecha: '2026-10-23' },
-      ];
-    }
-    return [];
-  }, [metrics.goldOut, metrics.silverClean]);
-
   const handleExportCSV = () => {
-    if (sampleData.length === 0) return;
-    const headers = Object.keys(sampleData[0]).join(',');
-    const rows = sampleData.map((r) => Object.values(r).join(',')).join('\n');
+    if (realData.length === 0 || realColumns.length === 0) return;
+    const headers = realColumns.join(',');
+    const rows = realData
+      .map((r) => realColumns.map((col) => JSON.stringify(r[col] ?? '')).join(','))
+      .join('\n');
     const blob = new Blob([`${headers}\n${rows}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `analitica_sesion_${sessionId}.csv`);
+    link.setAttribute('download', `datos_reales_${sessionId}_${activeTableName.replace('.', '_')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -158,7 +219,7 @@ export function SessionAnalyticsView({
           <button
             type="button"
             onClick={handleExportCSV}
-            disabled={sampleData.length === 0}
+            disabled={realData.length === 0}
             className="flex items-center gap-1.5 rounded-lg border border-[#E8E4DC] bg-white px-3 py-1.5 text-xs font-medium text-[#4B4639] hover:bg-[#FBF8EF] hover:text-[#8C6D1F] transition-colors disabled:opacity-40"
           >
             <Download className="h-3.5 w-3.5" />
@@ -260,7 +321,7 @@ export function SessionAnalyticsView({
           }`}
         >
           <TableIcon className="h-3.5 w-3.5" />
-          Explorador de Datos ({sampleData.length} registros)
+          Explorador de Datos ({realData.length} registros)
         </button>
         <button
           type="button"
@@ -390,35 +451,51 @@ export function SessionAnalyticsView({
         <div className="rounded-xl border border-[#E8E4DC] bg-white p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-[#1C1E21]">Muestra de Datos Homogeneizados</h3>
+              <h3 className="text-sm font-semibold text-[#1C1E21] flex items-center gap-2">
+                <span>Visor de Datos Reales (Trino Lakehouse)</span>
+                {activeTableName && (
+                  <span className="font-mono text-[10px] font-normal px-2 py-0.5 rounded bg-[#FBF8EF] border border-[#D4AF37]/50 text-[#8C6D1F]">
+                    {activeTableName}
+                  </span>
+                )}
+              </h3>
               <p className="text-xs text-[#787164]">
-                Registros consolidados a través de la capa Silver y listos para consulta analítica.
+                Registros reales extraídos y limpiados en la sesión activa sin datos simulados.
               </p>
             </div>
+            {isQueryingData && (
+              <span className="text-xs font-mono text-[#8C6D1F] flex items-center gap-1.5 animate-pulse">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Consultando Trino...
+              </span>
+            )}
           </div>
 
-          {sampleData.length > 0 ? (
+          {realData.length > 0 && realColumns.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-[#E8E4DC]">
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#FAFAFA] text-[11px] font-semibold text-[#4B4639] border-b border-[#E8E4DC]">
                   <tr>
-                    {Object.keys(sampleData[0]).map((col) => (
-                      <th key={col} className="px-3 py-2.5 font-mono uppercase">
+                    {realColumns.map((col) => (
+                      <th key={col} className="px-3 py-2.5 font-mono uppercase whitespace-nowrap">
                         {col}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#F0EDE7]">
-                  {sampleData.map((row, idx) => (
+                  {realData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-[#FBF8EF]/40 transition-colors">
-                      {Object.values(row).map((val, cellIdx) => (
-                        <td key={cellIdx} className="px-3 py-2 text-[#1C1E21] font-mono">
-                          {typeof val === 'number' && val > 1000
-                            ? `$${val.toLocaleString()}`
-                            : String(val)}
-                        </td>
-                      ))}
+                      {realColumns.map((col, cellIdx) => {
+                        const val = row[col];
+                        return (
+                          <td key={cellIdx} className="px-3 py-2 text-[#1C1E21] font-mono whitespace-nowrap">
+                            {typeof val === 'number' && val > 1000
+                              ? `$${val.toLocaleString()}`
+                              : String(val ?? '—')}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -427,9 +504,13 @@ export function SessionAnalyticsView({
           ) : (
             <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-[#E8E4DC] rounded-lg">
               <Database className="h-8 w-8 text-[#9CA3AF] mb-2" />
-              <p className="text-xs font-medium text-[#4B4639]">No hay registros procesados aún en esta sesión</p>
+              <p className="text-xs font-medium text-[#4B4639]">
+                {isQueryingData
+                  ? 'Cargando registros desde el catálogo Iceberg / Trino...'
+                  : 'No hay registros procesados aún para esta fuente en Silver'}
+              </p>
               <p className="text-[11px] text-[#787164] mt-1">
-                Ejecuta un pipeline desde el Canvas o sube un dataset en Ingesta Rápida para ver datos aquí.
+                Ejecuta el pipeline desde el Canvas del Lakehouse para ingerir y limpiar los datos de tu fuente.
               </p>
             </div>
           )}
