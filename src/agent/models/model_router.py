@@ -33,6 +33,26 @@ _SUPPORTED_NUMERIC_COLUMNS = {
     "gasto_marketing",
     "tiempo_respuesta_minutos",
     "calificacion_satisfaccion",
+    "salario",
+    "sueldo",
+    "edad",
+    "horas",
+    "horas_trabajadas",
+    "stock",
+    "cantidad",
+    "precio",
+    "costo",
+    "valor",
+    "total",
+    "subtotal",
+    "importe",
+    "rating",
+    "puntuacion",
+    "csat",
+    "temperatura",
+    "peso",
+    "duracion",
+    "unidades",
 }
 
 
@@ -116,7 +136,7 @@ class ModelRouter:
     ) -> dict[str, object]:
         """Genera narrativa ejecutiva y configuración ECharts adaptada a la intención del usuario y datos reales."""
         system_prompt = (
-            "Eres el copiloto analítico y director de BI de Midas Lakehouse. "
+            "Eres el copiloto analítico y director de BI de Midas Lakehouse para cualquier materia o dominio de datos (recursos humanos, salud, logística, operaciones, finanzas, inventarios, ventas, educación, etc.). "
             "Tu objetivo es sintetizar los resultados reales devueltos por Trino respondiendo con precisión a la pregunta del usuario. "
             "Genera un objeto JSON estricto con dos claves:\n"
             "1. 'narrative': Markdown profesional con encabezados ('## Hallazgo principal', '## Análisis de Tendencia', '## Recomendación estratégica') explicando los datos reales sin inventar cifras.\n"
@@ -414,9 +434,19 @@ def _numeric_column(question: str, columns: set[str]) -> str:
         "gastos": "gasto_marketing",
         "satisfaccion": "calificacion_satisfaccion",
         "satisfacción": "calificacion_satisfaccion",
+        "salario": "salario",
+        "sueldo": "sueldo",
+        "horas": "horas",
+        "stock": "stock",
+        "inventario": "stock",
+        "precio": "precio",
+        "cantidad": "cantidad",
     }
     for word, column in synonyms.items():
         if word in question and column in columns:
+            return column
+    for column in sorted(columns, key=len, reverse=True):
+        if column in columns and re.search(rf"\b{re.escape(column)}\b", question):
             return column
     for column in sorted(_SUPPORTED_NUMERIC_COLUMNS, key=len, reverse=True):
         if column in columns and re.search(rf"\b{re.escape(column)}\b", question):
@@ -424,6 +454,9 @@ def _numeric_column(question: str, columns: set[str]) -> str:
     candidates = columns & _SUPPORTED_NUMERIC_COLUMNS
     if len(candidates) == 1:
         return candidates.pop()
+    num_like = [c for c in columns if any(k in c for k in ("monto", "total", "precio", "costo", "salario", "sueldo", "horas", "cantidad", "stock", "valor", "edad", "peso", "temp", "score", "rating"))]
+    if len(num_like) == 1:
+        return num_like[0]
     raise ValueError("La columna métrica no está indicada de forma inequívoca.")
 
 

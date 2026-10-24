@@ -54,6 +54,8 @@ export function SessionAnalyticsView({
   const [isQueryingData, setIsQueryingData] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [activeTableName, setActiveTableName] = useState<string>('');
+  const [availableTables, setAvailableTables] = useState<string[]>([]);
+  const [selectedTable, setSelectedTable] = useState<string>('');
 
   // Estados de ejecución en caliente del pipeline
   const [isExecutingPipeline, setIsExecutingPipeline] = useState(false);
@@ -79,7 +81,7 @@ export function SessionAnalyticsView({
   }, []);
 
   // Consultar datos reales de Trino para la fuente de esta sesión
-  const loadTableData = useCallback(async () => {
+  const loadTableData = useCallback(async (targetTable?: string) => {
     setIsQueryingData(true);
     setQueryError(null);
 
@@ -94,6 +96,8 @@ export function SessionAnalyticsView({
       candidateTables.push(`silver.${cleanSuffix}`);
       const cleanName = sessionSourceName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
       candidateTables.push(`silver.clean_${cleanName}`);
+      candidateTables.push(`gold.gold_${cleanSuffix}`);
+      candidateTables.push(`gold.${cleanSuffix}`);
     }
 
     // Agregar fallback para tablas de conexiones registradas
@@ -103,50 +107,65 @@ export function SessionAnalyticsView({
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '_');
       candidateTables.push(`silver.clean_${cleanSuffix}`);
+      candidateTables.push(`gold.gold_${cleanSuffix}`);
     });
     candidateTables.push('gold.fact_ventas');
 
+    const uniqueCandidates = Array.from(new Set(candidateTables));
+    const tablesToTry = targetTable
+      ? [targetTable, ...uniqueCandidates.filter((t) => t !== targetTable)]
+      : uniqueCandidates;
+
     let loaded = false;
-    for (const tbl of candidateTables) {
+    const foundTables: string[] = [];
+
+    for (const tbl of tablesToTry) {
       try {
         const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
         if (result && result.data && result.data.length > 0) {
-          setRealData(result.data as TablePreviewRow[]);
-          setRealColumns(result.columns || Object.keys(result.data[0]));
-          setActiveTableName(tbl);
-          loaded = true;
+          if (!loaded) {
+            setRealData(result.data as TablePreviewRow[]);
+            setRealColumns(result.columns || Object.keys(result.data[0]));
+            setActiveTableName(tbl);
+            setSelectedTable(tbl);
+            loaded = true;
 
-          // Obtener conteo total real
-          try {
-            const countResult = await executeTrinoQuery(`SELECT COUNT(*) as total_rows FROM ${tbl}`);
-            if (countResult?.data?.[0]) {
-              const val = countResult.data[0].total_rows ?? countResult.data[0]._col0;
-              if (typeof val === 'number') {
-                setRealTotalCount(val);
+            // Obtener conteo total real
+            try {
+              const countResult = await executeTrinoQuery(`SELECT COUNT(*) as total_rows FROM ${tbl}`);
+              if (countResult?.data?.[0]) {
+                const val = countResult.data[0].total_rows ?? countResult.data[0]._col0;
+                if (typeof val === 'number') {
+                  setRealTotalCount(val);
+                }
               }
+            } catch {
+              setRealTotalCount(result.row_count || result.data.length);
             }
-          } catch {
-            setRealTotalCount(result.row_count || result.data.length);
           }
-          break;
+          foundTables.push(tbl);
         }
       } catch {
         // Continuar con siguiente tabla candidata
       }
     }
 
+    if (foundTables.length > 0) {
+      setAvailableTables(Array.from(new Set(foundTables)));
+    }
+
     if (!loaded) {
       setRealData([]);
       setRealColumns([]);
       setRealTotalCount(null);
-      setActiveTableName(candidateTables[0] || 'silver');
+      setActiveTableName(targetTable || candidateTables[0] || 'silver');
     }
     setIsQueryingData(false);
   }, [sessionConnId, sessionSourceName, connections]);
 
   useEffect(() => {
-    loadTableData();
-  }, [loadTableData, activeTab]);
+    loadTableData(selectedTable);
+  }, [loadTableData, selectedTable, activeTab]);
 
   const handleRunPipeline = async () => {
     if (!sessionConnId) return;
@@ -198,6 +217,60 @@ export function SessionAnalyticsView({
     };
   }, [activeNodes]);
 
+  // Análisis visual dinámico calculado directamente de los registros de la tabla activa
+  const visualInsights = useMemo(() => {
+    if (!realData || realData.length === 0 || !realColumns || realColumns.length === 0) return null;
+
+    const numCol =
+      realColumns.find((c) => {
+        const isNum = realData.some((r) => typeof r[c] === 'number');
+        return isNum && !/(?:id|_id|index|codigo|anio|mes|dia|fecha|date)/i.test(c);
+      }) || realColumns.find((c) => realData.some((r) => typeof r[c] === 'number'));
+
+    const catCol =
+      realColumns.find((c) => {
+        return (
+          c !== numCol &&
+          !/(?:id|_id|index|codigo|fecha|date|time)/i.test(c) &&
+          realData.some((r) => typeof r[c] === 'string')
+        );
+      }) || realColumns.find((c) => c !== numCol);
+
+    if (!catCol) return null;
+
+    const groupTotals: Record<string, number> = {};
+    const groupCounts: Record<string, number> = {};
+
+    realData.forEach((row) => {
+      const catKey = String(row[catCol] ?? 'Sin clasificar');
+      groupCounts[catKey] = (groupCounts[catKey] || 0) + 1;
+      if (numCol && typeof row[numCol] === 'number') {
+        groupTotals[catKey] = (groupTotals[catKey] || 0) + Number(row[numCol]);
+      }
+    });
+
+    const isCurrency = numCol
+      ? /(?:monto|precio|costo|valor|salario|sueldo|ingreso|presupuesto|revenue|fee|neto|bruto)/i.test(numCol)
+      : false;
+
+    const items =
+      Object.keys(groupTotals).length > 0 && numCol
+        ? Object.entries(groupTotals).map(([name, val]) => ({ name, value: Math.round(val * 100) / 100 }))
+        : Object.entries(groupCounts).map(([name, count]) => ({ name, value: count }));
+
+    items.sort((a, b) => b.value - a.value);
+    const topItems = items.slice(0, 6);
+    const maxVal = Math.max(...topItems.map((i) => i.value), 1);
+
+    return {
+      catCol,
+      numCol: numCol || 'conteo_filas',
+      topItems,
+      maxVal,
+      isCurrency,
+    };
+  }, [realData, realColumns]);
+
   const handleExportCSV = () => {
     if (realData.length === 0 || realColumns.length === 0) return;
     const headers = realColumns.join(',');
@@ -236,7 +309,33 @@ export function SessionAnalyticsView({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {availableTables.length > 1 && (
+            <div className="flex items-center gap-1 rounded-lg border border-[#E8E4DC] bg-white p-1 text-xs font-mono shadow-2xs">
+              <span className="px-1 text-[10px] text-[#787164] font-sans font-medium">TABLA:</span>
+              {availableTables.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTable(t);
+                    loadTableData(t);
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                    activeTableName === t
+                      ? t.startsWith('gold.')
+                        ? 'bg-[#B8860B] text-white'
+                        : 'bg-[#4D7C0F] text-white'
+                      : 'text-[#787164] hover:bg-[#F0EDE7]'
+                  }`}
+                >
+                  {t.startsWith('gold.') ? '★ GOLD: ' : 'SILVER: '}
+                  {t.replace(/^silver\./, '').replace(/^gold\./, '').replace(/^clean_/, '')}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-1.5 rounded-lg border border-[#E8E4DC] bg-white px-3 py-1.5 text-xs text-[#1C1E21] shadow-2xs font-mono">
             <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
             <span className="font-semibold text-[#8C6D1F]">FUENTE:</span>
@@ -503,6 +602,61 @@ export function SessionAnalyticsView({
               </p>
             </div>
           </div>
+
+          {/* Tarjeta de Desglose Visual y Reporte Dinámico */}
+          {visualInsights && visualInsights.topItems.length > 0 && (
+            <div className="lg:col-span-3 rounded-xl border border-[#E8E4DC] bg-white p-5 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#F0EDE7] pb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#1C1E21] flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-[#B8860B]" />
+                    <span>
+                      Desglose Ejecutivo de Datos: {visualInsights.catCol.toUpperCase()} vs{' '}
+                      {visualInsights.numCol.toUpperCase()}
+                    </span>
+                    {activeTableName.startsWith('gold.') && (
+                      <span className="font-mono text-[9px] px-2 py-0.5 rounded bg-[#B8860B]/10 text-[#8C6D1F] border border-[#B8860B]/30 font-semibold">
+                        ★ DATA MART GOLD
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-[#787164]">
+                    Distribución y agregación dinámica calculada en tiempo real sobre los registros de {activeTableName}.
+                  </p>
+                </div>
+                <span className="font-mono text-[10px] text-[#787164]">
+                  Muestra de {realData.length} registros cargados
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                {visualInsights.topItems.map((item, idx) => {
+                  const pct = Math.round((item.value / visualInsights.maxVal) * 100);
+                  const formattedVal = visualInsights.isCurrency
+                    ? `$${item.value.toLocaleString()}`
+                    : item.value.toLocaleString();
+                  return (
+                    <div key={idx} className="rounded-lg border border-[#F0EDE7] bg-[#FAFAFA] p-3 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-medium text-[#1C1E21] truncate max-w-[180px]" title={item.name}>
+                          {idx + 1}. {item.name}
+                        </span>
+                        <span className="font-mono font-bold text-[#8C6D1F]">
+                          {formattedVal}
+                        </span>
+                      </div>
+                      <div className="h-2 w-full bg-[#E8E4DC] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#B8860B] rounded-full transition-all duration-500"
+                          style={{ width: `${Math.max(5, pct)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -548,10 +702,13 @@ export function SessionAnalyticsView({
                     <tr key={idx} className="hover:bg-[#FBF8EF]/40 transition-colors">
                       {realColumns.map((col, cellIdx) => {
                         const val = row[col];
+                        const isCurrency = /(?:monto|precio|costo|valor|salario|sueldo|ingreso|presupuesto|revenue|fee|neto|bruto)/i.test(col);
                         return (
                           <td key={cellIdx} className="px-3 py-2 text-[#1C1E21] font-mono whitespace-nowrap">
-                            {typeof val === 'number' && val > 1000
-                              ? `$${val.toLocaleString()}`
+                            {typeof val === 'number'
+                              ? isCurrency && val > 0
+                                ? `$${val.toLocaleString()}`
+                                : val.toLocaleString()
                               : String(val ?? '—')}
                           </td>
                         );
