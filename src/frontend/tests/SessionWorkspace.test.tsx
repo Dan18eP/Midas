@@ -111,21 +111,32 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
   });
 
   describe('1. WelcomeHero — Pantalla de Bienvenida y Lanzadores de Ingesta', () => {
-    it('renderiza el saludo empático dinámico basado en Zero-Trust Lens (Director General)', () => {
+    it('renderiza el saludo institucional profesional sin roles corporativos quemados', () => {
       render(<WelcomeHero securityRole="admin" onSendPrompt={vi.fn()} />);
 
       expect(
-        screen.getByRole('heading', { name: /Hola, Director General\. ¿Qué tienes en mente hoy\?/i })
+        screen.getByRole('heading', { name: /¿Qué deseas analizar o construir hoy\?/i })
       ).toBeInTheDocument();
-      expect(screen.queryByText(/Zero-Trust Lens/i)).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/Midas Active Lakehouse & Inteligencia Conversacional/i)
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Hola, Director General/i)).not.toBeInTheDocument();
     });
 
-    it('renderiza el saludo adaptado para rol RBAC (Gerente Regional Norte)', () => {
-      render(<WelcomeHero securityRole="rbac" onSendPrompt={vi.fn()} />);
+    it('renderiza sugerencias adaptativas de arquitectura cuando no hay datos conectados (Opción C)', () => {
+      render(<WelcomeHero securityRole="admin" hasConnectedData={false} onSendPrompt={vi.fn()} />);
 
-      expect(
-        screen.getByRole('heading', { name: /Hola, Gerente Regional Norte\. ¿Qué tienes en mente hoy\?/i })
-      ).toBeInTheDocument();
+      expect(screen.getByText('¿Cómo procesa Midas de Bronze a Silver?')).toBeInTheDocument();
+      expect(screen.getByText('¿Cómo funciona el Quality Gate y cuarentena?')).toBeInTheDocument();
+      expect(screen.getByText('¿Cómo solicito un Data Mart Gold con IA?')).toBeInTheDocument();
+    });
+
+    it('renderiza sugerencias analíticas cuando hay datos conectados en la sesión (Opción C)', () => {
+      render(<WelcomeHero securityRole="admin" hasConnectedData={true} onSendPrompt={vi.fn()} />);
+
+      expect(screen.getByText('Resumir registros y estructura de datos')).toBeInTheDocument();
+      expect(screen.getByText('Consultar métricas de calidad y cuarentena')).toBeInTheDocument();
+      expect(screen.getByText('Generar propuesta de capa Gold y gráficos')).toBeInTheDocument();
     });
 
     it('muestra las cuatro opciones de conexión rápida (CSV, Base de Datos, REST, Excel) a través del menú «+»', () => {
@@ -156,12 +167,14 @@ describe('HU-FRONT-07 — Workspace Conversacional Multi-Sesión & Welcome Hub',
 
     it('permite hacer clic en las sugerencias predefinidas', () => {
       const handleSend = vi.fn();
-      render(<WelcomeHero securityRole="admin" onSendPrompt={handleSend} />);
+      render(<WelcomeHero securityRole="admin" hasConnectedData={false} onSendPrompt={handleSend} />);
 
-      const suggestion = screen.getByText('Explorar tablas de CRM');
+      const suggestion = screen.getByText('¿Cómo procesa Midas de Bronze a Silver?');
       fireEvent.click(suggestion);
 
-      expect(handleSend).toHaveBeenCalledWith('Explorar tablas de CRM');
+      expect(handleSend).toHaveBeenCalledWith(
+        '¿Cómo procesa Midas los datos de Bronze a Silver y qué transformaciones realiza?'
+      );
     });
 
     it('abre el modal de conexión rápida al pulsar una opción del menú «+»', () => {

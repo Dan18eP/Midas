@@ -35,7 +35,7 @@ import { CanvasControls } from './CanvasControls';
 import { NodeInspectionDrawer } from './NodeInspectionDrawer';
 import { TelemetryConnectionBanner } from './TelemetryConnectionBanner';
 import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from './topology/initialTopology';
-import type { SecurityNodePolicy, ZeroTrustRole } from '@/components/security/ZeroTrustLens';
+import { PROFILES, type SecurityNodePolicy, type ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 
 const NODE_TYPES: NodeTypes = {
   source: SourceNode as unknown as React.ComponentType<any>,
@@ -994,7 +994,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D4AF37]/50 bg-[#FBF8EF] px-2.5 py-0.5 font-mono text-[10px] font-medium text-[#8C6D1F]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#B8860B] animate-pulse" />
-            Perfil de identidad: {securityPolicy?.title ?? (securityRole === 'rbac' ? 'Gerente Regional Norte' : 'Auditor de Cumplimiento')} ·{' '}
+            Perfil de identidad: {securityPolicy?.title ?? PROFILES[securityRole]?.label ?? securityRole} ·{' '}
             {securityPolicy
               ? 'Política declarada por el catálogo de identidades'
               : 'Sin catálogo de identidades: política local de respaldo'}

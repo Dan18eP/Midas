@@ -197,7 +197,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setActiveTopology(null);
     setWorkspaceMode('welcome');
     setError(null);
-  }, []);
+    void fetchSessions();
+  }, [fetchSessions]);
 
   const createAndSelectSession = useCallback(
     async (title?: string, initialTopology?: TopologyStateDTO, metadata?: SessionMetadata): Promise<string> => {

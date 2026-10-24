@@ -290,42 +290,35 @@ function MidasConsoleWorkspace() {
           </div>
         </div>
 
-        {/* Selector de Vista Principal: Pipeline Canvas vs Centro de Analítica */}
-        <div className="flex items-center rounded-lg border border-[#E8E4DC] bg-[#F7F7F5] p-0.5 text-xs shadow-2xs">
-          <button
-            type="button"
-            onClick={() => setActiveMainView('canvas')}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
-              activeMainView === 'canvas'
-                ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
-                : 'text-[#787164] hover:text-[#1C1E21]'
-            }`}
-          >
-            <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
-            Pipeline Lakehouse
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainView('analytics')}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
-              activeMainView === 'analytics'
-                ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
-                : 'text-[#787164] hover:text-[#1C1E21]'
-            }`}
-          >
-            <BarChart3 className="h-3.5 w-3.5 text-[#2563EB]" />
-            Analítica de Datos
-          </button>
-        </div>
-
-        {/* Frontera HU-FRONT-03: Time-Travel Replay Status */}
-        <div className="hidden lg:flex items-center bg-[#F7F7F5] border border-[#E8E4DC] rounded-md px-2.5 py-1 text-xs shadow-inner gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono font-medium">Time-Travel Replay:</span>
-          <span className="flex items-center space-x-1.5 px-2 py-1 rounded bg-[#FFFFFF] text-[#1C1E21] font-medium border border-[#D4AF37]/40 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#4D7C0F] animate-pulse" />
-            <span className="font-mono text-[10px] font-semibold text-[#8C6D1F]">Historial del Gateway de Telemetría</span>
-          </span>
-        </div>
+        {/* Selector de Vista Principal: Pipeline Canvas vs Centro de Analítica (Solo visible con datos conectados y sesión activa) */}
+        {hasConnectedData && !isNewChatView && (
+          <div className="flex items-center rounded-lg border border-[#E8E4DC] bg-[#F7F7F5] p-0.5 text-xs shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setActiveMainView('canvas')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
+                activeMainView === 'canvas'
+                  ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
+                  : 'text-[#787164] hover:text-[#1C1E21]'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
+              Pipeline Lakehouse
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainView('analytics')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
+                activeMainView === 'analytics'
+                  ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
+                  : 'text-[#787164] hover:text-[#1C1E21]'
+              }`}
+            >
+              <BarChart3 className="h-3.5 w-3.5 text-[#2563EB]" />
+              Analítica de Datos
+            </button>
+          </div>
+        )}
 
         {/* Frontera HU-FRONT-05: Selector Zero-Trust Roles */}
         <ZeroTrustLens
@@ -353,6 +346,8 @@ function MidasConsoleWorkspace() {
             >
               <WelcomeHero
                 securityRole={selectedRole}
+                hasConnectedData={hasConnectedData}
+                connectedSourceName={(activeSession?.metadata?.connection_id as string) || undefined}
                 onSendPrompt={handleWelcomeSendPrompt}
                 onQuickConnectSuccess={handleQuickConnectSuccess}
               />

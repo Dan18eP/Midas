@@ -32,7 +32,7 @@ def _seed_default_roles() -> None:
     defaults = [
         ZeroTrustRole(
             role_id="director_general",
-            title="Director General (Data Owner)",
+            title="Data Admin (Data Owner)",
             description="Acceso irrestricto a todas las capas del Lakehouse (Bronze, Silver, Gold y Guardian).",
             canvas_effect="Todos los nodos del Canvas en verde brillante; acceso completo sin restricciones.",
             ranger_row_filter=None,
@@ -43,9 +43,9 @@ def _seed_default_roles() -> None:
         ),
         ZeroTrustRole(
             role_id="gerente_norte",
-            title="Gerente Regional Norte (Restricted Operator)",
-            description="Acceso condicionado a métricas y transacciones pertenecientes exclusivamente a la región NORTE.",
-            canvas_effect="Nodos de otras regiones en ámbar con etiqueta flotante: Row Filter: region = 'NORTE'.",
+            title="Data Analyst (Restricted Operator)",
+            description="Acceso condicionado a métricas y transacciones pertenecientes exclusivamente a la región asignada.",
+            canvas_effect="Nodos de otras regiones en ámbar con etiqueta flotante: Row Filter activo.",
             ranger_row_filter="region = 'NORTE'",
             ranger_column_mask=None,
             allowed_nodes=["source_postgres", "bronze_raw", "silver_cleansing", "gold_marts"],
@@ -56,8 +56,8 @@ def _seed_default_roles() -> None:
         ),
         ZeroTrustRole(
             role_id="analista_externo",
-            title="Analista Externo (Compliance Auditor)",
-            description="Perfil de menor privilegio con enmascaramiento estricto de PII y bloqueo de nodos financieros.",
+            title="Data Steward (Compliance Auditor)",
+            description="Perfil de auditoría y gobernanza con enmascaramiento estricto de PII y trazabilidad.",
             canvas_effect="Nodos financieros bloqueados con candado; nodos permitidos con Column Mask: PII.",
             ranger_row_filter=None,
             ranger_column_mask="PII_HASH (email, telefono, rfc)",
