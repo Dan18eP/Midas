@@ -651,7 +651,7 @@ class TrinoClient:
         tables = [t.name.lower() for t in parsed.find_all(exp.Table)]
         data_rows: List[Dict[str, Any]] = []
 
-        # Intentar cargar registros reales desde MinIO midas-silver
+        # Intentar cargar registros reales desde MinIO midas-silver o midas-bronze
         sample_records = None
         try:
             from src.lakehouse.storage.minio_client import MidasMinioClient
@@ -668,17 +668,81 @@ class TrinoClient:
                             matched_obj = obj
                             break
                     if matched_obj:
-                        import json
                         raw_bytes = minio_cli.get_object("midas-silver", matched_obj)
                         if raw_bytes:
-                            loaded = json.loads(raw_bytes.decode("utf-8", errors="replace"))
-                            if isinstance(loaded, list) and loaded:
-                                sample_records = loaded
+                            # 1. Intentar decodificación Parquet con Pandas/PyArrow
+                            try:
+                                import io
+                                import pandas as pd
+                                df_loaded = pd.read_parquet(io.BytesIO(raw_bytes))
+                                sample_records = df_loaded.to_dict(orient="records")
                                 break
+                            except Exception:
+                                pass
+                            # 2. Intentar decodificación JSON
+                            try:
+                                import json
+                                loaded = json.loads(raw_bytes.decode("utf-8", errors="replace"))
+                                if isinstance(loaded, list) and loaded:
+                                    sample_records = loaded
+                                    break
+                            except Exception:
+                                pass
         except Exception as minio_err:
             logger.debug("No se pudieron cargar datos reales de MinIO para la consulta: %s", minio_err)
 
-        # Si consulta transacciones o pedidos
+        # Si se cargaron registros reales de MinIO, ejecutar la consulta SQL real en memoria con SQLite
+        if sample_records and len(sample_records) > 0:
+            try:
+                import sqlite3
+                import io
+                import pandas as pd
+                conn = sqlite3.connect(":memory:")
+                df_src = pd.DataFrame(sample_records)
+                for tbl in tables:
+                    pure_name = tbl.split(".")[-1]
+                    df_src.to_sql(pure_name, conn, index=False, if_exists="replace")
+                    if "_" in pure_name:
+                        df_src.to_sql(pure_name.replace("clean_", ""), conn, index=False, if_exists="replace")
+
+                # Transpilar de dialecto Trino a SQLite
+                transpiled_sql = sqlglot.transpile(safe_sql, read="trino", write="sqlite")[0]
+                transpiled_sql = re.sub(r"\b(silver|bronze|gold|iceberg)\.", "", transpiled_sql, flags=re.IGNORECASE)
+                transpiled_sql = re.sub(r"\bTRY_CAST\((.*?) AS .*?\)", r"\1", transpiled_sql, flags=re.IGNORECASE)
+
+                res_df = pd.read_sql(transpiled_sql, conn)
+                conn.close()
+
+                real_columns = list(res_df.columns)
+                real_column_types = ["varchar" for _ in real_columns]
+                for idx, col in enumerate(real_columns):
+                    dtype = str(res_df[col].dtype)
+                    if "int" in dtype:
+                        real_column_types[idx] = "bigint"
+                    elif "float" in dtype:
+                        real_column_types[idx] = "double"
+                    elif "datetime" in dtype:
+                        real_column_types[idx] = "timestamp"
+
+                real_data = res_df.to_dict(orient="records")
+                exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
+                return QueryResult(
+                    security_policy=security_policy,
+                    columns=real_columns,
+                    column_types=real_column_types,
+                    data=real_data,
+                    row_count=len(real_data),
+                    execution_time_ms=exec_time_ms,
+                    catalog=catalog,
+                    schema_name=schema_name,
+                    truncated=False,
+                    cost_estimate=cost_est,
+                    query_id=f"local_real_exec_{int(time.time()*1000)}",
+                )
+            except Exception as sql_exec_err:
+                logger.debug("Error ejecutando SQL local sobre datos reales: %s. Procediendo a fallback de proyección.", sql_exec_err)
+
+        # Si consulta transacciones o pedidos (catálogo canónico de pruebas)
         if sample_records is not None:
             pass
         elif any("transaccion" in t or "pedido" in t for t in tables):

@@ -286,6 +286,24 @@ class BronzeToSilverTransformer:
                         content_type="application/json",
                     )
                     silver_path = f"s3://midas-silver/{silver_key}"
+
+                    # Persistencia dual en Parquet para motores analíticos y Iceberg
+                    try:
+                        import io
+                        import pandas as pd
+                        df_clean = pd.DataFrame(deduplicated_records)
+                        buf = io.BytesIO()
+                        df_clean.to_parquet(buf, index=False, engine="pyarrow")
+                        parquet_key = f"clean/{source_name}/{effective_batch_id}.parquet"
+                        self.minio_client.put_object(
+                            bucket="midas-silver",
+                            object_name=parquet_key,
+                            data=buf.getvalue(),
+                            content_type="application/octet-stream",
+                        )
+                    except Exception as p_err:
+                        logger.debug("Omitida escritura parquet en midas-silver: %s", p_err)
+
                 except Exception as exc:
                     logger.warning(f"No se pudo persistir en midas-silver: {exc}")
 

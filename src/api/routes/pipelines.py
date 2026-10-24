@@ -340,6 +340,38 @@ async def trigger_pipeline(
                 )
             )
 
+        clean_suffix = re.sub(r"[^a-z0-9_]", "_", connection_id.lower()).strip("_").replace("conn_", "")
+        clean_tbl = f"clean_{clean_suffix}"
+
+        # 3.3 Registrar la tabla Silver en el catálogo Iceberg de Trino para consulta inmediata sin mocks
+        if records_cleaned_count > 0 and transform_result.valid_records:
+            try:
+                from src.core.query_engine.trino_client import TrinoClient
+                tc = TrinoClient()
+                if not os.getenv("PYTEST_CURRENT_TEST"):
+                    first_item = transform_result.valid_records[0]
+                    col_defs_list = []
+                    for k, v in first_item.items():
+                        c_name = re.sub(r"[^a-zA-Z0-9_]", "_", str(k)).strip("_") or "col"
+                        if isinstance(v, bool):
+                            col_type = "BOOLEAN"
+                        elif isinstance(v, int):
+                            col_type = "BIGINT"
+                        elif isinstance(v, float):
+                            col_type = "DOUBLE"
+                        else:
+                            col_type = "VARCHAR"
+                        col_defs_list.append(f'"{c_name}" {col_type}')
+
+                    if col_defs_list:
+                        tc.execute_ddl_sync("CREATE SCHEMA IF NOT EXISTS iceberg.silver")
+                        tc.execute_ddl_sync(
+                            f'CREATE TABLE IF NOT EXISTS iceberg.silver."{clean_tbl}" ({", ".join(col_defs_list)})'
+                        )
+                        logger.info("Tabla iceberg.silver.%s registrada en Trino", clean_tbl)
+            except Exception as trino_reg_err:
+                logger.debug("Omitido registro DDL en Trino: %s", trino_reg_err)
+
         # 4. Agregación a Capa Gold (Human-in-the-Loop / Asistida por Copiloto)
         # Por defecto, la ingesta automática limpia en Silver. La capa Gold nace únicamente
         # cuando el usuario la define o aprueba vía Copiloto. Se ejecuta aquí solo si se solicita

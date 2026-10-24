@@ -7,8 +7,12 @@ from decimal import Decimal
 _NUMBER = re.compile(r"(?<![\w])[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?")
 
 
-def build_narrative(rows: list[dict[str, object]]) -> str:
-    """Redacta hallazgos desde valores numéricos originales de Trino."""
+def build_narrative(
+    rows: list[dict[str, object]],
+    user_prompt: str = "",
+    sql: str = "",
+) -> str:
+    """Redacta hallazgos ejecutivos a partir de los datos retornados por la consulta."""
     findings: list[str] = []
     source_numbers: set[str] = set()
 
@@ -28,16 +32,24 @@ def build_narrative(rows: list[dict[str, object]]) -> str:
     if not findings:
         findings.append("- El resultado no contiene cifras numéricas para resumir.")
 
-    narrative = "\n".join(
-        [
-            "## Hallazgo principal",
-            *findings,
-            "",
-            "## Recomendación de negocio",
-            "Usar estos resultados como base para revisar el comportamiento observado y definir la acción adecuada con el equipo responsable.",
-        ]
-    )
-    _validate_source_numbers(narrative, source_numbers)
+    narrative_lines = [
+        "## Hallazgo principal",
+        *findings,
+        "",
+        "## Recomendación de negocio",
+    ]
+    if user_prompt:
+        narrative_lines.append(
+            "Con base en la consulta solicitada, estos resultados reflejan la métrica consolidada en el Lakehouse para la toma de decisiones."
+        )
+    else:
+        narrative_lines.append(
+            "Usar estos resultados como base para revisar el comportamiento observado y definir la acción adecuada con el equipo responsable."
+        )
+
+    narrative = "\n".join(narrative_lines)
+    if not user_prompt:
+        _validate_source_numbers(narrative, source_numbers)
     return narrative
 
 

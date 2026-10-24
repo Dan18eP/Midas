@@ -67,3 +67,48 @@ def test_storytelling_result_keeps_chart_and_lineage_structured():
     assert result["narrative"].startswith("## Hallazgo principal")
     assert result["echarts_option"]["series"][0]["type"] == "bar"
     assert result["metrics_summary"][0]["value"] == 120
+
+
+def test_intent_based_pie_chart_synthesis():
+    rows = [
+        {"canal": "Online", "ventas": 500},
+        {"canal": "Fisico", "ventas": 300},
+    ]
+    option = build_echarts_option(rows, user_prompt="Quiero ver un gráfico de pastel de la distribución por canal")
+    assert option["series"][0]["type"] == "pie"
+    assert len(option["series"][0]["data"]) == 2
+    assert option["series"][0]["data"][0]["name"] == "Online"
+    assert option["series"][0]["data"][0]["value"] == 500
+
+
+def test_intent_based_line_chart_synthesis():
+    rows = [
+        {"periodo": "Q1", "margen": 25},
+        {"periodo": "Q2", "margen": 30},
+    ]
+    option = build_echarts_option(rows, user_prompt="Muestra la tendencia y evolución temporal")
+    assert option["series"][0]["type"] == "line"
+
+
+def test_storytelling_with_llm_model_router():
+    class FakeModelRouter:
+        def generate_storytelling(self, question, sql, rows, inference_mode="cloud"):
+            return {
+                "narrative": "## Hallazgo principal\nEl canal online domina con 500 unidades.\n\n## Recomendación de negocio\nInvertir en marketing digital.",
+                "echarts_option": {
+                    "title": {"text": "Ventas por Canal"},
+                    "series": [{"type": "pie", "data": [{"name": "Online", "value": 500}]}],
+                },
+            }
+
+    rows = [{"canal": "Online", "ventas": 500}]
+    result = synthesize_storytelling(
+        rows,
+        user_prompt="haz un gráfico de pastel",
+        sql="SELECT canal, ventas FROM silver.crm",
+        model_router=FakeModelRouter(),
+    )
+
+    assert "canal online domina" in result["narrative"]
+    assert result["echarts_option"]["series"][0]["type"] == "pie"
+    assert result["metrics_summary"][0]["value"] == 500

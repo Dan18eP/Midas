@@ -107,15 +107,82 @@ class ModelRouter:
         except Exception:
             return deterministic_sql(question, catalog)
 
+    def generate_storytelling(
+        self,
+        question: str,
+        sql: str,
+        rows: Sequence[Mapping[str, object]],
+        inference_mode: str | None = None,
+    ) -> dict[str, object]:
+        """Genera narrativa ejecutiva y configuración ECharts adaptada a la intención del usuario y datos reales."""
+        system_prompt = (
+            "Eres el copiloto analítico y director de BI de Midas Lakehouse. "
+            "Tu objetivo es sintetizar los resultados reales devueltos por Trino respondiendo con precisión a la pregunta del usuario. "
+            "Genera un objeto JSON estricto con dos claves:\n"
+            "1. 'narrative': Markdown profesional con encabezados ('## Hallazgo principal', '## Análisis de Tendencia', '## Recomendación estratégica') explicando los datos reales sin inventar cifras.\n"
+            "2. 'echarts_option': Configuración completa y válida de Apache ECharts adaptada a la intención (ej: 'pie'/'donut' si pidió pastel/distribución, 'line'/'area' si es temporal/tendencia, 'bar' si es comparativo/ranking, o 'scatter'). Usa datos reales de las filas.\n"
+            "Responde ÚNICAMENTE el objeto JSON sin texto antes ni después."
+        )
+        sample_rows = list(rows)[:25]
+        prompt = (
+            f"Pregunta del usuario: {question}\n"
+            f"SQL ejecutado en Trino: {sql}\n"
+            f"Datos retornados (muestra de hasta 25 filas): {json.dumps(sample_rows, ensure_ascii=False, default=str)}\n"
+        )
+        mode = (inference_mode or "auto").lower()
+
+        # Try Cloud (Gemini) if configured
+        if (mode in ("cloud", "gemini") or mode == "auto") and self._api_key:
+            try:
+                raw = self._call_gemini_raw(f"{system_prompt}\n\n{prompt}")
+                parsed = self._extract_json(raw)
+                if parsed and isinstance(parsed.get("narrative"), str) and isinstance(parsed.get("echarts_option"), dict):
+                    return parsed
+            except Exception as exc:
+                logger.warning("Fallo en generación de storytelling con Gemini: %s", exc)
+
+        # Try Local (Ollama)
+        try:
+            raw = self._call_ollama(system_prompt, prompt)
+            parsed = self._extract_json(raw)
+            if parsed and isinstance(parsed.get("narrative"), str) and isinstance(parsed.get("echarts_option"), dict):
+                return parsed
+        except Exception as exc:
+            logger.debug("Ollama storytelling no disponible: %s", exc)
+
+        return {}
+
+    def _extract_json(self, raw: str) -> dict[str, object] | None:
+        """Extrae y parsea JSON de respuestas con bloques de código markdown o texto."""
+        text = raw.strip()
+        match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+        if match:
+            text = match.group(1).strip()
+        else:
+            first_brace = text.find("{")
+            last_brace = text.rfind("}")
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                text = text[first_brace : last_brace + 1].strip()
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return None
+
     def _call_gemini(self, system_prompt: str, question: str) -> str:
-        import time
-        from google import genai
-        client = genai.Client(api_key=self._api_key)
         prompt = (
             f"{system_prompt}\n\n"
             f"Pregunta del usuario: {question}\n\n"
             f"Responde EXCLUSIVAMENTE con la sentencia SQL ejecutable en Trino (sin explicaciones ni bloques markdown adicionales):"
         )
+        return self._call_gemini_raw(prompt)
+
+    def _call_gemini_raw(self, prompt: str) -> str:
+        import time
+        from google import genai
+        client = genai.Client(api_key=self._api_key)
         candidates = [
             self._gemini_model,
             "gemini-3.8-flash",
@@ -127,6 +194,9 @@ class ModelRouter:
             "gemini-flash-lite-latest",
             "gemini-2.5-flash-lite",
             "gemini-flash-latest",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
         ]
         seen: set[str] = set()
         unique_candidates = [c for c in candidates if c and not (c in seen or seen.add(c))]
