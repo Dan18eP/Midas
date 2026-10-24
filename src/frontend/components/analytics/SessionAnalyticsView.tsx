@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart3,
   Database,
@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   Activity,
+  Play,
 } from 'lucide-react';
 import { MidasNodeData } from '@/types/canvas';
 import { listSourceConnections, triggerPipeline, executeTrinoQuery } from '@/services/sessionService';
@@ -34,16 +35,29 @@ export function SessionAnalyticsView({
   onRefreshTopology,
 }: SessionAnalyticsViewProps) {
   const [connections, setConnections] = useState<any[]>([]);
-  const [selectedConnection, setSelectedConnection] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'kpis' | 'data' | 'governance'>('kpis');
+
+  // Identificar el nodo fuente exclusivo de esta sesión (1 sesión = 1 conexión de datos)
+  const sessionSourceNode = useMemo(
+    () => activeNodes.find((n) => n.data.nodeType === 'source'),
+    [activeNodes]
+  );
+  const sessionConnId = (sessionSourceNode?.data?.connectionId || (sessionSourceNode?.data?.details?.connectionId as string) || '') as string;
+  const sessionSourceName = sessionSourceNode?.data?.label || 'Fuente de Datos';
+  const sessionSourceType = sessionSourceNode?.data?.subType || 'csv';
 
   // Estados para datos vivos de Trino
   const [realData, setRealData] = useState<TablePreviewRow[]>([]);
   const [realColumns, setRealColumns] = useState<string[]>([]);
+  const [realTotalCount, setRealTotalCount] = useState<number | null>(null);
   const [isQueryingData, setIsQueryingData] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [activeTableName, setActiveTableName] = useState<string>('');
+
+  // Estados de ejecución en caliente del pipeline
+  const [isExecutingPipeline, setIsExecutingPipeline] = useState(false);
+  const [pipelineExecutionMessage, setPipelineExecutionMessage] = useState<string | null>(null);
 
   // Cargar conexiones registradas en el catálogo
   useEffect(() => {
@@ -64,71 +78,91 @@ export function SessionAnalyticsView({
     };
   }, []);
 
-  // Consultar datos reales de Trino para la fuente seleccionada
-  useEffect(() => {
-    let isMounted = true;
-    async function loadTableData() {
-      setIsQueryingData(true);
-      setQueryError(null);
+  // Consultar datos reales de Trino para la fuente de esta sesión
+  const loadTableData = useCallback(async () => {
+    setIsQueryingData(true);
+    setQueryError(null);
 
-      // Determinar tablas candidatas a consultar
-      let candidateTables: string[] = [];
+    // Determinar tablas candidatas a consultar según la fuente de esta sesión
+    let candidateTables: string[] = [];
+    if (sessionConnId) {
+      const cleanSuffix = sessionConnId
+        .replace(/^conn_/, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_');
+      candidateTables.push(`silver.clean_${cleanSuffix}`);
+      candidateTables.push(`silver.${cleanSuffix}`);
+      const cleanName = sessionSourceName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      candidateTables.push(`silver.clean_${cleanName}`);
+    }
 
-      if (selectedConnection !== 'all') {
-        const conn = connections.find((c) => c.connection_id === selectedConnection);
-        if (conn) {
-          const cleanSuffix = conn.connection_id
-            .replace(/^conn_/, '')
-            .toLowerCase()
-            .replace(/[^a-z0-9_]/g, '_');
-          candidateTables.push(`silver.clean_${cleanSuffix}`);
-          candidateTables.push(`silver.${cleanSuffix}`);
-        }
-      } else {
-        // Probar todas las conexiones activas
-        connections.forEach((c) => {
-          const cleanSuffix = c.connection_id
-            .replace(/^conn_/, '')
-            .toLowerCase()
-            .replace(/[^a-z0-9_]/g, '_');
-          candidateTables.push(`silver.clean_${cleanSuffix}`);
-        });
-        candidateTables.push('gold.fact_ventas');
-      }
+    // Agregar fallback para tablas de conexiones registradas
+    connections.forEach((c) => {
+      const cleanSuffix = c.connection_id
+        .replace(/^conn_/, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_');
+      candidateTables.push(`silver.clean_${cleanSuffix}`);
+    });
+    candidateTables.push('gold.fact_ventas');
 
-      let loaded = false;
-      for (const tbl of candidateTables) {
-        try {
-          const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
-          if (isMounted && result && result.data && result.data.length > 0) {
-            setRealData(result.data as TablePreviewRow[]);
-            setRealColumns(result.columns || Object.keys(result.data[0]));
-            setActiveTableName(tbl);
-            loaded = true;
-            break;
+    let loaded = false;
+    for (const tbl of candidateTables) {
+      try {
+        const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
+        if (result && result.data && result.data.length > 0) {
+          setRealData(result.data as TablePreviewRow[]);
+          setRealColumns(result.columns || Object.keys(result.data[0]));
+          setActiveTableName(tbl);
+          loaded = true;
+
+          // Obtener conteo total real
+          try {
+            const countResult = await executeTrinoQuery(`SELECT COUNT(*) as total_rows FROM ${tbl}`);
+            if (countResult?.data?.[0]) {
+              const val = countResult.data[0].total_rows ?? countResult.data[0]._col0;
+              if (typeof val === 'number') {
+                setRealTotalCount(val);
+              }
+            }
+          } catch {
+            setRealTotalCount(result.row_count || result.data.length);
           }
-        } catch {
-          // Continuar con siguiente tabla candidata
+          break;
         }
-      }
-
-      if (isMounted) {
-        if (!loaded) {
-          setRealData([]);
-          setRealColumns([]);
-          setActiveTableName(candidateTables[0] || 'silver');
-        }
-        setIsQueryingData(false);
+      } catch {
+        // Continuar con siguiente tabla candidata
       }
     }
 
-    if (connections.length > 0) {
-      loadTableData();
+    if (!loaded) {
+      setRealData([]);
+      setRealColumns([]);
+      setRealTotalCount(null);
+      setActiveTableName(candidateTables[0] || 'silver');
     }
-    return () => {
-      isMounted = false;
-    };
-  }, [connections, selectedConnection, activeTab]);
+    setIsQueryingData(false);
+  }, [sessionConnId, sessionSourceName, connections]);
+
+  useEffect(() => {
+    loadTableData();
+  }, [loadTableData, activeTab]);
+
+  const handleRunPipeline = async () => {
+    if (!sessionConnId) return;
+    setIsExecutingPipeline(true);
+    setPipelineExecutionMessage(null);
+    try {
+      const result = await triggerPipeline(sessionConnId);
+      setPipelineExecutionMessage(`Pipeline ejecutado exitosamente. Se limpiaron ${result.records_cleaned?.toLocaleString()} registros.`);
+      onRefreshTopology?.();
+      await loadTableData();
+    } catch (err: any) {
+      setPipelineExecutionMessage(`Error al ejecutar pipeline: ${err?.message || 'Error desconocido'}`);
+    } finally {
+      setIsExecutingPipeline(false);
+    }
+  };
 
   // Calcular métricas agregadas desde los nodos activos de la sesión
   const metrics = useMemo(() => {
@@ -203,18 +237,11 @@ export function SessionAnalyticsView({
         </div>
 
         <div className="flex items-center gap-3">
-          <select
-            value={selectedConnection}
-            onChange={(e) => setSelectedConnection(e.target.value)}
-            className="rounded-lg border border-[#E8E4DC] bg-white px-3 py-1.5 text-xs text-[#1C1E21] shadow-2xs focus:border-[#B8860B] focus:outline-hidden"
-          >
-            <option value="all">Todas las Fuentes ({connections.length})</option>
-            {connections.map((c) => (
-              <option key={c.connection_id} value={c.connection_id}>
-                {c.name} ({c.source_type})
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5 rounded-lg border border-[#E8E4DC] bg-white px-3 py-1.5 text-xs text-[#1C1E21] shadow-2xs font-mono">
+            <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
+            <span className="font-semibold text-[#8C6D1F]">FUENTE:</span>
+            <span>{sessionSourceName}</span>
+          </div>
 
           <button
             type="button"
@@ -228,19 +255,55 @@ export function SessionAnalyticsView({
         </div>
       </div>
 
+      {/* Banner de Ejecución si la fuente aún no ha sido procesada */}
+      {realData.length === 0 && (
+        <div className="rounded-xl border border-[#D4AF37]/50 bg-[#FFFDF5] p-5 shadow-2xs space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#8C6D1F]">
+            <AlertTriangle className="h-4 w-4" />
+            <span>Fuente en Standby: Datos sin Procesar en Silver</span>
+          </div>
+          <p className="text-xs text-[#787164]">
+            La fuente <strong>{sessionSourceName}</strong> está conectada en Bronze. Haz clic en el botón para ejecutar la ingesta y limpieza en el Lakehouse y ver los registros reales aquí.
+          </p>
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={handleRunPipeline}
+              disabled={isExecutingPipeline || !sessionConnId}
+              className="flex items-center gap-2 rounded-lg bg-[#B8860B] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#8C6D1F] active:scale-95 disabled:opacity-50 transition-all cursor-pointer"
+            >
+              {isExecutingPipeline ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Ejecutando Pipeline (Bronze → Silver)...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <span>▶ Ejecutar Pipeline Ahora</span>
+                </>
+              )}
+            </button>
+            {pipelineExecutionMessage && (
+              <span className="text-xs text-[#4D7C0F] font-medium">{pipelineExecutionMessage}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Tarjetas de Métricas Ejecutivas de la Sesión */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border border-[#E8E4DC] bg-white p-4 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[#787164]">Fuentes Conectadas</span>
+            <span className="text-xs font-medium text-[#787164]">Fuente Conectada</span>
             <Layers className="h-4 w-4 text-[#2563EB]" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-[#1C1E21]">{connections.length || 3}</span>
-            <span className="text-[10px] text-[#4D7C0F]">Activas en catálogo</span>
+            <span className="text-2xl font-bold font-mono text-[#1C1E21]">{sessionConnId ? 1 : 0}</span>
+            <span className="text-[10px] text-[#4D7C0F]">Sesión Activa</span>
           </div>
-          <div className="mt-3 text-[11px] text-[#787164]">
-            Multi-tipo: PostgreSQL, Excel .xlsx, REST API
+          <div className="mt-3 text-[11px] text-[#787164] truncate">
+            {sessionSourceName} ({sessionSourceType.toUpperCase()})
           </div>
         </div>
 
@@ -251,7 +314,7 @@ export function SessionAnalyticsView({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-[#1C1E21]">
-              {metrics.bronzeIn > 0 ? metrics.bronzeIn.toLocaleString() : 'Standby'}
+              {realTotalCount !== null ? realTotalCount.toLocaleString() : (metrics.bronzeIn > 0 ? metrics.bronzeIn.toLocaleString() : 'Standby')}
             </span>
             <span className="text-[10px] text-[#787164]">filas</span>
           </div>
@@ -267,7 +330,7 @@ export function SessionAnalyticsView({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-[#4D7C0F]">
-              {metrics.silverClean > 0 ? metrics.silverClean.toLocaleString() : 'Standby'}
+              {realTotalCount !== null ? realTotalCount.toLocaleString() : (metrics.silverClean > 0 ? metrics.silverClean.toLocaleString() : 'Standby')}
             </span>
             {metrics.silverQuarantine > 0 && (
               <span className="text-[10px] font-mono text-[#A8422B] bg-[#FFF8F5] px-1.5 py-0.5 rounded border border-[#ECCFC5]">
@@ -352,13 +415,13 @@ export function SessionAnalyticsView({
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium text-[#787164]">Bronze (Crudo Ingerido)</span>
                   <span className="font-mono text-[#1C1E21]">
-                    {metrics.bronzeIn > 0 ? `${metrics.bronzeIn} filas` : 'En espera'}
+                    {realTotalCount !== null ? `${realTotalCount.toLocaleString()} filas` : (metrics.bronzeIn > 0 ? `${metrics.bronzeIn.toLocaleString()} filas` : 'En espera')}
                   </span>
                 </div>
                 <div className="h-3 w-full bg-[#F0EDE7] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#2563EB] transition-all duration-500 rounded-full"
-                    style={{ width: metrics.bronzeIn > 0 ? '100%' : '5%' }}
+                    style={{ width: (realTotalCount ?? metrics.bronzeIn) > 0 ? '100%' : '5%' }}
                   />
                 </div>
               </div>
@@ -367,17 +430,14 @@ export function SessionAnalyticsView({
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium text-[#787164]">Silver (Limpio & Deduplicado)</span>
                   <span className="font-mono text-[#4D7C0F]">
-                    {metrics.silverClean > 0 ? `${metrics.silverClean} filas` : 'En espera'}
+                    {realTotalCount !== null ? `${realTotalCount.toLocaleString()} filas` : (metrics.silverClean > 0 ? `${metrics.silverClean.toLocaleString()} filas` : 'En espera')}
                   </span>
                 </div>
                 <div className="h-3 w-full bg-[#F0EDE7] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#4D7C0F] transition-all duration-500 rounded-full"
                     style={{
-                      width:
-                        metrics.bronzeIn > 0
-                          ? `${(metrics.silverClean / metrics.bronzeIn) * 100}%`
-                          : '5%',
+                      width: (realTotalCount ?? metrics.bronzeIn) > 0 ? '100%' : '5%',
                     }}
                   />
                 </div>

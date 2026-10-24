@@ -33,6 +33,7 @@ import {
   type ConnectionTestResponseDTO,
 } from '@/services/sessionService';
 import { useSession } from '@/context/SessionContext';
+import { buildCanvasTopologyFromConnections } from '@/components/canvas/topology/initialTopology';
 
 export type QuickSourceType = 'excel' | 'csv' | 'rest' | 'database';
 
@@ -136,7 +137,6 @@ export function QuickConnectionModal({
     try {
       const sourceName =
         uploadResult?.name || restName || dbName || (file ? file.name : 'Nueva Fuente');
-      const nodeId = `source_${Date.now()}`;
       const effectiveConnectionId =
         uploadResult?.connection_id ||
         (selectedType === 'database'
@@ -145,59 +145,50 @@ export function QuickConnectionModal({
             ? 'conn_excel_budget_default'
             : selectedType === 'rest'
               ? 'conn_rest_crm_default'
-              : undefined);
+              : `conn_${selectedType}_${Date.now()}`);
 
-      const newNode: Node<MidasNodeData> = {
-        id: nodeId,
-        type: 'source',
-        position: { x: 80, y: 150 },
-        data: {
-          id: nodeId,
-          connectionId: effectiveConnectionId,
+      const fullTopology = buildCanvasTopologyFromConnections([
+        {
           connection_id: effectiveConnectionId,
-          label: sourceName,
-          description: `Fuente de datos ${selectedType.toUpperCase()} conectada a Bronze`,
-          nodeType: 'source',
-          subType:
-            selectedType === 'excel'
-              ? 'excel'
-              : selectedType === 'csv'
-                ? 'excel'
+          name: sourceName,
+          source_type:
+            selectedType === 'database'
+              ? 'POSTGRES'
+              : selectedType === 'excel'
+                ? 'EXCEL'
                 : selectedType === 'rest'
-                  ? 'api'
-                  : 'postgresql',
-          status: 'HEALTHY',
-          recordsIn: uploadResult?.sample_rows?.length ? 1500 : 0,
-          recordsOut: uploadResult?.sample_rows?.length ? 1500 : 0,
-          latencyMs: 14,
-          lastUpdated: new Date().toISOString(),
-          details: {
-            connectionId: effectiveConnectionId,
-            connection_id: effectiveConnectionId,
-            engine:
-              selectedType === 'excel'
-                ? 'Apache POI / openpyxl'
-                : selectedType === 'csv'
-                  ? 'Streaming CSV Parser'
-                  : selectedType === 'rest'
-                    ? 'REST API Gateway'
-                    : 'PostgreSQL Operational',
-            schemaInfo: uploadResult?.detected_columns
-              ? uploadResult.detected_columns.join(', ')
-              : 'Auto-detectado',
-          },
+                  ? 'REST_API'
+                  : 'CSV',
         },
-      };
+      ]);
 
-      const existingNodes = activeTopology?.nodes || [];
-      const existingEdges = activeTopology?.edges || [];
-      const newTopology: TopologyStateDTO = {
-        nodes: [...existingNodes, newNode],
-        edges: existingEdges,
+      // Enriquecer metadatos específicos de la fuente en el primer nodo
+      if (fullTopology.nodes[0]) {
+        fullTopology.nodes[0].data.details = {
+          ...fullTopology.nodes[0].data.details,
+          engine:
+            selectedType === 'excel'
+              ? 'Apache POI / openpyxl'
+              : selectedType === 'csv'
+                ? 'Streaming CSV Parser'
+                : selectedType === 'rest'
+                  ? 'REST API Gateway'
+                  : 'PostgreSQL Operational',
+          schemaInfo: uploadResult?.detected_columns
+            ? uploadResult.detected_columns.join(', ')
+            : 'Auto-detectado',
+        };
+      }
+
+      const newTopology: TopologyStateDTO = fullTopology;
+      const sessionMetadata = {
+        connection_id: effectiveConnectionId,
+        connection_name: sourceName,
+        source_type: selectedType,
       };
 
       if (!activeSessionId) {
-        await createAndSelectSession(`Ingesta: ${sourceName}`, newTopology);
+        await createAndSelectSession(`Ingesta: ${sourceName}`, newTopology, sessionMetadata);
       } else {
         await saveTopology(newTopology.nodes, newTopology.edges);
       }

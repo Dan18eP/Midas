@@ -72,6 +72,8 @@ export interface CopilotChatController {
   status: CopilotAgentStatus;
   suggestions: string[];
   threadId: string;
+  connectionId?: string;
+  setConnectionId: (id?: string) => void;
   inferenceMode: 'local' | 'cloud';
   setInferenceMode: (mode: 'local' | 'cloud') => void;
   activeRole?: string;
@@ -85,8 +87,8 @@ export interface CopilotChatController {
   closeDrawer: () => void;
   toggleDrawer: () => void;
   toggleExpanded: () => void;
-  startNewChat: (sources?: Array<{ name: string; source_type?: string }>) => void;
-  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>) => void;
+  startNewChat: (sources?: Array<{ name: string; source_type?: string }>, connectionId?: string) => void;
+  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>, connectionId?: string) => void;
   setThreadId: (id: string) => void;
   setOnTurnComplete?: (callback: (threadId: string) => void) => void;
 }
@@ -102,6 +104,15 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   const [expanded, setExpanded] = useState(false);
   const [unread, setUnread] = useState(0);
   const [threadId, setThreadId] = useState<string>(() => createId('session'));
+  const [connectionId, setConnectionIdState] = useState<string | undefined>();
+  const connectionIdRef = useRef<string | undefined>(connectionId);
+  connectionIdRef.current = connectionId;
+
+  const setConnectionId = useCallback((id?: string) => {
+    setConnectionIdState(id);
+    connectionIdRef.current = id;
+  }, []);
+
   const [activeRole, setActiveRoleState] = useState<string>(() => options?.activeRole || 'director_general');
   const activeRoleRef = useRef(activeRole);
   activeRoleRef.current = activeRole;
@@ -161,6 +172,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         const payload = await sendChatMessage({
           message: content,
           threadId,
+          connectionId: connectionIdRef.current,
           userRole: activeRoleRef.current,
           inferenceMode: inferenceModeRef.current,
         });
@@ -236,18 +248,22 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
 
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
 
-  const startNewChat = useCallback((sources?: Array<{ name: string; source_type?: string }>) => {
+  const startNewChat = useCallback((sources?: Array<{ name: string; source_type?: string }>, newConnectionId?: string) => {
     clearPhaseTimers();
     setThreadId(createId('session'));
+    setConnectionIdState(newConnectionId);
+    connectionIdRef.current = newConnectionId;
     setMessages([createWelcomeMessage(sources)]);
     setSuggestions(DEFAULT_SUGGESTIONS);
     setStatus('idle');
   }, [clearPhaseTimers]);
 
   const loadSessionMessages = useCallback(
-    (newMessages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>) => {
+    (newMessages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>, newConnectionId?: string) => {
       clearPhaseTimers();
       setThreadId(newThreadId);
+      setConnectionIdState(newConnectionId);
+      connectionIdRef.current = newConnectionId;
       setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage(sources)]);
       setStatus('idle');
     },
@@ -262,6 +278,8 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       status,
       suggestions,
       threadId,
+      connectionId,
+      setConnectionId,
       inferenceMode,
       setInferenceMode,
       activeRole,
@@ -285,6 +303,8 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       status,
       suggestions,
       threadId,
+      connectionId,
+      setConnectionId,
       inferenceMode,
       setInferenceMode,
       activeRole,

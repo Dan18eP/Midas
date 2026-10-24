@@ -26,6 +26,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Unique session identifier for multi-turn state persistence. Auto-generated if omitted.",
     )
+    connection_id: Optional[str] = Field(
+        default=None,
+        description="Scoped connection identifier for the active session (1 session = 1 connection).",
+    )
     message: str = Field(..., min_length=1, description="Prompt, question or greeting from the user.")
     inference_mode: Optional[str] = Field(
         default="cloud",
@@ -273,6 +277,17 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
     user_message = payload.message.strip()
     user_role = getattr(request.state, "user_role", None) or request.headers.get("X-User-Role", "director_general")
 
+    effective_cid = payload.connection_id
+    if not effective_cid and thread_id:
+        try:
+            from src.core.session.store import get_session_store
+            s_store = get_session_store()
+            sess = s_store.get_session(thread_id)
+            if sess and sess.metadata and isinstance(sess.metadata, dict):
+                effective_cid = sess.metadata.get("connection_id")
+        except Exception:
+            pass
+
     if not user_message:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -439,6 +454,7 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
             user_message=user_message,
             user_role=user_role,
             inference_mode=inf_mode,
+            connection_id=effective_cid,
         )
     except HTTPException:
         raise

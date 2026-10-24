@@ -50,6 +50,16 @@ class MidasMinioClient:
         parsed = urllib.parse.urlparse(raw_endpoint if "://" in raw_endpoint else f"http://{raw_endpoint}")
         self.endpoint_host = parsed.netloc or parsed.path
         self.raw_endpoint = f"{parsed.scheme or 'http'}://{self.endpoint_host}"
+        
+        # Si corre en host externo a la red Docker y midas-minio no resuelve, redirigir a localhost
+        if "midas-minio" in self.endpoint_host:
+            try:
+                import socket
+                socket.gethostbyname("midas-minio")
+            except Exception:
+                self.endpoint_host = self.endpoint_host.replace("midas-minio", "localhost")
+                self.raw_endpoint = self.raw_endpoint.replace("midas-minio", "localhost")
+
         self.secure = secure or (parsed.scheme == "https")
         
         self.access_key = access_key or os.getenv("MINIO_ROOT_USER", "midas_minio_admin")
@@ -58,11 +68,17 @@ class MidasMinioClient:
         self._client: Optional[Minio] = None
         if Minio is not None:
             try:
+                import urllib3
+                pool = urllib3.PoolManager(
+                    timeout=urllib3.Timeout(connect=2.0, read=5.0),
+                    retries=urllib3.Retry(total=1, connect=1, read=1, status=0),
+                )
                 self._client = Minio(
                     self.endpoint_host,
                     access_key=self.access_key,
                     secret_key=self.secret_key,
                     secure=self.secure,
+                    http_client=pool,
                 )
             except Exception as e:
                 logger.warning(f"No se pudo inicializar Minio SDK directamente: {e}")
@@ -72,11 +88,17 @@ class MidasMinioClient:
         if self._client is None:
             if Minio is None:
                 raise RuntimeError("Librería 'minio' no está instalada en el entorno.")
+            import urllib3
+            pool = urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=2.0, read=5.0),
+                retries=urllib3.Retry(total=1, connect=1, read=1, status=0),
+            )
             self._client = Minio(
                 self.endpoint_host,
                 access_key=self.access_key,
                 secret_key=self.secret_key,
                 secure=self.secure,
+                http_client=pool,
             )
         return self._client
 
@@ -170,10 +192,15 @@ class MidasMinioClient:
             response.close()
             response.release_conn()
 
-    def list_objects(self, bucket: str, prefix: str = "") -> List[str]:
+    def list_objects(self, bucket: str, prefix: str = "", max_items: Optional[int] = None) -> List[str]:
         """Lista los nombres de objetos existentes bajo un prefijo en un bucket."""
         objects = self.client.list_objects(bucket, prefix=prefix, recursive=True)
-        return [obj.object_name for obj in objects]
+        res: List[str] = []
+        for obj in objects:
+            res.append(obj.object_name)
+            if max_items is not None and len(res) >= max_items:
+                break
+        return res
 
     def delete_object(self, bucket: str, object_name: str) -> bool:
         """Elimina un objeto del bucket."""

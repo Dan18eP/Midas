@@ -24,3 +24,5 @@ class AgentState(TypedDict, total=False):
     storytelling_result: dict[str, Any] | None
     response: str
     user_role: str
+    connection_id: str
+    inference_mode: str

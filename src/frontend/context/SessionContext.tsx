@@ -26,6 +26,7 @@ import type {
   ChatSessionSummary,
   GroupedSessions,
   SessionDateGroup,
+  SessionMetadata,
   TopologyStateDTO,
 } from '@/types/session';
 import {
@@ -35,6 +36,7 @@ import {
   updateSessionTopology,
   deleteSession as apiDeleteSession,
 } from '@/services/sessionService';
+import { buildCanvasTopologyFromConnections } from '@/components/canvas/topology/initialTopology';
 
 export type WorkspaceMode = 'welcome' | 'active';
 
@@ -51,7 +53,7 @@ export interface SessionContextValue {
   fetchSessions: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   startNewSession: () => void;
-  createAndSelectSession: (title?: string, initialTopology?: TopologyStateDTO) => Promise<string>;
+  createAndSelectSession: (title?: string, initialTopology?: TopologyStateDTO, metadata?: SessionMetadata) => Promise<string>;
   saveTopology: (nodes: Node<MidasNodeData>[], edges: Edge[]) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   setWorkspaceMode: (mode: WorkspaceMode) => void;
@@ -159,7 +161,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setActiveSession(detail);
 
         if (detail.topology_state && detail.topology_state.nodes) {
-          setActiveTopology(detail.topology_state);
+          let topState = detail.topology_state;
+          // Auto-sanar topologías previas que quedaron con un único nodo flotante aislado
+          if (topState.nodes.length === 1 && topState.nodes[0].type === 'source') {
+            const sNode = topState.nodes[0];
+            const connId = sNode.data.connectionId || (detail.metadata?.connection_id as string) || 'conn_restored';
+            const sName = sNode.data.label || 'Fuente Conectada';
+            const sType = sNode.data.subType || 'csv';
+            topState = buildCanvasTopologyFromConnections([{ connection_id: connId, name: sName, source_type: sType }]);
+          }
+          setActiveTopology(topState);
         } else {
           setActiveTopology(null);
         }
@@ -189,13 +200,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createAndSelectSession = useCallback(
-    async (title?: string, initialTopology?: TopologyStateDTO): Promise<string> => {
+    async (title?: string, initialTopology?: TopologyStateDTO, metadata?: SessionMetadata): Promise<string> => {
       setIsLoading(true);
       setError(null);
       try {
         const newSession = await apiCreateSession({
           title,
           topology_state: initialTopology,
+          metadata,
         });
         setSessions((prev) => [newSession, ...prev]);
         setActiveSessionId(newSession.session_id);
@@ -206,7 +218,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           title: newSession.title,
           created_at: newSession.created_at,
           updated_at: newSession.updated_at,
-          metadata: newSession.metadata,
+          metadata: newSession.metadata || metadata,
           topology_state: initialTopology || null,
           messages: [],
         });

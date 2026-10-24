@@ -72,7 +72,7 @@ async def list_quarantine_incidents() -> List[QuarantineIncidentSummary]:
 
     if minio_client.check_health():
         try:
-            for obj_name in minio_client.list_objects(QUARANTINE_BUCKET, prefix="incidents/"):
+            for obj_name in minio_client.list_objects(QUARANTINE_BUCKET, prefix="incidents/", max_items=100):
                 if not obj_name.endswith(".json"):
                     continue
                 parts = obj_name.split("/")
@@ -89,6 +89,8 @@ async def list_quarantine_incidents() -> List[QuarantineIncidentSummary]:
                         storage_uri=f"s3://{QUARANTINE_BUCKET}/{obj_name}",
                     )
                 )
+                if len(incidents) >= 100:
+                    break
         except Exception as exc:
             logger.debug("Error listando objetos de cuarentena en MinIO: %s", exc)
 

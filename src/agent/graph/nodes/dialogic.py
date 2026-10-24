@@ -60,7 +60,26 @@ def make_introspector(
     def introspect_schema(state: AgentState) -> dict[str, object]:
         sources = state.get("sources")
         if sources is None:
-            sources = source_provider() if source_provider else DEMO_SOURCES
+            all_sources = source_provider() if source_provider else DEMO_SOURCES
+            active_cid = state.get("connection_id")
+            if active_cid:
+                # Filtrar estrictamente a la conexión de esta sesión para aislamiento 1:1
+                active_cid_clean = str(active_cid).lower().replace("conn_", "")
+                filtered = [
+                    s for s in all_sources
+                    if str(s.get("connection_id", "")).lower() == str(active_cid).lower()
+                    or active_cid_clean in str(s.get("connection_id", "")).lower()
+                    or any(active_cid_clean in str(t.get("table", "")).lower() for t in s.get("tables", []) if isinstance(t, dict))
+                ]
+                gold_sources = [
+                    s for s in all_sources
+                    if s.get("kind") == "Iceberg" and any("gold." in str(t.get("table", "")).lower() for t in s.get("tables", []) if isinstance(t, dict))
+                ]
+                sources = filtered if filtered else all_sources
+                if filtered and gold_sources:
+                    sources = filtered + gold_sources
+            else:
+                sources = all_sources
         schemas = []
         for source in sources:
             schemas.extend(source.get("schemas", []))

@@ -202,7 +202,8 @@ function MidasConsoleWorkspace() {
     if (!activeSession) {
       if (lastLoadedSessionIdRef.current !== null) {
         lastLoadedSessionIdRef.current = null;
-        copilotChat.startNewChat(availableSources);
+        copilotChat.setConnectionId(undefined);
+        copilotChat.startNewChat(availableSources.slice(0, 1));
       }
       return;
     }
@@ -212,6 +213,18 @@ function MidasConsoleWorkspace() {
     }
 
     lastLoadedSessionIdRef.current = activeSession.session_id;
+
+    // Identificar la conexión exclusiva asociada a esta sesión (1 sesión = 1 conexión)
+    const sessionConnId =
+      (activeSession.metadata?.connection_id as string) ||
+      activeSession.topology_state?.nodes?.find((n) => n.data?.nodeType === 'source')?.data?.connectionId ||
+      currentNodes.find((n) => n.data?.nodeType === 'source')?.data?.connectionId;
+
+    const sessionSources = sessionConnId
+      ? availableSources.filter((s) => s.connection_id === sessionConnId)
+      : availableSources.slice(0, 1);
+
+    copilotChat.setConnectionId(sessionConnId);
 
     // Hidratación de mensajes de la sesión al Copiloto
     if (activeSession.messages && activeSession.messages.length > 0) {
@@ -226,11 +239,11 @@ function MidasConsoleWorkspace() {
         metricsSummary: m.metadata?.metrics_summary as Array<Record<string, unknown>> | undefined,
       }));
 
-      copilotChat.loadSessionMessages(mappedMessages, activeSession.session_id, availableSources);
+      copilotChat.loadSessionMessages(mappedMessages, activeSession.session_id, sessionSources, sessionConnId);
     } else {
-      copilotChat.loadSessionMessages([], activeSession.session_id, availableSources);
+      copilotChat.loadSessionMessages([], activeSession.session_id, sessionSources, sessionConnId);
     }
-  }, [activeSession, copilotChat, availableSources]);
+  }, [activeSession, copilotChat, availableSources, currentNodes]);
 
   // Manejo de envío de prompt desde la pantalla de bienvenida (ChatGPT-Style)
   const handleWelcomeSendPrompt = async (promptText: string) => {

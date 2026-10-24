@@ -484,28 +484,72 @@ class UniversalIngestionEngine:
             ]
         elif "CSV" in stype:
             file_path = source_config.get("file_path") or source_config.get("path")
-            if not file_path or not os.path.exists(file_path):
-                for alt_fp in ("data/uploads/ventas_octubre.csv", "tests/fixtures/ventas_prueba.csv"):
-                    if os.path.exists(alt_fp):
-                        file_path = alt_fp
-                        break
+            raw_items = []
             if file_path and isinstance(file_path, str) and os.path.exists(file_path):
                 try:
                     import csv
                     with open(file_path, "r", encoding="utf-8-sig", errors="replace") as f:
                         reader = csv.DictReader(f)
                         raw_items = [row for row in reader if any(v is not None and v != "" for v in row.values())]
-                    if raw_items:
-                        cols = list(raw_items[0].keys())
-                        fp = compute_schema_fingerprint(cols)
-                        records = [
-                            create_bronze_envelope(item, stype, origin, bid, schema_fingerprint=fp)
-                            for item in raw_items
-                        ]
                 except Exception as exc:
                     logger.warning("No se pudo leer archivo CSV local (%s): %s.", file_path, exc)
+
+            # Fallback 1: Buscar en MinIO S3 si el archivo crudo fue respaldado en el bucket
+            has_s3_ref = bool(source_config.get("filename") or source_config.get("storage_uri") or source_config.get("s3_key"))
+            if not raw_items and self.minio_client and cid and has_s3_ref:
+                clean_fn = source_config.get("filename") or (os.path.basename(file_path) if file_path else None)
+                if clean_fn:
+                    s3_key = f"sources/{cid}/raw/{clean_fn}"
+                    try:
+                        raw_bytes = self.minio_client.get_object("midas-bronze", s3_key)
+                        if raw_bytes:
+                            import csv
+                            import io
+                            text_data = raw_bytes.decode("utf-8-sig", errors="replace")
+                            reader = csv.DictReader(io.StringIO(text_data))
+                            raw_items = [row for row in reader if any(v is not None and v != "" for v in row.values())]
+                    except Exception as s3_err:
+                        logger.debug("No se pudo obtener CSV desde MinIO S3 (%s): %s", s3_key, s3_err)
+
+            # Fallback 2: fixtures por defecto si aplica en tests
+            if not raw_items and (not file_path or not os.path.exists(file_path)):
+                for alt_fp in ("data/uploads/ventas_octubre.csv", "tests/fixtures/ventas_prueba.csv"):
+                    if os.path.exists(alt_fp):
+                        try:
+                            import csv
+                            with open(alt_fp, "r", encoding="utf-8-sig", errors="replace") as f:
+                                reader = csv.DictReader(f)
+                                raw_items = [row for row in reader if any(v is not None and v != "" for v in row.values())]
+                            if raw_items:
+                                break
+                        except Exception:
+                            pass
+
+            if raw_items:
+                cols = list(raw_items[0].keys())
+                fp = compute_schema_fingerprint(cols)
+                records = [
+                    create_bronze_envelope(item, stype, origin, bid, schema_fingerprint=fp)
+                    for item in raw_items
+                ]
         elif "EXCEL" in stype:
             file_path = source_config.get("file_path") or source_config.get("path")
+            has_s3_ref = bool(source_config.get("filename") or source_config.get("storage_uri") or source_config.get("s3_key"))
+            if (not file_path or not os.path.exists(file_path)) and self.minio_client and cid and has_s3_ref:
+                clean_fn = source_config.get("filename") or (os.path.basename(file_path) if file_path else None)
+                if clean_fn:
+                    s3_key = f"sources/{cid}/raw/{clean_fn}"
+                    try:
+                        raw_bytes = self.minio_client.get_object("midas-bronze", s3_key)
+                        if raw_bytes:
+                            local_tmp = Path(f"data/uploads/{clean_fn}")
+                            local_tmp.parent.mkdir(parents=True, exist_ok=True)
+                            with open(local_tmp, "wb") as f:
+                                f.write(raw_bytes)
+                            file_path = str(local_tmp)
+                    except Exception as s3_err:
+                        logger.debug("No se pudo obtener Excel desde MinIO S3 (%s): %s", s3_key, s3_err)
+
             if not file_path or not os.path.exists(file_path):
                 for alt_fp in ("data/uploads/presupuesto_q4.xlsx", "tests/fixtures/presupuesto_multisheet.xlsx"):
                     if os.path.exists(alt_fp):

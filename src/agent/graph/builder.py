@@ -70,18 +70,22 @@ def invoke_turn(
     user_message: str,
     user_role: str = "director_general",
     inference_mode: str = "cloud",
+    connection_id: str | None = None,
 ) -> AgentState:
     """Envía un turno y lo guarda en la sesión indicada con su rol Zero-Trust."""
     if not thread_id.strip():
         raise ValueError("thread_id no puede estar vacío.")
     if not user_message.strip():
         raise ValueError("El mensaje no puede estar vacío.")
+    payload: dict[str, Any] = {
+        "messages": [HumanMessage(content=user_message)],
+        "user_message": user_message,
+        "user_role": user_role,
+        "inference_mode": inference_mode,
+    }
+    if connection_id:
+        payload["connection_id"] = connection_id
     return graph.invoke(
-        {
-            "messages": [HumanMessage(content=user_message)],
-            "user_message": user_message,
-            "user_role": user_role,
-            "inference_mode": inference_mode,
-        },
+        payload,
         {"configurable": {"thread_id": thread_id}},
     )
