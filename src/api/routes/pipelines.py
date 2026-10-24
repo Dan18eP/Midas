@@ -17,7 +17,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from src.core.telemetry.events import NodeStatus, TelemetryEvent
@@ -131,6 +131,8 @@ def resolve_connection(
 )
 async def trigger_pipeline(
     connection_id: str,
+    request: Request,
+    include_gold: bool = Query(False, description="Indica si debe materializarse automáticamente la capa Gold"),
     registry: SourceConnectionRegistry = Depends(get_connection_registry),
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineTriggerResponse:
@@ -345,7 +347,11 @@ async def trigger_pipeline(
             f"silver.clean_{clean_suffix}",
         ]
         gold_count = 0
-        should_generate_gold = bool(os.getenv("PYTEST_CURRENT_TEST") or str(request.query_params.get("include_gold", "")).lower() == "true")
+        should_generate_gold = bool(
+            include_gold
+            or os.getenv("PYTEST_CURRENT_TEST")
+            or (request is not None and str(request.query_params.get("include_gold", "")).lower() == "true")
+        )
 
         if should_generate_gold:
             silver_data = transform_result.valid_records
