@@ -103,6 +103,10 @@ def build_echarts_option(rows: list[dict[str, object]], user_prompt: str | None 
     # 4. Barras categóricas estándar (verticales u horizontales)
     if category and numeric:
         column = numeric[0]
+        col_vals = [_chart_value(row.get(column)) for row in rows]
+        if all(v in (1, 1.0, "1", 0, 0.0, "0") for v in col_vals) and len(col_vals) > 1 and not wants_bar:
+            return _empty_option(option)
+
         option.update(
             {
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -112,7 +116,7 @@ def build_echarts_option(rows: list[dict[str, object]], user_prompt: str | None 
                     {
                         "name": column,
                         "type": "bar",
-                        "data": [_chart_value(row.get(column)) for row in rows],
+                        "data": col_vals,
                         "itemStyle": {"borderRadius": [0, 4, 4, 0]},
                     }
                 ],

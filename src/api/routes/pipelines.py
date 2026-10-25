@@ -369,6 +369,41 @@ async def trigger_pipeline(
                             f'CREATE TABLE IF NOT EXISTS iceberg.silver."{clean_tbl}" ({", ".join(col_defs_list)})'
                         )
                         logger.info("Tabla iceberg.silver.%s registrada en Trino", clean_tbl)
+
+                        # Poblar registros en la tabla Iceberg si actualmente está vacía
+                        try:
+                            chk_res = tc.execute_query_sync(f'SELECT count(*) as cnt FROM iceberg.silver."{clean_tbl}"')
+                            cnt = 0
+                            if chk_res and chk_res.data:
+                                cnt = int(chk_res.data[0].get("cnt", 0) or 0)
+                            if cnt == 0 and transform_result.valid_records:
+                                valid_cols = [re.sub(r"[^a-zA-Z0-9_]", "_", str(k)).strip("_") or "col" for k in first_item.keys()]
+                                cols_sql = ", ".join([f'"{c}"' for c in valid_cols])
+                                batch_sample = transform_result.valid_records[:2000]
+                                chunk_size = 500
+                                for i in range(0, len(batch_sample), chunk_size):
+                                    chunk = batch_sample[i : i + chunk_size]
+                                    rows_values = []
+                                    for r in chunk:
+                                        r_vals = []
+                                        for k in first_item.keys():
+                                            v = r.get(k)
+                                            if v is None:
+                                                r_vals.append("NULL")
+                                            elif isinstance(v, bool):
+                                                r_vals.append("TRUE" if v else "FALSE")
+                                            elif isinstance(v, (int, float)):
+                                                r_vals.append(str(v))
+                                            else:
+                                                clean_v = str(v).replace("'", "''")
+                                                r_vals.append(f"'{clean_v}'")
+                                        rows_values.append(f"({', '.join(r_vals)})")
+                                    if rows_values:
+                                        insert_sql = f'INSERT INTO iceberg.silver."{clean_tbl}" ({cols_sql}) VALUES {", ".join(rows_values)}'
+                                        tc.execute_ddl_sync(insert_sql)
+                                logger.info("Poblados %s registros en iceberg.silver.%s exitosamente", len(batch_sample), clean_tbl)
+                        except Exception as pop_err:
+                            logger.debug("Omitida insercion directa en Trino Iceberg: %s", pop_err)
             except Exception as trino_reg_err:
                 logger.debug("Omitido registro DDL en Trino: %s", trino_reg_err)
 

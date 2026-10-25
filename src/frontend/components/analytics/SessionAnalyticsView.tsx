@@ -94,7 +94,6 @@ export function SessionAnalyticsView({
         .replace(/[^a-z0-9_]/g, '_');
       candidateTables.push(`silver.clean_${cleanSuffix}`);
       candidateTables.push(`gold.gold_${cleanSuffix}`);
-      candidateTables.push(`gold.${cleanSuffix}`);
     }
 
     const uniqueCandidates = Array.from(new Set(candidateTables));
@@ -146,17 +145,23 @@ export function SessionAnalyticsView({
     }
 
     if (foundTables.length > 0) {
-      setAvailableTables(Array.from(new Set([...availableTables, ...foundTables])));
+      setAvailableTables((prev) => {
+        const combined = Array.from(new Set([...prev, ...foundTables]));
+        if (combined.length === prev.length && combined.every((t, i) => t === prev[i])) {
+          return prev;
+        }
+        return combined;
+      });
     }
 
-    if (!loaded && realData.length === 0) {
-      setRealData([]);
-      setRealColumns([]);
-      setRealTotalCount(null);
-      setActiveTableName(targetTable || candidateTables[0] || 'silver');
+    if (!loaded) {
+      setRealData((prev) => (targetTable && targetTable !== selectedTable ? [] : prev));
+      if (!targetTable || targetTable === candidateTables[0]) {
+        setActiveTableName(candidateTables[0] || 'silver');
+      }
     }
     setIsQueryingData(false);
-  }, [sessionConnId, sessionSourceName, selectedTable, availableTables, realData.length]);
+  }, [sessionConnId, selectedTable]);
 
   useEffect(() => {
     loadTableData(selectedTable);
@@ -408,7 +413,13 @@ export function SessionAnalyticsView({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-[#1C1E21]">
-              {realTotalCount !== null ? realTotalCount.toLocaleString() : (metrics.bronzeIn > 0 ? metrics.bronzeIn.toLocaleString() : 'Standby')}
+              {realTotalCount !== null && realTotalCount > 0
+                ? realTotalCount.toLocaleString()
+                : metrics.bronzeIn > 0
+                ? metrics.bronzeIn.toLocaleString()
+                : realData.length > 0
+                ? `${realData.length.toLocaleString()}+`
+                : 'Standby'}
             </span>
             <span className="text-[10px] text-[#787164]">filas</span>
           </div>
@@ -424,7 +435,13 @@ export function SessionAnalyticsView({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-[#4D7C0F]">
-              {realTotalCount !== null ? realTotalCount.toLocaleString() : (metrics.silverClean > 0 ? metrics.silverClean.toLocaleString() : 'Standby')}
+              {realTotalCount !== null && realTotalCount > 0
+                ? realTotalCount.toLocaleString()
+                : metrics.silverClean > 0
+                ? metrics.silverClean.toLocaleString()
+                : realData.length > 0
+                ? `${realData.length.toLocaleString()}+`
+                : 'Standby'}
             </span>
             {metrics.silverQuarantine > 0 && (
               <span className="text-[10px] font-mono text-[#A8422B] bg-[#FFF8F5] px-1.5 py-0.5 rounded border border-[#ECCFC5]">
