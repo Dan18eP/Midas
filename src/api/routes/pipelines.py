@@ -349,61 +349,75 @@ async def trigger_pipeline(
                 from src.core.query_engine.trino_client import TrinoClient
                 tc = TrinoClient()
                 if not os.getenv("PYTEST_CURRENT_TEST"):
-                    first_item = transform_result.valid_records[0]
-                    col_defs_list = []
-                    for k, v in first_item.items():
-                        c_name = re.sub(r"[^a-zA-Z0-9_]", "_", str(k)).strip("_") or "col"
-                        if isinstance(v, bool):
-                            col_type = "BOOLEAN"
-                        elif isinstance(v, int):
-                            col_type = "BIGINT"
-                        elif isinstance(v, float):
-                            col_type = "DOUBLE"
-                        else:
-                            col_type = "VARCHAR"
-                        col_defs_list.append(f'"{c_name}" {col_type}')
+                    import pandas as pd
+                    import pyarrow as pa
+                    from pyiceberg.catalog import load_catalog
+
+                    df_records = pd.DataFrame(transform_result.valid_records)
+                    clean_cols = {col: re.sub(r"[^a-zA-Z0-9_]", "_", str(col).lower()).strip("_") or "col" for col in df_records.columns}
+                    df_records.rename(columns=clean_cols, inplace=True)
+                    for c in df_records.columns:
+                        df_records[c] = df_records[c].fillna("").astype(str)
+
+                    col_defs_list = [f'"{c}" VARCHAR' for c in df_records.columns]
 
                     if col_defs_list:
                         tc.execute_ddl_sync("CREATE SCHEMA IF NOT EXISTS iceberg.silver")
                         tc.execute_ddl_sync(
                             f'CREATE TABLE IF NOT EXISTS iceberg.silver."{clean_tbl}" ({", ".join(col_defs_list)})'
                         )
-                        logger.info("Tabla iceberg.silver.%s registrada en Trino", clean_tbl)
+                        logger.info("Tabla iceberg.silver.%s verificada en Trino", clean_tbl)
 
-                        # Poblar registros en la tabla Iceberg si actualmente está vacía
+                        # Sincronización atómica de los datos limpios reales mediante PyIceberg
                         try:
-                            chk_res = tc.execute_query_sync(f'SELECT count(*) as cnt FROM iceberg.silver."{clean_tbl}"')
-                            cnt = 0
-                            if chk_res and chk_res.data:
-                                cnt = int(chk_res.data[0].get("cnt", 0) or 0)
-                            if cnt == 0 and transform_result.valid_records:
-                                valid_cols = [re.sub(r"[^a-zA-Z0-9_]", "_", str(k)).strip("_") or "col" for k in first_item.keys()]
-                                cols_sql = ", ".join([f'"{c}"' for c in valid_cols])
-                                batch_sample = transform_result.valid_records[:2000]
-                                chunk_size = 500
-                                for i in range(0, len(batch_sample), chunk_size):
-                                    chunk = batch_sample[i : i + chunk_size]
-                                    rows_values = []
-                                    for r in chunk:
-                                        r_vals = []
-                                        for k in first_item.keys():
-                                            v = r.get(k)
-                                            if v is None:
-                                                r_vals.append("NULL")
-                                            elif isinstance(v, bool):
-                                                r_vals.append("TRUE" if v else "FALSE")
-                                            elif isinstance(v, (int, float)):
-                                                r_vals.append(str(v))
-                                            else:
-                                                clean_v = str(v).replace("'", "''")
-                                                r_vals.append(f"'{clean_v}'")
-                                        rows_values.append(f"({', '.join(r_vals)})")
-                                    if rows_values:
-                                        insert_sql = f'INSERT INTO iceberg.silver."{clean_tbl}" ({cols_sql}) VALUES {", ".join(rows_values)}'
-                                        tc.execute_ddl_sync(insert_sql)
-                                logger.info("Poblados %s registros en iceberg.silver.%s exitosamente", len(batch_sample), clean_tbl)
-                        except Exception as pop_err:
-                            logger.debug("Omitida insercion directa en Trino Iceberg: %s", pop_err)
+                            iceberg_rest_uri = os.getenv("ICEBERG_REST_URI")
+                            if not iceberg_rest_uri:
+                                iceberg_rest_uri = "http://midas-iceberg-catalog:8181" if os.path.exists("/.dockerenv") else "http://localhost:8181"
+
+                            minio_ep = os.getenv("MINIO_ENDPOINT")
+                            if not minio_ep:
+                                minio_ep = "http://midas-minio:9000" if os.path.exists("/.dockerenv") else "http://localhost:9000"
+
+                            s3_key_id = os.getenv("MINIO_ROOT_USER", os.getenv("MINIO_ACCESS_KEY", "midas_minio_admin"))
+                            s3_secret = os.getenv("MINIO_ROOT_PASSWORD", os.getenv("MINIO_SECRET_KEY", "midas_minio_secret_2026"))
+
+                            iceberg_cat = load_catalog("iceberg", **{
+                                "type": "rest",
+                                "uri": iceberg_rest_uri,
+                                "s3.endpoint": minio_ep,
+                                "s3.access-key-id": s3_key_id,
+                                "s3.secret-access-key": s3_secret,
+                                "s3.region": "us-east-1",
+                            })
+
+                            tbl = iceberg_cat.load_table(("silver", clean_tbl))
+                            arrow_tbl = pa.Table.from_pandas(df_records)
+                            tbl.overwrite(arrow_tbl)
+                            logger.info("Sincronizados %s registros reales en iceberg.silver.%s exitosamente vía PyIceberg", len(arrow_tbl), clean_tbl)
+                        except Exception as iceberg_sync_err:
+                            logger.debug("Omitida sincronización PyIceberg directa: %s. Aplicando fallback Trino DDL.", iceberg_sync_err)
+                            try:
+                                chk_res = tc.execute_query_sync(f'SELECT count(*) as cnt FROM iceberg.silver."{clean_tbl}"')
+                                cnt = int(chk_res.data[0].get("cnt", 0) or 0) if chk_res and chk_res.data else 0
+                                if cnt == 0 and len(df_records) > 0:
+                                    valid_cols = list(df_records.columns)
+                                    cols_sql = ", ".join([f'"{c}"' for c in valid_cols])
+                                    batch_sample = df_records.to_dict(orient="records")[:5000]
+                                    chunk_size = 500
+                                    for i in range(0, len(batch_sample), chunk_size):
+                                        chunk = batch_sample[i : i + chunk_size]
+                                        rows_values = []
+                                        for r in chunk:
+                                            r_vals = []
+                                            for c in valid_cols:
+                                                clean_val = str(r[c]).replace("'", "''")
+                                                r_vals.append(f"'{clean_val}'")
+                                            rows_values.append(f"({', '.join(r_vals)})")
+                                        if rows_values:
+                                            insert_sql = f'INSERT INTO iceberg.silver."{clean_tbl}" ({cols_sql}) VALUES {", ".join(rows_values)}'
+                                            tc.execute_ddl_sync(insert_sql)
+                            except Exception as fb_err:
+                                logger.debug("Fallback de inserción Trino: %s", fb_err)
             except Exception as trino_reg_err:
                 logger.debug("Omitido registro DDL en Trino: %s", trino_reg_err)
 
