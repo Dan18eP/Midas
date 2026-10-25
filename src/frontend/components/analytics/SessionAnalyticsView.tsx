@@ -93,7 +93,6 @@ export function SessionAnalyticsView({
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '_');
       candidateTables.push(`silver.clean_${cleanSuffix}`);
-      candidateTables.push(`gold.gold_${cleanSuffix}`);
     }
 
     const uniqueCandidates = Array.from(new Set(candidateTables));
@@ -114,7 +113,13 @@ export function SessionAnalyticsView({
     for (const tbl of tablesToTry) {
       try {
         const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
-        if (result && result.data && result.data.length > 0) {
+        const isValidColumns = Boolean(
+          result &&
+          Array.isArray(result.columns) &&
+          result.columns.length > 0 &&
+          !result.columns.includes('*')
+        );
+        if (result && Array.isArray(result.data) && result.data.length > 0 && isValidColumns) {
           if (!loaded) {
             setRealData(result.data as TablePreviewRow[]);
             setRealColumns(result.columns || Object.keys(result.data[0]));

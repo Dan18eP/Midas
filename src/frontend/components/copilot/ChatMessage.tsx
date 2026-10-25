@@ -256,7 +256,7 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
 
         {!isUser && metrics.length > 0 && (
           <div className="flex flex-wrap gap-1.5" data-testid="metrics-summary-chips">
-            {metrics.map((metric, index) => {
+            {metrics.slice(0, 4).map((metric, index) => {
               const label = String(metric.label ?? metric.name ?? `Métrica ${index + 1}`);
               const value = metric.value === undefined || metric.value === null ? '—' : formatChartValue(metric.value);
               const description = typeof metric.description === 'string' ? metric.description : label;

@@ -468,6 +468,10 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
     intent = result_state.get("intent")
     needs_clarification = result_state.get("needs_clarification", False)
 
+    if needs_clarification:
+        echarts_option = None
+        metrics_summary = []
+
     # Check structured storytelling_result from HU-AI-03
     storytelling_result = result_state.get("storytelling_result")
     if isinstance(storytelling_result, dict):

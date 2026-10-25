@@ -53,6 +53,9 @@ _SUPPORTED_NUMERIC_COLUMNS = {
     "peso",
     "duracion",
     "unidades",
+    "data_value",
+    "magnitude",
+    "period",
 }
 
 
@@ -435,7 +438,7 @@ def deterministic_sql(
             # Fallback a la primera columna numérica detectable
             candidates = [
                 c for c in columns
-                if any(k in c for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "stock", "horas", "unitprice", "quantity", "importe"))
+                if any(k in c for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "stock", "horas", "unitprice", "quantity", "importe", "data_value", "magnitude"))
             ]
             if candidates:
                 num_col = candidates[0]
@@ -496,7 +499,9 @@ def _allowed_tables(
 def _numeric_column(question: str, columns: set[str]) -> str:
     synonyms = {
         "venta": "monto",
+        "ventas": "monto",
         "ingreso": "monto",
+        "ingresos": "monto",
         "revenue": "monto",
         "costos": "costo_operativo_fijo",
         "gastos": "gasto_marketing",
@@ -509,10 +514,17 @@ def _numeric_column(question: str, columns: set[str]) -> str:
         "inventario": "stock",
         "precio": "precio",
         "cantidad": "cantidad",
+        "valor": "data_value",
+        "data_value": "data_value",
+        "magnitude": "magnitude",
+        "period": "period",
     }
     for word, column in synonyms.items():
-        if word in question and column in columns:
-            return column
+        if word in question:
+            if column in columns:
+                return column
+            if word in ("venta", "ventas", "monto", "ingreso", "ingresos", "revenue", "valor") and "data_value" in columns:
+                return "data_value"
     for column in sorted(columns, key=len, reverse=True):
         if column in columns and re.search(rf"\b{re.escape(column)}\b", question):
             return column
@@ -522,7 +534,7 @@ def _numeric_column(question: str, columns: set[str]) -> str:
     candidates = columns & _SUPPORTED_NUMERIC_COLUMNS
     if len(candidates) == 1:
         return candidates.pop()
-    num_like = [c for c in columns if any(k in c for k in ("monto", "total", "precio", "costo", "salario", "sueldo", "horas", "cantidad", "stock", "valor", "edad", "peso", "temp", "score", "rating"))]
+    num_like = [c for c in columns if any(k in c for k in ("monto", "total", "precio", "costo", "salario", "sueldo", "horas", "cantidad", "stock", "valor", "data_value", "magnitude", "edad", "peso", "temp", "score", "rating"))]
     if len(num_like) == 1:
         return num_like[0]
     raise ValueError("La columna métrica no está indicada de forma inequívoca.")

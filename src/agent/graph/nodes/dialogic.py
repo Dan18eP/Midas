@@ -116,14 +116,17 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
     if state.get("needs_clarification"):
         pending = str(state.get("pending_query") or state.get("user_message") or "").lower()
         if any(k in pending for k in ("venta", "ingreso", "facturaci")):
-            question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026?"
+            question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026? (o escribe 'todos los años' para el histórico global)"
+            suggestions = ["todos los años", "2024", "2025", "2026"]
         else:
             question = "¿Podrías indicar la dimensión de agrupación o el período que deseas analizar en tus datos?"
+            suggestions = []
         return {
             "clarification": question,
             "response": question,
-            "suggestions": [],
+            "suggestions": suggestions,
             "messages": [AIMessage(content=question)],
+            "storytelling_result": None,
         }
 
     sources = state.get("sources", DEMO_SOURCES)

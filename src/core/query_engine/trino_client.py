@@ -847,10 +847,8 @@ class TrinoClient:
                 {"table_schema": "gold", "table_name": "fct_ventas_diarias", "column_name": "ticket_promedio"},
             ]
         else:
-            # Fallback genérico para SHOW / DESCRIBE u otras consultas
-            sample_records = [
-                {col: f"val_{col}_1" if "char" in col_type else 100 for col, col_type in zip(columns, column_types)}
-            ]
+            # Si no es ninguna tabla de catálogo ni datos reales cargados, no inventar datos ficticios
+            sample_records = []
 
         # Reflejar RLS si hay filtro de fila activo en la politica
         if security_policy and security_policy.get("row_filter_applied"):
@@ -880,9 +878,13 @@ class TrinoClient:
             )
 
         # Si se solicitó SELECT *, proyectar todas las columnas de negocio reales
-        if any("*" in c for c in columns) and sample_records:
-            columns = [k for k in sample_records[0].keys() if not k.startswith("_")]
-            column_types = ["varchar" for _ in columns]
+        if any("*" in c for c in columns):
+            if sample_records:
+                columns = [k for k in sample_records[0].keys() if not k.startswith("_")]
+                column_types = ["varchar" for _ in columns]
+            else:
+                columns = []
+                column_types = []
 
         # Respetar LIMIT si se especificó
         limit_expr = parsed.find(exp.Limit)
