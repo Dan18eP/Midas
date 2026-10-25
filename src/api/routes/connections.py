@@ -299,10 +299,20 @@ async def upload_source_file(
     try:
         registered = registry.register_connection(create_dto)
     except ValueError as val_err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(val_err),
-        )
+        if "Ya existe una conexión registrada" in str(val_err):
+            # Buscar la conexión existente para reutilizarla
+            existing_conn = next((c for c in registry.list_connections() if c.name == conn_name), None)
+            if existing_conn:
+                registered = existing_conn
+            else:
+                import uuid
+                create_dto.name = f"{conn_name}_{uuid.uuid4().hex[:4]}"
+                registered = registry.register_connection(create_dto)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(val_err),
+            )
 
     cid = registered.connection_id
     storage_path = f"s3://midas-bronze/sources/{cid}/raw/{clean_filename}"

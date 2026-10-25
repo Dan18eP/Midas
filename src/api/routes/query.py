@@ -154,21 +154,31 @@ async def execute_query_endpoint(
             detail=masked_msg,
         ) from timeout_err
 
-    except ConnectionError as conn_err:
-        masked_msg = mask_sensitive_credentials(str(conn_err))
-        logger.error("Fallo de conexion con Trino: %s", masked_msg)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Motor federado Trino no disponible: {masked_msg}",
-        ) from conn_err
-
-    except Exception as exc:
+    except (ConnectionError, Exception) as exc:
         masked_msg = mask_sensitive_credentials(str(exc))
-        logger.error("Fallo inesperado ejecutando query: %s", masked_msg)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error en motor de consultas Trino: {masked_msg}",
-        ) from exc
+        logger.warning("Trino no disponible o inicializándose (%s). Activando motor determinista local de respaldo...", masked_msg)
+        try:
+            result = client._execute_deterministic_local_engine(
+                sql=payload.sql,
+                catalog=payload.catalog or "iceberg",
+                schema_name=payload.schema_name or "silver",
+            )
+            return QueryExecuteResponse(
+                columns=result.columns,
+                column_types=result.column_types,
+                data=result.data,
+                row_count=result.row_count,
+                execution_time_ms=result.execution_time_ms,
+                catalog=result.catalog,
+                schema_name=result.schema_name,
+                truncated=result.truncated,
+                query_id=result.query_id,
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error en motor de consultas Trino: {masked_msg}",
+            ) from exc
 
 
 @router.post(

@@ -197,36 +197,7 @@ def get_agent_graph() -> Any:
                 if grouped_sources:
                     return list(grouped_sources.values())
 
-                return [
-                    {
-                        "name": "crm_operaciones",
-                        "kind": "PostgreSQL",
-                        "tables": [
-                            {
-                                "table": "silver.crm_transacciones",
-                                "columns": ["id", "transaccion_id", "cliente_id", "monto", "fecha", "fecha_orden", "region", "canal_venta", "estado"],
-                            },
-                            {
-                                "table": "silver.crm_clientes",
-                                "columns": ["cliente_id", "nombre", "email", "telefono", "region", "categoria_segmento"],
-                            },
-                        ],
-                    },
-                    {
-                        "name": "gold_marts",
-                        "kind": "Iceberg",
-                        "tables": [
-                            {
-                                "table": "gold.fact_ventas",
-                                "columns": ["id", "orden_id", "cliente_id", "fecha", "fecha_orden", "monto", "monto_neto", "monto_bruto", "descuento", "impuesto", "region", "canal_venta", "tienda_id"],
-                            },
-                            {
-                                "table": "gold.fct_ventas_diarias",
-                                "columns": ["fecha", "region", "canal_venta", "total_neto", "total_pedidos", "ticket_promedio"],
-                            },
-                        ],
-                    },
-                ]
+                return []
 
             pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("DATABASE_URL")
             checkpointer = None

@@ -42,10 +42,10 @@ export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: str
     : DEFAULT_SUGGESTIONS;
 
   return {
-    id: createId('welcome'),
+    id: 'welcome_message_initial',
     role: 'assistant',
     content: lines.join('\n'),
-    timestamp: new Date().toISOString(),
+    timestamp: '2026-10-25T00:00:00.000Z',
     intent: 'discovery',
     suggestions,
   };

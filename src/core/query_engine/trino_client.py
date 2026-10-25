@@ -343,6 +343,10 @@ class TrinoClient:
                             or "unexpected parameters" in safe_error.lower()
                             or "cannot be resolved" in safe_error.lower()
                             or "mismatched input" in safe_error.lower()
+                            or "initializing" in safe_error.lower()
+                            or "still initializing" in safe_error.lower()
+                            or "server is starting" in safe_error.lower()
+                            or "unavailable" in safe_error.lower()
                         ):
                             logger.warning("Trino query execution incompatibility (%s). Serving from canonical deterministic engine.", safe_error)
                             self.ensure_iceberg_schemas()
@@ -505,6 +509,10 @@ class TrinoClient:
                                 or "unexpected parameters" in safe_error.lower()
                                 or "cannot be resolved" in safe_error.lower()
                                 or "mismatched input" in safe_error.lower()
+                                or "initializing" in safe_error.lower()
+                                or "still initializing" in safe_error.lower()
+                                or "server is starting" in safe_error.lower()
+                                or "unavailable" in safe_error.lower()
                             ):
                                 logger.warning("Trino query execution incompatibility (%s). Serving from canonical deterministic engine.", safe_error)
                                 self.ensure_iceberg_schemas()

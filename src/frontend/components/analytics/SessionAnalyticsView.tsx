@@ -85,7 +85,7 @@ export function SessionAnalyticsView({
     setIsQueryingData(true);
     setQueryError(null);
 
-    // Determinar tablas candidatas a consultar según la fuente de esta sesión
+    // Determinar tablas candidatas a consultar exclusivamente según la fuente de esta sesión (1 Sesión = 1 Conexión)
     let candidateTables: string[] = [];
     if (sessionConnId) {
       const cleanSuffix = sessionConnId
@@ -93,28 +93,21 @@ export function SessionAnalyticsView({
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '_');
       candidateTables.push(`silver.clean_${cleanSuffix}`);
-      candidateTables.push(`silver.${cleanSuffix}`);
-      const cleanName = sessionSourceName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-      candidateTables.push(`silver.clean_${cleanName}`);
       candidateTables.push(`gold.gold_${cleanSuffix}`);
       candidateTables.push(`gold.${cleanSuffix}`);
     }
 
-    // Agregar fallback para tablas de conexiones registradas
-    connections.forEach((c) => {
-      const cleanSuffix = c.connection_id
-        .replace(/^conn_/, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, '_');
-      candidateTables.push(`silver.clean_${cleanSuffix}`);
-      candidateTables.push(`gold.gold_${cleanSuffix}`);
-    });
-    candidateTables.push('gold.fact_ventas');
-
     const uniqueCandidates = Array.from(new Set(candidateTables));
-    const tablesToTry = targetTable
-      ? [targetTable, ...uniqueCandidates.filter((t) => t !== targetTable)]
-      : uniqueCandidates;
+    if (uniqueCandidates.length === 0) {
+      setRealData([]);
+      setRealColumns([]);
+      setRealTotalCount(null);
+      setActiveTableName('');
+      setIsQueryingData(false);
+      return;
+    }
+
+    const tablesToTry = targetTable ? [targetTable] : uniqueCandidates;
 
     let loaded = false;
     const foundTables: string[] = [];
@@ -127,7 +120,9 @@ export function SessionAnalyticsView({
             setRealData(result.data as TablePreviewRow[]);
             setRealColumns(result.columns || Object.keys(result.data[0]));
             setActiveTableName(tbl);
-            setSelectedTable(tbl);
+            if (!selectedTable) {
+              setSelectedTable(tbl);
+            }
             loaded = true;
 
             // Obtener conteo total real
@@ -151,21 +146,21 @@ export function SessionAnalyticsView({
     }
 
     if (foundTables.length > 0) {
-      setAvailableTables(Array.from(new Set(foundTables)));
+      setAvailableTables(Array.from(new Set([...availableTables, ...foundTables])));
     }
 
-    if (!loaded) {
+    if (!loaded && realData.length === 0) {
       setRealData([]);
       setRealColumns([]);
       setRealTotalCount(null);
       setActiveTableName(targetTable || candidateTables[0] || 'silver');
     }
     setIsQueryingData(false);
-  }, [sessionConnId, sessionSourceName, connections]);
+  }, [sessionConnId, sessionSourceName, selectedTable, availableTables, realData.length]);
 
   useEffect(() => {
     loadTableData(selectedTable);
-  }, [loadTableData, selectedTable, activeTab]);
+  }, [loadTableData, selectedTable]);
 
   const handleRunPipeline = async () => {
     if (!sessionConnId) return;

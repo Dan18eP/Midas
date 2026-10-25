@@ -89,11 +89,12 @@ def make_introspector(
                 ]
                 gold_sources = [
                     s for s in all_sources
-                    if s.get("kind") == "Iceberg" and any("gold." in str(t.get("table", "")).lower() for t in s.get("tables", []) if isinstance(t, dict))
+                    if s.get("kind") == "Iceberg" and any(
+                        "gold." in str(t.get("table", "")).lower() and active_cid_clean in str(t.get("table", "")).lower()
+                        for t in s.get("tables", []) if isinstance(t, dict)
+                    )
                 ]
-                sources = filtered if filtered else all_sources
-                if filtered and gold_sources:
-                    sources = filtered + gold_sources
+                sources = filtered + gold_sources
             else:
                 sources = all_sources
         schemas = []
