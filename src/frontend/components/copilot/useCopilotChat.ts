@@ -13,7 +13,7 @@ export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: str
   const hasSources = connectedSources && connectedSources.length > 0;
   const lines = [
     '¡Hola! Soy el **Copiloto Agéntico de Midas**.',
-    'Estoy conectado a los datos de tu sesión activa para responder en lenguaje natural con narrativa ejecutiva, gráficos interactivos y generación de tablas Gold personalizadas.',
+    'Estoy conectado a los datos de tu sesión activa para responder en lenguaje natural con narrativa ejecutiva, gráficos interactivos y generación de tablas Gold personalizadas para cualquier materia de negocio.',
   ];
 
   if (hasSources) {
@@ -26,18 +26,18 @@ export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: str
     lines.push('- *Generar un desglose agrupado por categoría o fecha*');
     lines.push('- *Materializar este reporte como tabla Gold diaria*');
   } else {
-    lines.push('\nFuentes activas:');
-    lines.push('- PostgreSQL: `crm_operaciones` (clientes, transacciones)');
-    lines.push('- Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)');
-    lines.push('- API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)');
-    lines.push('¿Qué analizamos hoy?');
+    lines.push('\nConjuntos de datos disponibles:');
+    lines.push('- Base Operacional: `crm_operaciones` (clientes, transacciones)');
+    lines.push('- Planificación: `Presupuesto_Corporativo_2026.xlsx` (metas, costos)');
+    lines.push('- Soporte y Servicio: `helpdesk_tickets_live` (tickets, satisfacción CSAT)');
+    lines.push('Conecta cualquier archivo o base de datos (RRHH, Salud, Logística, Finanzas, etc.) para comenzar.');
   }
 
   const suggestions = hasSources
     ? [
         `Resumir datos de ${connectedSources[0].name.slice(0, 20)}`,
         'Consultar totales agrupados',
-        'Definir nuevo Mart Gold',
+        'Materializar reporte como tabla Gold diaria',
       ]
     : DEFAULT_SUGGESTIONS;
 

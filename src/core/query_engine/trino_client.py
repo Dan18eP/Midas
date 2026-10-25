@@ -580,6 +580,32 @@ class TrinoClient:
         """
         Ejecuta sentencias DDL (CREATE SCHEMA, CREATE TABLE AS SELECT) directamente en Trino sin guardrails de solo lectura.
         """
+        # Si es un CTAS (CREATE TABLE ... AS SELECT ...), ejecutar localmente y persistir en midas-gold
+        if " AS " in sql.upper() and ("CREATE TABLE" in sql.upper() or "CREATE OR REPLACE" in sql.upper()):
+            try:
+                import re
+                match = re.search(r"CREATE\s+(?:TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:iceberg\.)?(?:gold\.)?([a-zA-Z0-9_]+)\s+AS\s+([\s\S]+)", sql, re.IGNORECASE)
+                if match:
+                    table_slug = match.group(1).strip()
+                    select_query = match.group(2).strip()
+                    query_result = self.execute_query_sync(select_query)
+                    if query_result and query_result.data:
+                        from src.lakehouse.storage.minio_client import MidasMinioClient
+                        minio_cli = MidasMinioClient()
+                        if minio_cli.check_health():
+                            minio_cli.ensure_canonical_buckets()
+                            import json, io, pandas as pd
+                            json_bytes = json.dumps(query_result.data, ensure_ascii=False, default=str).encode("utf-8")
+                            minio_cli.put_object("midas-gold", f"gold/{table_slug}.json", json_bytes, content_type="application/json")
+                            try:
+                                df_gold = pd.DataFrame(query_result.data)
+                                parquet_buf = io.BytesIO()
+                                df_gold.to_parquet(parquet_buf, index=False)
+                                minio_cli.put_object("midas-gold", f"gold/{table_slug}.parquet", parquet_buf.getvalue(), content_type="application/octet-stream")
+                            except Exception:
+                                pass
+            except Exception as ctas_save_err:
+                logger.debug("Error persistiendo datos locales de CTAS a MinIO: %s", ctas_save_err)
         target_catalog = catalog or self.default_catalog
         target_schema = schema_name or "gold"
         headers = {
@@ -651,24 +677,28 @@ class TrinoClient:
         tables = [t.name.lower() for t in parsed.find_all(exp.Table)]
         data_rows: List[Dict[str, Any]] = []
 
-        # Intentar cargar registros reales desde MinIO midas-silver o midas-bronze
+        # Intentar cargar registros reales desde MinIO midas-silver o midas-gold
         sample_records = None
         try:
             from src.lakehouse.storage.minio_client import MidasMinioClient
             minio_cli = MidasMinioClient()
             if minio_cli.check_health():
-                silver_objs = minio_cli.list_objects("midas-silver", prefix="clean/")
+                silver_objs = [("midas-silver", obj) for obj in minio_cli.list_objects("midas-silver", prefix="clean/")]
+                gold_objs = [("midas-gold", obj) for obj in minio_cli.list_objects("midas-gold", prefix="gold/")]
+                candidate_objs = gold_objs + silver_objs
                 for tbl_term in tables:
-                    clean_term = tbl_term.replace("clean_", "").replace("silver.", "").replace("raw_", "").strip()
+                    clean_term = tbl_term.replace("clean_", "").replace("silver.", "").replace("gold.", "").replace("raw_", "").strip()
+                    matched_bucket = None
                     matched_obj = None
-                    for obj in reversed(silver_objs):
+                    for bkt, obj in candidate_objs:
                         obj_clean = obj.lower().replace("-", "_").replace(" ", "_")
                         term_clean = clean_term.lower().replace("-", "_").replace(" ", "_")
                         if term_clean in obj_clean:
+                            matched_bucket = bkt
                             matched_obj = obj
                             break
-                    if matched_obj:
-                        raw_bytes = minio_cli.get_object("midas-silver", matched_obj)
+                    if matched_obj and matched_bucket:
+                        raw_bytes = minio_cli.get_object(matched_bucket, matched_obj)
                         if raw_bytes:
                             # 1. Intentar decodificación Parquet con Pandas/PyArrow
                             try:

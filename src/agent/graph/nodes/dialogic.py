@@ -31,9 +31,25 @@ def _generate_suggestions(sources: list[dict[str, Any]]) -> list[str]:
             t_name = t.get("table") or t.get("name") if isinstance(t, dict) else str(t)
             cols = t.get("columns", []) if isinstance(t, dict) else []
 
-            # Identificar columnas numéricas y categóricas reales
-            num_cols = [c for c in cols if any(k in str(c).lower() for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "horas", "unitprice", "quantity", "stock", "neto"))]
-            cat_cols = [c for c in cols if any(k in str(c).lower() for k in ("region", "ciudad", "área", "area", "proveedor", "producto", "categoria", "supplier", "warehouse", "cliente", "canal", "name"))]
+            # Identificar columnas numéricas y categóricas reales para cualquier materia (RRHH, Salud, Logística, Finanzas, Ventas, etc.)
+            num_cols = [
+                c for c in cols
+                if any(k in str(c).lower() for k in (
+                    "monto", "precio", "valor", "total", "costo", "cantidad", "horas",
+                    "unitprice", "quantity", "stock", "neto", "salario", "sueldo",
+                    "edad", "duracion", "peso", "temperatura", "puntuacion", "rating",
+                    "score", "tickets", "registros"
+                ))
+            ]
+            cat_cols = [
+                c for c in cols
+                if any(k in str(c).lower() for k in (
+                    "region", "ciudad", "área", "area", "proveedor", "producto", "categoria",
+                    "supplier", "warehouse", "cliente", "canal", "name", "nombre",
+                    "departamento", "cargo", "puesto", "estado", "sede", "tipo",
+                    "diagnostico", "especialidad", "paciente", "curso", "carrier"
+                ))
+            ]
 
             if num_cols and cat_cols:
                 suggestions.append(f"Consultar {num_cols[0]} por {cat_cols[0]} en {s_name}")
@@ -95,9 +111,13 @@ def make_introspector(
 
 
 def proactive_suggest(state: AgentState) -> dict[str, object]:
-    """Ofrece opciones o pregunta lo que falta para continuar."""
+    """Ofrece opciones o pregunta lo que falta para continuar adaptado a cualquier dominio."""
     if state.get("needs_clarification"):
-        question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026?"
+        pending = str(state.get("pending_query") or state.get("user_message") or "").lower()
+        if any(k in pending for k in ("venta", "ingreso", "facturaci")):
+            question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026?"
+        else:
+            question = "¿Podrías indicar la dimensión de agrupación o el período que deseas analizar en tus datos?"
         return {
             "clarification": question,
             "response": question,

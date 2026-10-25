@@ -1,4 +1,4 @@
-"""Clasifica el primer mensaje de cada turno."""
+"""Clasifica el primer mensaje de cada turno para cualquier dominio de datos."""
 
 import re
 
@@ -18,10 +18,14 @@ _DISCOVERY = re.compile(
 )
 _SALES = re.compile(r"\b(ventas?|ingresos?|facturación)\b", re.IGNORECASE)
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_GOLD_MATERIALIZATION = re.compile(
+    r"\b(materializ|crear tabla gold|crea tabla gold|construir gold|guardar como tabla gold|generar capa gold|nueva tabla gold)\b",
+    re.IGNORECASE,
+)
 
 
 def route_intent(state: AgentState) -> dict[str, object]:
-    """Detecta intención y resuelve aclaraciones de turnos anteriores."""
+    """Detecta intención y resuelve aclaraciones de turnos anteriores para cualquier dominio."""
     message = state.get("user_message", "").strip()
 
     if state.get("pending_intent") == "analytics":
@@ -40,7 +44,11 @@ def route_intent(state: AgentState) -> dict[str, object]:
     if _DISCOVERY.search(message):
         return {"intent": "discovery", "needs_clarification": False}
 
-    if _SALES.search(message) and not _YEAR.search(message):
+    if _GOLD_MATERIALIZATION.search(message):
+        return {"intent": "materialize_gold", "needs_clarification": False}
+
+    # Mantener compatibilidad con flujo dialógico de ventas cuando se consulta ventas de forma abstracta sin año
+    if _SALES.search(message) and not _YEAR.search(message) and not any(w in message.lower() for w in (" por ", "group", "agrup", "departamento", "categoria", "producto", "almacen")):
         return {
             "intent": "analytics",
             "needs_clarification": True,
@@ -49,3 +57,4 @@ def route_intent(state: AgentState) -> dict[str, object]:
         }
 
     return {"intent": "analytics", "needs_clarification": False}
+
