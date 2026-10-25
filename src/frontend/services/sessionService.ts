@@ -257,3 +257,30 @@ export async function triggerPipeline(
 
   return handleResponse(response);
 }
+
+export interface QueryExecutionResult {
+  columns: string[];
+  column_types?: string[];
+  data: Array<Record<string, unknown>>;
+  row_count: number;
+  execution_time_ms?: number;
+  catalog?: string;
+  schema_name?: string;
+}
+
+/**
+ * Ejecuta una consulta SQL viva contra el motor analítico Trino (Iceberg / Silver / Gold).
+ */
+export async function executeTrinoQuery(
+  sql: string,
+  signal?: AbortSignal
+): Promise<QueryExecutionResult> {
+  const response = await fetch(`${API_BASE}/api/v1/query/execute`, {
+    method: 'POST',
+    headers: getSessionHeaders(),
+    body: JSON.stringify({ sql }),
+    signal,
+  });
+
+  return handleResponse<QueryExecutionResult>(response);
+}

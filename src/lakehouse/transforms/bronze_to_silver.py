@@ -140,8 +140,9 @@ class BronzeToSilverTransformer:
         pk_cols = primary_key_fields or [
             "transaccion_id",
             "id_orden",
-            "id_registro",
+            "id_pedido",
             "pedido_id",
+            "id_registro",
             "cliente_id",
             "id",
             "codigo",
@@ -177,19 +178,25 @@ class BronzeToSilverTransformer:
 
         # 1. Paso de Quality Gate individual
         for raw_record in records:
-            # Si el registro viene con el envoltorio Bronze canónico, desempaquetar payload si existe
-            record_to_eval = raw_record
-            if "_raw_payload" in raw_record and isinstance(raw_record["_raw_payload"], str):
+            # Si el registro ya contiene columnas de negocio, evitar json.loads redundante
+            has_business_keys = any(k for k in raw_record if not k.startswith("_"))
+            if has_business_keys:
+                record_to_eval = raw_record
+            elif "_raw_payload" in raw_record and isinstance(raw_record["_raw_payload"], str):
                 try:
                     payload_dict = json.loads(raw_record["_raw_payload"])
                     if isinstance(payload_dict, dict):
-                        # Conservar metadatos de auditoría Bronze
-                        record_to_eval = dict(payload_dict)
-                        for meta_k in ("_raw_id", "_source_type", "_source_origin", "_ingested_at", "_batch_id", "_schema_fingerprint"):
-                            if meta_k in raw_record:
-                                record_to_eval[meta_k] = raw_record[meta_k]
+                        # Preservar metadatos de auditoría de Bronze (_raw_id, _batch_id, etc.)
+                        for k, v in raw_record.items():
+                            if k.startswith("_") and k != "_raw_payload" and k not in payload_dict:
+                                payload_dict[k] = v
+                        record_to_eval = payload_dict
+                    else:
+                        record_to_eval = raw_record
                 except Exception:
-                    pass
+                    record_to_eval = raw_record
+            else:
+                record_to_eval = raw_record
 
             qg_res = evaluate_quality_gate(
                 record=record_to_eval,
@@ -209,11 +216,31 @@ class BronzeToSilverTransformer:
             resolved_dedup_cols = dedup_key_fields
         elif valid_candidate_records:
             first_rec = valid_candidate_records[0]
-            actual_pk = next(
-                (col for col in pk_cols if col in first_rec and first_rec[col] is not None and str(first_rec[col]).strip() and col != "_raw_id"),
-                None,
-            )
-            resolved_dedup_cols = [actual_pk] if actual_pk else ["_raw_id"]
+            actual_pk = None
+            for col in pk_cols:
+                if col in first_rec and first_rec[col] is not None and col != "_raw_id":
+                    actual_pk = col
+                    break
+                c_norm = col.strip().lower().replace(" ", "_").replace("-", "_")
+                for rk in first_rec:
+                    if rk.strip().lower().replace(" ", "_").replace("-", "_") == c_norm and first_rec[rk] is not None:
+                        actual_pk = rk
+                        break
+                if actual_pk:
+                    break
+
+            if not actual_pk:
+                for rk in first_rec:
+                    rk_norm = rk.strip().lower().replace(" ", "_").replace("-", "_")
+                    if rk_norm in ("id", "index", "customer_id", "cliente_id", "order_id", "id_orden", "transaccion_id", "transaction_id", "code", "codigo", "key", "id_registro") or rk_norm.endswith("_id") or rk_norm.startswith("id_"):
+                        actual_pk = rk
+                        break
+
+            if not actual_pk:
+                bus_cols = [k for k in first_rec if not k.startswith("_")]
+                actual_pk = bus_cols[0] if bus_cols else "_raw_id"
+
+            resolved_dedup_cols = [actual_pk]
         else:
             resolved_dedup_cols = [pk_cols[0]]
 
@@ -250,7 +277,7 @@ class BronzeToSilverTransformer:
             # Persistir registros limpios en midas-silver
             if valid_count > 0:
                 silver_key = f"clean/{source_name}/{effective_batch_id}.json"
-                silver_data = json.dumps(deduplicated_records, default=str, indent=2).encode("utf-8")
+                silver_data = json.dumps(deduplicated_records, default=str).encode("utf-8")
                 try:
                     self.minio_client.put_object(
                         bucket="midas-silver",
@@ -259,13 +286,31 @@ class BronzeToSilverTransformer:
                         content_type="application/json",
                     )
                     silver_path = f"s3://midas-silver/{silver_key}"
+
+                    # Persistencia dual en Parquet para motores analíticos y Iceberg
+                    try:
+                        import io
+                        import pandas as pd
+                        df_clean = pd.DataFrame(deduplicated_records)
+                        buf = io.BytesIO()
+                        df_clean.to_parquet(buf, index=False, engine="pyarrow")
+                        parquet_key = f"clean/{source_name}/{effective_batch_id}.parquet"
+                        self.minio_client.put_object(
+                            bucket="midas-silver",
+                            object_name=parquet_key,
+                            data=buf.getvalue(),
+                            content_type="application/octet-stream",
+                        )
+                    except Exception as p_err:
+                        logger.debug("Omitida escritura parquet en midas-silver: %s", p_err)
+
                 except Exception as exc:
                     logger.warning(f"No se pudo persistir en midas-silver: {exc}")
 
             # Persistir registros corruptos en midas-quarantine
             if quarantined_count > 0:
                 quarantine_key = f"silver_quarantine/{source_name}/{effective_batch_id}.json"
-                quarantine_data = json.dumps([q.to_dict() for q in quarantined_records], default=str, indent=2).encode("utf-8")
+                quarantine_data = json.dumps([q.to_dict() for q in quarantined_records], default=str).encode("utf-8")
                 try:
                     self.minio_client.put_object(
                         bucket="midas-quarantine",

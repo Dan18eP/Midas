@@ -12,7 +12,12 @@ class TextToSqlGenerator:
     def __init__(self, model: Callable[[str, str], str]) -> None:
         self._model = model
 
-    def __call__(self, question: str, catalog: list[dict[str, object]]) -> str:
+    def __call__(
+        self,
+        question: str,
+        catalog: list[dict[str, object]],
+        inference_mode: str | None = None,
+    ) -> str:
         """Solicita al modelo una consulta de lectura para Trino."""
         assert_safe_prompt(question)
         allowed_tables = _catalog_prompt(catalog)
@@ -21,6 +26,10 @@ class TextToSqlGenerator:
         system_prompt = text_to_sql_system_prompt(allowed_tables)
         generate_sql = getattr(self._model, "generate_sql", None)
         if callable(generate_sql):
+            import inspect
+            sig = inspect.signature(generate_sql)
+            if "inference_mode" in sig.parameters:
+                return generate_sql(question, catalog, system_prompt, inference_mode=inference_mode)
             return generate_sql(question, catalog, system_prompt)
         return self._model(system_prompt, question)
 

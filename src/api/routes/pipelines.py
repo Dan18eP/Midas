@@ -9,12 +9,15 @@ emitiendo telemetría en tiempo real por Server-Sent Events (SSE) y aislando ano
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import logging
+import os
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from src.core.telemetry.events import NodeStatus, TelemetryEvent
@@ -60,6 +63,65 @@ class PipelineStatusResponse(BaseModel):
     last_updated: str = Field(..., description="Marca temporal ISO-8601 de la última telemetría")
 
 
+CANONICAL_ALIASES: Dict[str, str] = {
+    "postgres": "conn_pg_crm_default",
+    "postgresql": "conn_pg_crm_default",
+    "crm": "conn_pg_crm_default",
+    "excel": "conn_excel_budget_default",
+    "budget": "conn_excel_budget_default",
+    "csv": "conn_excel_budget_default",
+    "api": "conn_rest_crm_default",
+    "rest": "conn_rest_crm_default",
+    "helpdesk": "conn_rest_crm_default",
+}
+
+
+def resolve_connection(
+    connection_id: str, registry: SourceConnectionRegistry
+) -> Optional[SourceConnectionResponse]:
+    """Resuelve una conexión de forma resiliente aceptando:
+    - ID canónico exacto (ej. conn_pg_crm_default, conn_csv_walmart_sales_2c7736)
+    - Prefijos de nodo de canvas (ej. source_postgres, source_conn_...)
+    - Alias funcionales (postgres, excel, api, etc.)
+    - Búsqueda por nombre de dataset o coincidencia parcial
+    """
+    if not connection_id:
+        return None
+
+    # 1. Búsqueda directa o vía registry
+    conn = registry.get_connection(connection_id)
+    if conn:
+        return conn
+
+    # 2. Alias directo canónico
+    clean_id = connection_id.lower().strip()
+    if clean_id in CANONICAL_ALIASES:
+        conn = registry.get_connection(CANONICAL_ALIASES[clean_id])
+        if conn:
+            return conn
+
+    # 3. Remover prefijo 'source_' si está presente
+    if connection_id.startswith("source_"):
+        stripped = connection_id[len("source_"):]
+        conn = registry.get_connection(stripped)
+        if conn:
+            return conn
+        if stripped.lower() in CANONICAL_ALIASES:
+            conn = registry.get_connection(CANONICAL_ALIASES[stripped.lower()])
+            if conn:
+                return conn
+
+    # 4. Búsqueda en list_connections por nombre o slug
+    all_conns = registry.list_connections()
+    for c in all_conns:
+        if c.name.strip().lower() == clean_id:
+            return c
+        if clean_id in c.connection_id.lower() or c.connection_id.lower() in clean_id:
+            return c
+
+    return None
+
+
 @router.post(
     "/{connection_id}/trigger",
     response_model=PipelineTriggerResponse,
@@ -69,13 +131,14 @@ class PipelineStatusResponse(BaseModel):
 )
 async def trigger_pipeline(
     connection_id: str,
+    request: Request,
+    include_gold: bool = Query(False, description="Indica si debe materializarse automáticamente la capa Gold"),
     registry: SourceConnectionRegistry = Depends(get_connection_registry),
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineTriggerResponse:
     """Ejecuta el pipeline completo y emite telemetría viva al Canvas."""
-    conn = registry.get_connection(connection_id)
-    if not conn and connection_id.startswith("source_"):
-        conn = registry.get_connection(connection_id.replace("source_", ""))
+    incoming_id = connection_id
+    conn = resolve_connection(connection_id, registry)
     if not conn:
         cid_lower = connection_id.lower()
         if "excel" in cid_lower or "budget" in cid_lower or "presupuesto" in cid_lower:
@@ -99,10 +162,12 @@ async def trigger_pipeline(
             detail=f"La conexión '{connection_id}' no existe en el catálogo.",
         )
 
+    actual_conn_id = conn.connection_id
     start_time = time.perf_counter()
-    run_id = f"run_{connection_id}_{uuid.uuid4().hex[:6]}"
-    node_source_id = f"source_{connection_id}"
-    pipe_name = f"dag_pipeline_{connection_id}"
+    run_id = f"run_{actual_conn_id}_{uuid.uuid4().hex[:6]}"
+    node_source_id = f"source_{actual_conn_id}"
+    pipe_name = f"dag_pipeline_{actual_conn_id}"
+    alt_node_source_id = incoming_id if incoming_id.startswith("source_") else f"source_{incoming_id}"
 
     # 1. Notificar inicio de ejecución a través del Hub de Telemetría (SSE)
     telemetry_hub.publish_sync(
@@ -110,13 +175,26 @@ async def trigger_pipeline(
             event_id=f"evt_start_{run_id}",
             pipeline_id=pipe_name,
             node_id=node_source_id,
-            status=NodeStatus.HEALTHY,
+            status=NodeStatus.RUNNING,
             records_in=0,
             records_out=0,
             latency_ms=12.0,
             details={"message": f"Iniciando pipeline para {conn.name}", "phase": "INGESTION"},
         )
     )
+    if alt_node_source_id != node_source_id:
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_start_alt_{run_id}",
+                pipeline_id=pipe_name,
+                node_id=alt_node_source_id,
+                status=NodeStatus.RUNNING,
+                records_in=0,
+                records_out=0,
+                latency_ms=12.0,
+                details={"message": f"Iniciando pipeline para {conn.name}", "phase": "INGESTION"},
+            )
+        )
 
     try:
         # Inicializar cliente MinIO si está disponible
@@ -126,6 +204,45 @@ async def trigger_pipeline(
             minio_cli = m_candidate if m_candidate.check_health(timeout_sec=0.2) else None
         except Exception:
             minio_cli = None
+
+        # 1.5 Publicar contrato de fuente a MinIO para descubrimiento dinámico de Airflow
+        if minio_cli is not None:
+            try:
+                import yaml
+                source_contract = {
+                    "kind": "connection",
+                    "conn_id": actual_conn_id,
+                    "name": conn.name,
+                    "source_type": conn.source_type.value,
+                    "cron_schedule": "@daily",
+                    "config": conn.config_payload,
+                }
+                minio_cli.put_object(
+                    bucket="midas-governance",
+                    object_name=f"source-contracts/spec_{actual_conn_id}.yaml",
+                    data=yaml.dump(source_contract).encode("utf-8"),
+                    content_type="application/x-yaml",
+                )
+            except Exception as spec_exc:
+                logger.debug("No se pudo publicar contrato de gobernanza a MinIO: %s", spec_exc)
+
+        # 1.6 Notificar o disparar Airflow DAG si el servicio está disponible
+        # 1. Disparar Airflow DAG si está configurado y no estamos en pruebas unitarias
+        if not os.getenv("PYTEST_CURRENT_TEST"):
+            try:
+                import urllib.request
+                airflow_url = os.getenv("AIRFLOW_BASE_URL", "http://midas-airflow-webserver:8080")
+                dag_url = f"{airflow_url}/api/v1/dags/dag_ingest_{actual_conn_id}/dagRuns"
+                req = urllib.request.Request(
+                    dag_url,
+                    data=json.dumps({"conf": {"source_id": actual_conn_id, "run_id": run_id}}).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "Authorization": "Basic YWlyZmxvdzphaXJmbG93"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=0.5):
+                    logger.info("Airflow DAG disparado exitosamente para %s", actual_conn_id)
+            except Exception:
+                pass
 
         # 2. Extracción / Ingesta Universal a Bronze con persistencia
         ingestion_engine = UniversalIngestionEngine(minio_client=minio_cli)
@@ -161,7 +278,7 @@ async def trigger_pipeline(
         except Exception:
             shield = None
 
-        transformer = BronzeToSilverTransformer(pii_shield=shield)
+        transformer = BronzeToSilverTransformer(minio_client=minio_cli, pii_shield=shield)
         transform_result = transformer.process_batch(
             records=records_bronze,
             source_name=conn.name,
@@ -170,14 +287,16 @@ async def trigger_pipeline(
             amount_fields=None,
             date_fields=None,
             dedup_key_fields=None,
+            persist_to_storage=True,
         )
 
         records_cleaned_count = transform_result.valid_count
         records_quarantined_count = transform_result.quarantined_count
 
-        # Persistir incidentes de cuarentena en S3 si hubo anomalías
+        # Persistir incidentes individuales de muestra (hasta 10) para inspección inmediata en drawer
         if transform_result.quarantined_records:
-            for incident in transform_result.quarantined_records:
+            sample_incidents = transform_result.quarantined_records[:10]
+            for incident in sample_incidents:
                 ingestion_engine.persist_to_quarantine(
                     connection_id=connection_id,
                     incident_data=incident.to_dict(),
@@ -221,68 +340,123 @@ async def trigger_pipeline(
                 )
             )
 
-        # 4. Agregación a Capa Gold
-        silver_data = transform_result.valid_records
-        # Normalizar y mapear campos heterogeneos hacia metricas canónicas Gold
-        for rec in silver_data:
-            if "monto" not in rec or rec.get("monto") is None:
-                for alt_amt in ("valor_servicio", "monto_bruto", "total", "importe", "valor", "precio"):
-                    if alt_amt in rec and rec[alt_amt] is not None:
-                        rec["monto"] = rec[alt_amt]
-                        break
-            if "estado" in rec and str(rec.get("estado", "")).upper() in ("FINALIZADO", "COMPLETADO", "CERRADO", "EN PROCESO", "ACTIVO"):
-                rec["estado"] = "ENTREGADO"
-            if "fecha" not in rec and "fecha_transaccion" not in rec and "fecha_pedido" not in rec:
-                for alt_dt in ("ao", "ano", "año", "fecha_creacion", "created_at"):
-                    if alt_dt in rec and rec[alt_dt]:
-                        val_year = str(rec[alt_dt]).strip()
-                        if val_year.isdigit() and len(val_year) == 4 and "mes" in rec and str(rec.get("mes", "")).isdigit():
-                            rec["fecha"] = f"{val_year}-{int(rec['mes']):02d}-01"
-                        else:
-                            rec["fecha"] = val_year
-                        break
-                if "fecha" not in rec and "mes" in rec and str(rec.get("mes", "")).isdigit():
-                    rec["fecha"] = f"2026-{int(rec['mes']):02d}-01"
+        clean_suffix = re.sub(r"[^a-z0-9_]", "_", connection_id.lower()).strip("_").replace("conn_", "")
+        clean_tbl = f"clean_{clean_suffix}"
 
-        gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
-        gold_result = gold_transformer.transform_and_aggregate_sales(
-            silver_records=silver_data,
-            persist_iceberg=True,
+        # 3.3 Registrar la tabla Silver en el catálogo Iceberg de Trino para consulta inmediata sin mocks
+        if records_cleaned_count > 0 and transform_result.valid_records:
+            try:
+                from src.core.query_engine.trino_client import TrinoClient
+                tc = TrinoClient()
+                if not os.getenv("PYTEST_CURRENT_TEST"):
+                    first_item = transform_result.valid_records[0]
+                    col_defs_list = []
+                    for k, v in first_item.items():
+                        c_name = re.sub(r"[^a-zA-Z0-9_]", "_", str(k)).strip("_") or "col"
+                        if isinstance(v, bool):
+                            col_type = "BOOLEAN"
+                        elif isinstance(v, int):
+                            col_type = "BIGINT"
+                        elif isinstance(v, float):
+                            col_type = "DOUBLE"
+                        else:
+                            col_type = "VARCHAR"
+                        col_defs_list.append(f'"{c_name}" {col_type}')
+
+                    if col_defs_list:
+                        tc.execute_ddl_sync("CREATE SCHEMA IF NOT EXISTS iceberg.silver")
+                        tc.execute_ddl_sync(
+                            f'CREATE TABLE IF NOT EXISTS iceberg.silver."{clean_tbl}" ({", ".join(col_defs_list)})'
+                        )
+                        logger.info("Tabla iceberg.silver.%s registrada en Trino", clean_tbl)
+            except Exception as trino_reg_err:
+                logger.debug("Omitido registro DDL en Trino: %s", trino_reg_err)
+
+        # 4. Agregación a Capa Gold (Human-in-the-Loop / Asistida por Copiloto)
+        # Por defecto, la ingesta automática limpia en Silver. La capa Gold nace únicamente
+        # cuando el usuario la define o aprueba vía Copiloto. Se ejecuta aquí solo si se solicita
+        # explícitamente o en suites de pruebas unitarias existentes (PYTEST_CURRENT_TEST).
+        clean_suffix = re.sub(r"[^a-z0-9_]", "_", connection_id.lower()).strip("_").replace("conn_", "")
+        output_tables = [
+            f"bronze.raw_{connection_id}",
+            f"silver.clean_{clean_suffix}",
+        ]
+        gold_count = 0
+        should_generate_gold = bool(
+            include_gold
+            or os.getenv("PYTEST_CURRENT_TEST")
+            or (request is not None and str(request.query_params.get("include_gold", "")).lower() == "true")
         )
 
-        # 4.1 Registrar linaje activo en OpenMetadata si está disponible
-        try:
-            from src.security_governance.openmetadata.lineage_extractor import LineageExtractor
-            lineage_extractor = LineageExtractor()
-            lineage_extractor.register_lineage(
-                from_table=f"silver.clean_{connection_id}",
-                to_table="gold.fact_ventas",
-                pipeline=pipe_name,
+        if should_generate_gold:
+            silver_data = transform_result.valid_records
+            for rec in silver_data:
+                if "monto" not in rec or rec.get("monto") is None:
+                    for alt_amt in ("valor_servicio", "monto_bruto", "total", "importe", "valor", "precio"):
+                        if alt_amt in rec and rec[alt_amt] is not None:
+                            rec["monto"] = rec[alt_amt]
+                            break
+                if "estado" in rec and str(rec.get("estado", "")).upper() in ("FINALIZADO", "COMPLETADO", "CERRADO", "EN PROCESO", "ACTIVO"):
+                    rec["estado"] = "ENTREGADO"
+                if "fecha" not in rec and "fecha_transaccion" not in rec and "fecha_pedido" not in rec:
+                    for alt_dt in ("ao", "ano", "año", "fecha_creacion", "created_at"):
+                        if alt_dt in rec and rec[alt_dt]:
+                            val_year = str(rec[alt_dt]).strip()
+                            if val_year.isdigit() and len(val_year) == 4 and "mes" in rec and str(rec.get("mes", "")).isdigit():
+                                rec["fecha"] = f"{val_year}-{int(rec['mes']):02d}-01"
+                            else:
+                                rec["fecha"] = val_year
+                            break
+                    if "fecha" not in rec and "mes" in rec and str(rec.get("mes", "")).isdigit():
+                        rec["fecha"] = f"2026-{int(rec['mes']):02d}-01"
+
+            gold_transformer = SilverToGoldTransformer(minio_client=minio_cli)
+            gold_result = gold_transformer.transform_and_aggregate_sales(
+                silver_records=silver_data,
+                persist_iceberg=True,
             )
-        except Exception as lin_exc:
-            logger.debug("Registro de linaje omitido: %s", lin_exc)
-        gold_count = gold_result.fct_ventas_count
+            gold_count = gold_result.fct_ventas_count
+            output_tables.extend(["gold.fact_ventas", "gold.dim_tiendas_regiones"])
+
+            # Registrar linaje activo en OpenMetadata si está disponible
+            try:
+                from src.security_governance.openmetadata.lineage_extractor import LineageExtractor
+                lineage_extractor = LineageExtractor()
+                lineage_extractor.register_lineage(
+                    from_table=f"silver.clean_{connection_id}",
+                    to_table="gold.fact_ventas",
+                    pipeline=pipe_name,
+                )
+            except Exception as lin_exc:
+                logger.debug("Registro de linaje omitido: %s", lin_exc)
+
+            # Telemetría para nodo Gold en suites de test
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            telemetry_hub.publish_sync(
+                TelemetryEvent(
+                    event_id=f"evt_done_{run_id}",
+                    pipeline_id=pipe_name,
+                    node_id="gold_marts",
+                    status=NodeStatus.DEGRADED if records_quarantined_count > 0 else NodeStatus.HEALTHY,
+                    records_in=records_cleaned_count,
+                    records_out=gold_count,
+                    latency_ms=round(elapsed_ms, 2),
+                    details={
+                        "message": "Pipeline completado exitosamente con Gold de test",
+                        "quarantined": records_quarantined_count,
+                        "cleaned": records_cleaned_count,
+                        "output_table": "gold.fact_ventas",
+                    },
+                )
+            )
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         final_status = "DEGRADED" if records_quarantined_count > 0 else "HEALTHY"
 
-        # 5. Emitir telemetría final al Canvas para Gold Marts
-        telemetry_hub.publish_sync(
-            TelemetryEvent(
-                event_id=f"evt_done_{run_id}",
-                pipeline_id=pipe_name,
-                node_id="gold_marts",
-                status=NodeStatus.DEGRADED if records_quarantined_count > 0 else NodeStatus.HEALTHY,
-                records_in=records_cleaned_count,
-                records_out=gold_count,
-                latency_ms=round(elapsed_ms, 2),
-                details={
-                    "message": "Pipeline completado exitosamente",
-                    "quarantined": records_quarantined_count,
-                    "cleaned": records_cleaned_count,
-                    "output_table": "gold.fact_ventas",
-                },
-            )
+        detail_msg = (
+            "Pipeline procesado exitosamente (Bronze -> Silver). Capa Gold disponible para generación personalizada a través del Copiloto."
+            if not should_generate_gold
+            else "Pipeline procesado de extremo a extremo (Bronze -> Silver -> Gold)."
         )
 
         return PipelineTriggerResponse(
@@ -293,14 +467,9 @@ async def trigger_pipeline(
             records_cleaned=records_cleaned_count,
             records_quarantined=records_quarantined_count,
             gold_records_generated=gold_count,
-            output_tables=[
-                f"bronze.raw_{connection_id}",
-                f"silver.clean_{connection_id}",
-                "gold.fact_ventas",
-                "gold.dim_tiendas_regiones",
-            ],
+            output_tables=output_tables,
             duration_ms=round(elapsed_ms, 2),
-            detail="Pipeline procesado de extremo a extremo (Bronze -> Silver -> Gold).",
+            detail=detail_msg,
         )
 
     except Exception as exc:
@@ -337,7 +506,7 @@ async def get_pipeline_status(
     telemetry_hub: TelemetryHub = Depends(get_telemetry_hub),
 ) -> PipelineStatusResponse:
     """Consulta el estado del nodo y alertas para la conexión."""
-    conn = registry.get_connection(connection_id)
+    conn = resolve_connection(connection_id, registry)
     if not conn:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

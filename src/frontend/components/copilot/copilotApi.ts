@@ -20,7 +20,9 @@ export class CopilotApiError extends Error {
 export interface SendChatMessageInput {
   message: string;
   threadId?: string;
+  connectionId?: string;
   userRole?: string;
+  inferenceMode?: 'local' | 'cloud';
   signal?: AbortSignal;
 }
 
@@ -56,6 +58,8 @@ export function normalizeChatResponse(payload: Partial<CopilotChatResponse>): Co
 export async function sendChatMessage(input: SendChatMessageInput): Promise<CopilotChatResponse> {
   const body: Record<string, string> = { message: input.message };
   if (input.threadId) body.thread_id = input.threadId;
+  if (input.connectionId) body.connection_id = input.connectionId;
+  if (input.inferenceMode) body.inference_mode = input.inferenceMode;
 
   let response: Response;
   try {

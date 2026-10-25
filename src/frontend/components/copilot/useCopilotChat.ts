@@ -9,14 +9,47 @@ export const DEFAULT_SUGGESTIONS = [
   'Crear nuevo Mart Gold',
 ];
 
-const WELCOME_CONTENT = [
-  '¡Hola! Soy el **Copiloto Agéntico de Midas**. Introspecciono tus fuentes conectadas y respondo en lenguaje natural con narrativa ejecutiva y gráficos Apache ECharts.',
-  'Fuentes activas:',
-  '- PostgreSQL: `crm_operaciones` (clientes, transacciones)',
-  '- Excel: `Presupuesto_Corporativo_2026.xlsx` (Presupuesto_Metas, Costos_Operativos)',
-  '- API REST: `helpdesk_tickets_live` (tickets, satisfacción CSAT)',
-  '¿Qué analizamos hoy?',
-].join('\n');
+export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: string; source_type?: string }>): CopilotMessage {
+  const hasSources = connectedSources && connectedSources.length > 0;
+  const lines = [
+    '¡Hola! Soy el **Copiloto Agéntico de Midas**.',
+    'Estoy conectado a los datos de tu sesión activa para responder en lenguaje natural con narrativa ejecutiva, gráficos interactivos y generación de tablas Gold personalizadas para cualquier materia de negocio.',
+  ];
+
+  if (hasSources) {
+    lines.push('\n**Fuentes conectadas en esta sesión:**');
+    connectedSources.slice(0, 5).forEach((s) => {
+      lines.push(`- **${s.source_type || 'Fuente'}**: \`${s.name}\``);
+    });
+    lines.push('\n¿Qué análisis deseas realizar hoy? Puedes pedirme:');
+    lines.push('- *Resumir los registros de mi dataset*');
+    lines.push('- *Generar un desglose agrupado por categoría o fecha*');
+    lines.push('- *Materializar este reporte como tabla Gold diaria*');
+  } else {
+    lines.push('\nConjuntos de datos disponibles:');
+    lines.push('- Base Operacional: `crm_operaciones` (clientes, transacciones)');
+    lines.push('- Planificación: `Presupuesto_Corporativo_2026.xlsx` (metas, costos)');
+    lines.push('- Soporte y Servicio: `helpdesk_tickets_live` (tickets, satisfacción CSAT)');
+    lines.push('Conecta cualquier archivo o base de datos (RRHH, Salud, Logística, Finanzas, etc.) para comenzar.');
+  }
+
+  const suggestions = hasSources
+    ? [
+        `Resumir datos de ${connectedSources[0].name.slice(0, 20)}`,
+        'Consultar totales agrupados',
+        'Materializar reporte como tabla Gold diaria',
+      ]
+    : DEFAULT_SUGGESTIONS;
+
+  return {
+    id: createId('welcome'),
+    role: 'assistant',
+    content: lines.join('\n'),
+    timestamp: new Date().toISOString(),
+    intent: 'discovery',
+    suggestions,
+  };
+}
 
 const PHASE_TIMERS = [
   { at: 900, status: 'querying' as CopilotAgentStatus },
@@ -30,15 +63,8 @@ function createId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${messageCounter}`;
 }
 
-function createWelcomeMessage(): CopilotMessage {
-  return {
-    id: createId('welcome'),
-    role: 'assistant',
-    content: WELCOME_CONTENT,
-    timestamp: new Date().toISOString(),
-    intent: 'discovery',
-    suggestions: DEFAULT_SUGGESTIONS,
-  };
+export function createWelcomeMessage(connectedSources?: Array<{ name: string; source_type?: string }>): CopilotMessage {
+  return createDynamicWelcomeMessage(connectedSources);
 }
 
 export interface CopilotChatController {
@@ -46,6 +72,10 @@ export interface CopilotChatController {
   status: CopilotAgentStatus;
   suggestions: string[];
   threadId: string;
+  connectionId?: string;
+  setConnectionId: (id?: string) => void;
+  inferenceMode: 'local' | 'cloud';
+  setInferenceMode: (mode: 'local' | 'cloud') => void;
   activeRole?: string;
   setActiveRole: (role: string) => void;
   drawerOpen: boolean;
@@ -57,8 +87,8 @@ export interface CopilotChatController {
   closeDrawer: () => void;
   toggleDrawer: () => void;
   toggleExpanded: () => void;
-  startNewChat: () => void;
-  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string) => void;
+  startNewChat: (sources?: Array<{ name: string; source_type?: string }>, connectionId?: string) => void;
+  loadSessionMessages: (messages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>, connectionId?: string) => void;
   setThreadId: (id: string) => void;
   setOnTurnComplete?: (callback: (threadId: string) => void) => void;
 }
@@ -67,10 +97,22 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   const [messages, setMessages] = useState<CopilotMessage[]>(() => [createWelcomeMessage()]);
   const [status, setStatus] = useState<CopilotAgentStatus>('idle');
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
+  const [inferenceMode, setInferenceMode] = useState<'local' | 'cloud'>('cloud');
+  const inferenceModeRef = useRef(inferenceMode);
+  inferenceModeRef.current = inferenceMode;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [unread, setUnread] = useState(0);
   const [threadId, setThreadId] = useState<string>(() => createId('session'));
+  const [connectionId, setConnectionIdState] = useState<string | undefined>();
+  const connectionIdRef = useRef<string | undefined>(connectionId);
+  connectionIdRef.current = connectionId;
+
+  const setConnectionId = useCallback((id?: string) => {
+    setConnectionIdState(id);
+    connectionIdRef.current = id;
+  }, []);
+
   const [activeRole, setActiveRoleState] = useState<string>(() => options?.activeRole || 'director_general');
   const activeRoleRef = useRef(activeRole);
   activeRoleRef.current = activeRole;
@@ -130,7 +172,9 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         const payload = await sendChatMessage({
           message: content,
           threadId,
+          connectionId: connectionIdRef.current,
           userRole: activeRoleRef.current,
+          inferenceMode: inferenceModeRef.current,
         });
         const assistantMessage: CopilotMessage = {
           id: createId('assistant'),
@@ -204,19 +248,23 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
 
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
 
-  const startNewChat = useCallback(() => {
+  const startNewChat = useCallback((sources?: Array<{ name: string; source_type?: string }>, newConnectionId?: string) => {
     clearPhaseTimers();
     setThreadId(createId('session'));
-    setMessages([createWelcomeMessage()]);
+    setConnectionIdState(newConnectionId);
+    connectionIdRef.current = newConnectionId;
+    setMessages([createWelcomeMessage(sources)]);
     setSuggestions(DEFAULT_SUGGESTIONS);
     setStatus('idle');
   }, [clearPhaseTimers]);
 
   const loadSessionMessages = useCallback(
-    (newMessages: CopilotMessage[], newThreadId: string) => {
+    (newMessages: CopilotMessage[], newThreadId: string, sources?: Array<{ name: string; source_type?: string }>, newConnectionId?: string) => {
       clearPhaseTimers();
       setThreadId(newThreadId);
-      setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage()]);
+      setConnectionIdState(newConnectionId);
+      connectionIdRef.current = newConnectionId;
+      setMessages(newMessages.length > 0 ? newMessages : [createWelcomeMessage(sources)]);
       setStatus('idle');
     },
     [clearPhaseTimers]
@@ -230,6 +278,10 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       status,
       suggestions,
       threadId,
+      connectionId,
+      setConnectionId,
+      inferenceMode,
+      setInferenceMode,
       activeRole,
       setActiveRole,
       drawerOpen,
@@ -251,6 +303,10 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
       status,
       suggestions,
       threadId,
+      connectionId,
+      setConnectionId,
+      inferenceMode,
+      setInferenceMode,
       activeRole,
       setActiveRole,
       drawerOpen,

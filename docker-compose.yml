@@ -334,7 +334,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: midas-api
-    mem_limit: 384m
+    mem_limit: 1536m
     restart: unless-stopped
     profiles: ["api", "full"]
     depends_on:
@@ -369,6 +369,7 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./src:/app/src
+      - ./data:/app/data
     networks:
       - midas-network
 

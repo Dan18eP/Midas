@@ -31,11 +31,16 @@ def build_graph(
     generate_sql: SqlGenerator | None = None,
     execute_query: QueryExecutor | None = None,
     source_provider=None,
+    model_router: ModelRouter | None = None,
 ):
     """Compila el diálogo y guarda cada turno bajo su thread_id."""
     if generate_sql is None:
-        generate_sql = TextToSqlGenerator(ModelRouter())
-    generate, validate, execute, synthesize = make_analytic_nodes(generate_sql, execute_query)
+        if model_router is None:
+            model_router = ModelRouter()
+        generate_sql = TextToSqlGenerator(model_router)
+    generate, validate, execute, synthesize = make_analytic_nodes(
+        generate_sql, execute_query, model_router=model_router
+    )
     graph = StateGraph(AgentState)
     graph.add_node("route_intent", route_intent)
     graph.add_node("introspect_schema", make_introspector(source_provider))
@@ -69,17 +74,23 @@ def invoke_turn(
     thread_id: str,
     user_message: str,
     user_role: str = "director_general",
+    inference_mode: str = "cloud",
+    connection_id: str | None = None,
 ) -> AgentState:
     """Envía un turno y lo guarda en la sesión indicada con su rol Zero-Trust."""
     if not thread_id.strip():
         raise ValueError("thread_id no puede estar vacío.")
     if not user_message.strip():
         raise ValueError("El mensaje no puede estar vacío.")
+    payload: dict[str, Any] = {
+        "messages": [HumanMessage(content=user_message)],
+        "user_message": user_message,
+        "user_role": user_role,
+        "inference_mode": inference_mode,
+    }
+    if connection_id:
+        payload["connection_id"] = connection_id
     return graph.invoke(
-        {
-            "messages": [HumanMessage(content=user_message)],
-            "user_message": user_message,
-            "user_role": user_role,
-        },
+        payload,
         {"configurable": {"thread_id": thread_id}},
     )

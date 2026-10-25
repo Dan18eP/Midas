@@ -221,17 +221,39 @@ def evaluate_quality_gate(
     cleaned = dict(record)
 
     # 1. Validar Primary Key de negocio
-    found_pk = False
+    found_pk_col = None
     for pk_col in pk_cols:
         if pk_col in record:
-            found_pk = True
-            if not is_valid_primary_key(record[pk_col]):
-                return _build_quarantine_result(raw_id, source_name, "NULL_PRIMARY_KEY", record)
-            cleaned[pk_col] = str(record[pk_col]).strip()
+            found_pk_col = pk_col
+            break
+        c_norm = pk_col.strip().lower().replace(" ", "_").replace("-", "_")
+        for rk in record:
+            if rk.strip().lower().replace(" ", "_").replace("-", "_") == c_norm:
+                found_pk_col = rk
+                break
+        if found_pk_col:
             break
 
-    # Si se especificaron explícitamente y ninguna estuvo presente o válida
-    if primary_key_fields and not found_pk:
+    if not found_pk_col:
+        for rk in record:
+            rk_norm = rk.strip().lower().replace(" ", "_").replace("-", "_")
+            if rk_norm in ("id", "index", "customer_id", "cliente_id", "order_id", "id_orden", "transaccion_id", "transaction_id", "code", "codigo", "key", "id_registro", "_raw_id") or rk_norm.endswith("_id") or rk_norm.startswith("id_"):
+                found_pk_col = rk
+                break
+
+    if not found_pk_col:
+        if "_raw_id" in record:
+            found_pk_col = "_raw_id"
+        else:
+            bus_cols = [k for k in record if not k.startswith("_")]
+            if bus_cols:
+                found_pk_col = bus_cols[0]
+
+    if found_pk_col and found_pk_col in record:
+        if not is_valid_primary_key(record[found_pk_col]):
+            return _build_quarantine_result(raw_id, source_name, "NULL_PRIMARY_KEY", record)
+        cleaned[found_pk_col] = str(record[found_pk_col]).strip()
+    else:
         return _build_quarantine_result(raw_id, source_name, "NULL_PRIMARY_KEY", record)
 
     # 2. Validar y normalizar montos monetarios

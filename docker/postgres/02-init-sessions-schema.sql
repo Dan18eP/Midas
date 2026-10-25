@@ -32,3 +32,15 @@ CREATE TABLE IF NOT EXISTS session_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at ON chat_sessions(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_session_messages_session_id ON session_messages(session_id);
+
+-- 3. Tabla de Conexiones de Origen y Fuentes Multi-Origen (HU-LAKE-05 & HU-BACK-03)
+CREATE TABLE IF NOT EXISTS source_connections (
+    connection_id VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    config_payload JSONB DEFAULT '{}'::jsonb,
+    status VARCHAR(50) DEFAULT 'ACTIVE',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_connections_status ON source_connections(status);

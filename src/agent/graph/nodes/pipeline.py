@@ -15,6 +15,7 @@ QueryExecutor = Callable[[str], list[dict[str, object]]]
 def make_analytic_nodes(
     generate_sql: SqlGenerator | None,
     execute_query: QueryExecutor | None,
+    model_router: object | None = None,
 ) -> tuple[Callable[[AgentState], dict[str, object]], ...]:
     """Crea los pasos analíticos con los servicios disponibles."""
     def generate(state: AgentState) -> dict[str, object]:
@@ -32,7 +33,13 @@ def make_analytic_nodes(
             message = state.get("user_message", "")
             # Detiene los intentos de anular las reglas antes de llamar al modelo.
             assert_safe_prompt(message)
-            sql = generate_sql(message, schemas)
+            import inspect
+            sig = inspect.signature(generate_sql)
+            inf_mode = state.get("inference_mode", "cloud")
+            if "inference_mode" in sig.parameters:
+                sql = generate_sql(message, schemas, inference_mode=inf_mode)
+            else:
+                sql = generate_sql(message, schemas)
         except PromptInjectionError as error:
             return {"query_error": str(error)}
         except Exception:
@@ -71,7 +78,16 @@ def make_analytic_nodes(
             result = None
         else:
             rows = state.get("query_rows", [])
-            result = synthesize_storytelling(rows)
+            user_msg = state.get("user_message", "")
+            sql = state.get("sql", "")
+            inf_mode = state.get("inference_mode", "cloud")
+            result = synthesize_storytelling(
+                rows,
+                user_prompt=user_msg,
+                sql=sql,
+                model_router=model_router,
+                inference_mode=inf_mode,
+            )
             response = str(result["narrative"])
             role = state.get("user_role", "")
             if role in ("gerente_norte", "restricted_operator", "scoped_operator"):

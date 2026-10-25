@@ -19,7 +19,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { MidasNodeData, MidasNodeSubtype, MidasNodeType } from '@/types/canvas';
+import { MidasNodeData, MidasNodeSubtype, MidasNodeType, NodeStatus } from '@/types/canvas';
 import { TelemetryEventPayload, extractTelemetryRate } from '@/types/telemetry';
 import { useTelemetryStream } from '@/hooks/useTelemetryStream';
 import { useTimeTravel } from '@/hooks/useTimeTravel';
@@ -35,7 +35,7 @@ import { CanvasControls } from './CanvasControls';
 import { NodeInspectionDrawer } from './NodeInspectionDrawer';
 import { TelemetryConnectionBanner } from './TelemetryConnectionBanner';
 import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from './topology/initialTopology';
-import type { SecurityNodePolicy, ZeroTrustRole } from '@/components/security/ZeroTrustLens';
+import { PROFILES, type SecurityNodePolicy, type ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 
 const NODE_TYPES: NodeTypes = {
   source: SourceNode as unknown as React.ComponentType<any>,
@@ -58,7 +58,31 @@ const NODE_ID_ALIASES: Record<string, string> = {
 
 const CANONICAL_NODE_IDS = new Set<string>(INITIAL_CANVAS_NODES.map((node) => node.id));
 
-/** Banda inferior donde se ubican los nodos recibidos en caliente. */
+/** Posiciones fijas de columnas por capa Medallion canónica. */
+const COLUMN_X_COORDINATES: Record<string, number> = {
+  source: 40,
+  generic: 40,
+  bronze: 400,
+  silver: 760,
+  guardian: 760,
+  gold: 1120,
+};
+
+function getColumnNodePosition(
+  subType: MidasNodeSubtype,
+  currentNodes: Node<MidasNodeData>[],
+  fallbackIndex: number,
+): { x: number; y: number } {
+  const colX = COLUMN_X_COORDINATES[subType] ?? 40;
+  const nodesInCol = currentNodes.filter((n) => Math.abs(n.position.x - colX) < 80);
+  if (nodesInCol.length === 0) {
+    return { x: colX, y: colX === 40 ? 60 : 240 };
+  }
+  const maxY = nodesInCol.reduce((max, n) => Math.max(max, n.position.y), 0);
+  return { x: colX, y: maxY + 180 };
+}
+
+/** Banda inferior donde se ubican los nodos de respaldo. */
 const DYNAMIC_NODE_ORIGIN = { x: 40, y: 620 };
 const DYNAMIC_NODE_STEP = { x: 340, y: 190 };
 
@@ -291,7 +315,11 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
       dynamicNodes.push({
         id: nodeId,
         type: shape.nodeType,
-        position: dynamicNodePosition(dynamicOffset + dynamicNodes.length),
+        position: getColumnNodePosition(
+          shape.subType,
+          [...nodesRef.current, ...dynamicNodes],
+          dynamicOffset + dynamicNodes.length,
+        ),
         data: {
           id: nodeId,
           label: shape.label,
@@ -335,6 +363,24 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
             volume: evt.records_out,
             status: evt.status ?? 'UNKNOWN',
             ...(shape.subType === 'gold' ? { isWap: true } : {}),
+          },
+        });
+      } else if (
+        (shape.nodeType === 'source' || shape.subType === 'generic') &&
+        knownNodeIds.has('bronze_raw')
+      ) {
+        dynamicEdges.push({
+          id: `edge_${nodeId}_bronze_raw`,
+          source: nodeId,
+          target: 'bronze_raw',
+          type: 'dataflow',
+          animated: true,
+          style: { stroke: '#2563EB', strokeWidth: 1.5 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#2563EB' },
+          data: {
+            label: 'Ingesta',
+            volume: evt.records_out,
+            status: evt.status ?? 'UNKNOWN',
           },
         });
       }
@@ -875,6 +921,70 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
       <NodeInspectionDrawer
         selectedNode={selectedNodeData}
         onClose={() => setSelectedNodeData(null)}
+        onPipelineExecuted={(res) => {
+          if (res) {
+            setNodes((current) =>
+              current.map((n) => {
+                if (n.id === selectedNodeData?.id) {
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: (res.status as NodeStatus) ?? 'HEALTHY',
+                      recordsOut: res.records_ingested,
+                    },
+                  };
+                }
+                if (n.id === 'bronze_raw') {
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: 'HEALTHY',
+                      recordsIn: res.records_ingested,
+                      recordsOut: res.records_ingested,
+                    },
+                  };
+                }
+                if (n.id === 'silver_cleansing') {
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: res.records_quarantined > 0 ? 'DEGRADED' : 'HEALTHY',
+                      recordsIn: res.records_ingested,
+                      recordsOut: res.records_cleaned,
+                      quarantinedRecords: res.records_quarantined,
+                    },
+                  };
+                }
+                if (n.id === 'guardian_monitor' && res.records_quarantined > 0) {
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: 'AUTO_HEALING',
+                      recordsIn: res.records_quarantined,
+                      quarantinedRecords: res.records_quarantined,
+                    },
+                  };
+                }
+                if (n.id === 'gold_marts') {
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: 'HEALTHY',
+                      recordsIn: res.records_cleaned,
+                      recordsOut: res.gold_records_generated,
+                    },
+                  };
+                }
+                return n;
+              }),
+            );
+          }
+        }}
       />
 
       {securityRole !== 'admin' && (
@@ -884,7 +994,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D4AF37]/50 bg-[#FBF8EF] px-2.5 py-0.5 font-mono text-[10px] font-medium text-[#8C6D1F]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#B8860B] animate-pulse" />
-            Perfil de identidad: {securityPolicy?.title ?? (securityRole === 'rbac' ? 'Gerente Regional Norte' : 'Auditor de Cumplimiento')} ·{' '}
+            Perfil de identidad: {securityPolicy?.title ?? PROFILES[securityRole]?.label ?? securityRole} ·{' '}
             {securityPolicy
               ? 'Política declarada por el catálogo de identidades'
               : 'Sin catálogo de identidades: política local de respaldo'}

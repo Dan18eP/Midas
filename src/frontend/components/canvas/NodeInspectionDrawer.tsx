@@ -6,9 +6,10 @@ import { triggerPipeline } from '@/services/sessionService';
 interface NodeInspectionDrawerProps {
   selectedNode: MidasNodeData | null;
   onClose: () => void;
+  onPipelineExecuted?: (result: any) => void;
 }
 
-export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspectionDrawerProps) => {
+export const NodeInspectionDrawer = memo(({ selectedNode, onClose, onPipelineExecuted }: NodeInspectionDrawerProps) => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose }: NodeInspect
       }
       const res = await triggerPipeline(connId);
       setExecutionResult(`Procesado (${res.status}): ${res.records_cleaned} limpios, ${res.records_quarantined} en cuarentena.`);
+      onPipelineExecuted?.(res);
     } catch (err) {
       setExecutionResult(`Error: ${err instanceof Error ? err.message : 'Fallo en pipeline'}`);
     } finally {

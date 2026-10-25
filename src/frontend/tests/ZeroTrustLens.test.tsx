@@ -46,9 +46,9 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
   it('1. Renderiza el selector de roles con los 3 perfiles canónicos', () => {
     render(<ZeroTrustLens role="admin" />);
     expect(screen.getByTestId('zero-trust-role-selector')).toBeInTheDocument();
-    expect(screen.getByTestId('role-btn-admin')).toHaveTextContent('Director General');
-    expect(screen.getByTestId('role-btn-rbac')).toHaveTextContent('Gerente Regional Norte');
-    expect(screen.getByTestId('role-btn-compliance')).toHaveTextContent('Auditor de Cumplimiento');
+    expect(screen.getByTestId('role-btn-admin')).toHaveTextContent('Data Admin');
+    expect(screen.getByTestId('role-btn-rbac')).toHaveTextContent('Data Analyst');
+    expect(screen.getByTestId('role-btn-compliance')).toHaveTextContent('Data Steward');
   });
 
   it('2. Refleja el estado activo con aria-pressed conforme a estándares WAI-ARIA', () => {
@@ -77,7 +77,7 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
   it('4. Previsualización sin evidencia del backend: declara ausencia de datos y de masking', () => {
     render(<ZeroTrustLens role="admin" preview />);
     expect(screen.getByTestId('zero-trust-lens-preview')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-label')).toHaveTextContent('Director General');
+    expect(screen.getByTestId('profile-label')).toHaveTextContent('Data Admin');
     expect(screen.getByTestId('profile-visibility')).toHaveTextContent('Sin datos');
     expect(screen.getByTestId('masking-status')).toHaveTextContent('No declarada');
     expect(screen.getByTestId('mask-column-policy')).toHaveTextContent('Sin política declarada');
@@ -279,11 +279,11 @@ describe('ZeroTrustLens — Interactive Role Switcher & Security Governance (HU-
   it('9. PipelineCanvas muestra banner de simulación en rol rbac y compliance', () => {
     const { rerender } = render(<PipelineCanvas securityRole="rbac" autoConnectSSE={false} />);
     expect(screen.getByTestId('zero-trust-simulation-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('zero-trust-simulation-banner')).toHaveTextContent('Gerente Regional Norte');
+    expect(screen.getByTestId('zero-trust-simulation-banner')).toHaveTextContent('Data Analyst');
 
     rerender(<PipelineCanvas securityRole="compliance" autoConnectSSE={false} />);
     expect(screen.getByTestId('zero-trust-simulation-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('zero-trust-simulation-banner')).toHaveTextContent('Auditor de Cumplimiento');
+    expect(screen.getByTestId('zero-trust-simulation-banner')).toHaveTextContent('Data Steward');
   });
 
   it('10. PipelineCanvas atenúa nodos restringidos según el perfil de seguridad', () => {

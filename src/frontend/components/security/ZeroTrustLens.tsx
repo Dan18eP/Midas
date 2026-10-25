@@ -50,22 +50,22 @@ export const PROFILES: Record<
   { label: string; short: string; badge: string; summary: string }
 > = {
   admin: {
-    label: 'Director General',
+    label: 'Data Admin',
     short: 'Admin',
     badge: 'admin',
-    summary: 'Acceso total a las métricas de negocio y control operacional.',
+    summary: 'Acceso irrestricto de administración a todas las capas del Lakehouse, DDL/DML y orquestación Airflow.',
   },
   rbac: {
-    label: 'Gerente Regional Norte',
-    short: 'RBAC',
-    badge: 'rbac',
-    summary: 'Acceso segmentado por región y responsabilidades de liderazgo.',
+    label: 'Data Analyst',
+    short: 'Analyst',
+    badge: 'analyst',
+    summary: 'Acceso analítico a Silver y Gold con enmascaramiento dinámico de PII en columnas sensibles.',
   },
   compliance: {
-    label: 'Auditor de Cumplimiento',
-    short: 'Compliance',
-    badge: 'compliance',
-    summary: 'Observación de evidencias regulatorias y controles de la plataforma.',
+    label: 'Data Steward',
+    short: 'Steward',
+    badge: 'steward',
+    summary: 'Auditoría de gobernanza, inspección de cuarentena, linaje y contratos WAP.',
   },
 };
 

@@ -91,10 +91,10 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
 
         {/* Badge de Estado Canónico */}
         <div
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-medium text-[#4D7C0F] bg-[#4D7C0F]/10 border border-[#4D7C0F]/25"
+          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-medium ${statusConfig.textClass} ${statusConfig.bgClass} border ${statusConfig.borderClass}`}
           title={statusConfig.accessibleDescription}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4D7C0F]" />
+          <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dotClass}`} />
           <span>{statusConfig.label}</span>
         </div>
       </div>

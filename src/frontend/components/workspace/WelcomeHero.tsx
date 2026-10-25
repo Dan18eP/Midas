@@ -13,32 +13,35 @@
 import React, { useState } from 'react';
 import {
   FileSpreadsheet,
-  Database,
   ArrowUp,
   Sparkles,
+  Zap,
+  Shield,
+  BarChart3,
 } from 'lucide-react';
-import { PROFILES, type ZeroTrustRole } from '@/components/security/ZeroTrustLens';
+import { type ZeroTrustRole } from '@/components/security/ZeroTrustLens';
 import { QuickConnectionModal, type QuickSourceType } from './QuickConnectionModal';
 import { SourceActionMenu } from '@/components/copilot/SourceActionMenu';
 import { ChatParticleBackground } from '@/components/copilot/ChatParticleBackground';
 
 interface WelcomeHeroProps {
   securityRole?: ZeroTrustRole;
+  hasConnectedData?: boolean;
+  connectedSourceName?: string;
   onSendPrompt: (prompt: string) => void;
   onQuickConnectSuccess?: (sourceName: string) => void;
 }
 
 export function WelcomeHero({
   securityRole = 'admin',
+  hasConnectedData = false,
+  connectedSourceName,
   onSendPrompt,
   onQuickConnectSuccess,
 }: WelcomeHeroProps) {
   const [prompt, setPrompt] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedQuickType, setSelectedQuickType] = useState<QuickSourceType>('excel');
-
-  const profile = PROFILES[securityRole] || PROFILES.admin;
-  const userName = profile.label || 'Usuario Midas';
 
   const handleOpenLauncher = (type: QuickSourceType) => {
     setSelectedQuickType(type);
@@ -56,6 +59,42 @@ export function WelcomeHero({
     onSendPrompt(suggestion);
   };
 
+  const suggestions = hasConnectedData
+    ? [
+        {
+          label: 'Resumir registros y estructura de datos',
+          prompt: 'Resumir registros, esquema y estructura del conjunto de datos conectado',
+          icon: FileSpreadsheet,
+        },
+        {
+          label: 'Consultar métricas de calidad y cuarentena',
+          prompt: 'Consultar métricas de calidad del dataset y registros en cuarentena Guardian',
+          icon: Shield,
+        },
+        {
+          label: 'Generar propuesta de capa Gold y gráficos',
+          prompt: 'Generar propuesta de capa Gold optimizada y gráficos analíticos interactivos',
+          icon: Sparkles,
+        },
+      ]
+    : [
+        {
+          label: '¿Cómo procesa Midas de Bronze a Silver?',
+          prompt: '¿Cómo procesa Midas los datos de Bronze a Silver y qué transformaciones realiza?',
+          icon: Zap,
+        },
+        {
+          label: '¿Cómo funciona el Quality Gate y cuarentena?',
+          prompt: '¿Cómo funciona el Quality Gate y la cuarentena Guardian en la arquitectura Midas?',
+          icon: Shield,
+        },
+        {
+          label: '¿Cómo solicito un Data Mart Gold con IA?',
+          prompt: '¿Cómo solicito un Data Mart Gold personalizado con IA y cómo se materializa en Trino?',
+          icon: BarChart3,
+        },
+      ];
+
   return (
     <div className="relative flex min-h-full w-full flex-col items-center justify-center px-4 py-8 bg-[#FBF8EF]/30 text-[#1C1E21] antialiased overflow-hidden">
       {/* Background Subtle Gradient & Grid Pattern */}
@@ -65,11 +104,14 @@ export function WelcomeHero({
       <ChatParticleBackground maxParticles={85} connectionDistance={155} mouseRadius={135} />
 
       <div className="relative z-10 w-full max-w-3xl flex flex-col items-center text-center space-y-6">
-        {/* Dynamic Executive Greeting (ADR-010) */}
+        {/* Dynamic Professional Greeting */}
         <div className="space-y-2">
           <h1 className="font-chatgpt text-2xl md:text-3xl lg:text-[32px] font-semibold tracking-tight text-[#1C1E21] leading-tight">
-            Hola, {userName}. ¿Qué tienes en mente hoy?
+            ¿Qué deseas analizar o construir hoy?
           </h1>
+          <p className="text-xs text-[#787164] mt-1 font-sans">
+            Midas Active Lakehouse &amp; Inteligencia Conversacional · Flujo Medallón asistido por IA
+          </p>
         </div>
 
         {/* Central Prompt Input Bar (ChatGPT-Style) con Menú «+» */}
@@ -99,32 +141,22 @@ export function WelcomeHero({
           </div>
         </form>
 
-        {/* Prompt Suggestions */}
+        {/* Prompt Suggestions (Opción C Adaptativa) */}
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleSuggestionClick('Explorar tablas de CRM')}
-            className="flex items-center gap-1.5 rounded-full border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-1.5 text-xs text-[#4B4639] hover:bg-[#FBF8EF] hover:border-[#D4AF37]/60 transition-colors shadow-2xs"
-          >
-            <Database className="h-3 w-3 text-[#B8860B]" />
-            <span>Explorar tablas de CRM</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSuggestionClick('Analizar cumplimiento de presupuesto')}
-            className="flex items-center gap-1.5 rounded-full border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-1.5 text-xs text-[#4B4639] hover:bg-[#FBF8EF] hover:border-[#D4AF37]/60 transition-colors shadow-2xs"
-          >
-            <FileSpreadsheet className="h-3 w-3 text-[#B8860B]" />
-            <span>Analizar cumplimiento de presupuesto</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSuggestionClick('Crear nuevo Mart Gold')}
-            className="flex items-center gap-1.5 rounded-full border border-[#E8E4DC] bg-[#FFFFFF] px-3 py-1.5 text-xs text-[#4B4639] hover:bg-[#FBF8EF] hover:border-[#D4AF37]/60 transition-colors shadow-2xs"
-          >
-            <Sparkles className="h-3 w-3 text-[#B8860B]" />
-            <span>Crear nuevo Mart Gold</span>
-          </button>
+          {suggestions.map((item, idx) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSuggestionClick(item.prompt)}
+                className="flex items-center gap-1.5 rounded-full border border-[#E8E4DC] bg-[#FFFFFF] px-3.5 py-1.5 text-xs text-[#4B4639] hover:bg-[#FBF8EF] hover:border-[#D4AF37]/60 transition-colors shadow-2xs cursor-pointer"
+              >
+                <Icon className="h-3.5 w-3.5 text-[#B8860B]" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -59,6 +59,21 @@ class MidasIcebergCatalogClient:
         self.s3_access_key = s3_access_key or os.getenv("MINIO_ROOT_USER", "midas_minio_admin")
         self.s3_secret_key = s3_secret_key or os.getenv("MINIO_ROOT_PASSWORD", "midas_minio_secret_2026")
 
+        # Fallback a localhost si midas-iceberg-catalog o midas-minio no resuelven (ej. tests en host Windows)
+        if "midas-iceberg-catalog" in self.catalog_uri:
+            try:
+                import socket
+                socket.gethostbyname("midas-iceberg-catalog")
+            except Exception:
+                self.catalog_uri = self.catalog_uri.replace("midas-iceberg-catalog", "localhost")
+
+        if "midas-minio" in self.s3_endpoint:
+            try:
+                import socket
+                socket.gethostbyname("midas-minio")
+            except Exception:
+                self.s3_endpoint = self.s3_endpoint.replace("midas-minio", "localhost")
+
         self._catalog: Optional[Catalog] = None
 
     def get_catalog_properties(self) -> Dict[str, str]:
@@ -79,6 +94,8 @@ class MidasIcebergCatalogClient:
         if self._catalog is None:
             if load_catalog is None:
                 raise RuntimeError("Librería 'pyiceberg' no está disponible en el entorno.")
+            if not self.check_health(timeout_sec=0.5):
+                raise ConnectionError(f"Catálogo Iceberg REST no disponible en {self.catalog_uri}")
             props = self.get_catalog_properties()
             self._catalog = load_catalog("midas_catalog", **props)
         return self._catalog

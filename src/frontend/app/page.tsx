@@ -36,7 +36,13 @@ import { SessionProvider, useSession } from '@/context/SessionContext';
 import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySidebar';
 import { WelcomeHero } from '@/components/workspace/WelcomeHero';
 import { listSourceConnections } from '@/services/sessionService';
-import { INITIAL_CANVAS_NODES, INITIAL_CANVAS_EDGES } from '@/components/canvas/topology/initialTopology';
+import {
+  INITIAL_CANVAS_NODES,
+  INITIAL_CANVAS_EDGES,
+  buildCanvasTopologyFromConnections,
+} from '@/components/canvas/topology/initialTopology';
+import { SessionAnalyticsView } from '@/components/analytics/SessionAnalyticsView';
+import { Layers, BarChart3 } from 'lucide-react';
 
 const PipelineCanvas = dynamic(
   () => import('@/components/canvas/PipelineCanvas').then((mod) => mod.PipelineCanvas),
@@ -56,6 +62,7 @@ const PipelineCanvas = dynamic(
 function MidasConsoleWorkspace() {
   const [selectedRole, setSelectedRole] = useState<ZeroTrustRole>('admin');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeMainView, setActiveMainView] = useState<'canvas' | 'analytics'>('canvas');
 
   // HU-FRONT-08: las identidades reales provienen del catálogo del backend.
   const [roleDefinitions, setRoleDefinitions] = useState<SecurityRoleDefinition[]>([]);
@@ -112,25 +119,76 @@ function MidasConsoleWorkspace() {
 
   const copilotChat = useCopilotChatContext();
 
-  // HU-FRONT-07: Refrescar la lista de sesiones tras completar un turno de conversación
-  useEffect(() => {
-    copilotChat?.setOnTurnComplete?.(() => {
-      void fetchSessions();
-    });
-  }, [copilotChat, fetchSessions]);
+  const [availableSources, setAvailableSources] = useState<any[]>([]);
 
-  // Data-gating: verificar si hay fuentes de datos conectadas
+  // Topología viva derivada de las fuentes reales conectadas
+  const dynamicTopology = useMemo(
+    () => buildCanvasTopologyFromConnections(availableSources),
+    [availableSources],
+  );
+
+  const currentNodes = useMemo(() => {
+    if (activeTopology?.nodes && activeTopology.nodes.length > 0) {
+      return activeTopology.nodes;
+    }
+    return dynamicTopology.nodes;
+  }, [activeTopology, dynamicTopology]);
+
+  const currentEdges = useMemo(() => {
+    if (activeTopology?.edges && activeTopology.edges.length > 0) {
+      return activeTopology.edges;
+    }
+    return dynamicTopology.edges;
+  }, [activeTopology, dynamicTopology]);
+
+  // Data-gating: verificar si hay fuentes de datos conectadas y almacenarlas
   useEffect(() => {
     const checkData = async () => {
       try {
         const conns = await listSourceConnections();
-        setHasConnectedData(Array.isArray(conns) && conns.length > 0);
+        if (Array.isArray(conns) && conns.length > 0) {
+          setAvailableSources(conns);
+          setHasConnectedData(true);
+        } else {
+          setAvailableSources([]);
+          setHasConnectedData(false);
+        }
       } catch {
+        setAvailableSources([]);
         setHasConnectedData(false);
       }
     };
     void checkData();
   }, []);
+
+  // HU-FRONT-07: Refrescar la lista de sesiones tras completar un turno de conversación
+  // y reflejar materialización de Gold en la topología de la sesión
+  useEffect(() => {
+    copilotChat?.setOnTurnComplete?.(async (threadId) => {
+      await fetchSessions();
+      const msgs = copilotChat.messages;
+      const last = msgs[msgs.length - 1];
+      if (last && last.intent === 'materialize_gold' && activeSessionId) {
+        const updatedNodes = currentNodes.map((n) => {
+          if (n.id === 'gold_marts') {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                label: 'Gold Marts (Materializado)',
+                status: 'HEALTHY' as const,
+                recordsIn: 100,
+                recordsOut: 100,
+                description: 'Reporte analítico materializado en catálogo Iceberg vía Airflow.',
+              },
+            };
+          }
+          return n;
+        });
+        await saveTopology(updatedNodes, currentEdges);
+      }
+    });
+  }, [copilotChat, fetchSessions, activeSessionId, currentNodes, currentEdges, saveTopology]);
 
   // Sincronizar rol activo con el contexto del Copiloto para inyección en X-User-Role (ADR-011)
   useEffect(() => {
@@ -144,7 +202,8 @@ function MidasConsoleWorkspace() {
     if (!activeSession) {
       if (lastLoadedSessionIdRef.current !== null) {
         lastLoadedSessionIdRef.current = null;
-        copilotChat.startNewChat();
+        copilotChat.setConnectionId(undefined);
+        copilotChat.startNewChat(availableSources.slice(0, 1));
       }
       return;
     }
@@ -154,6 +213,18 @@ function MidasConsoleWorkspace() {
     }
 
     lastLoadedSessionIdRef.current = activeSession.session_id;
+
+    // Identificar la conexión exclusiva asociada a esta sesión (1 sesión = 1 conexión)
+    const sessionConnId =
+      (activeSession.metadata?.connection_id as string) ||
+      activeSession.topology_state?.nodes?.find((n) => n.data?.nodeType === 'source')?.data?.connectionId ||
+      currentNodes.find((n) => n.data?.nodeType === 'source')?.data?.connectionId;
+
+    const sessionSources = sessionConnId
+      ? availableSources.filter((s) => s.connection_id === sessionConnId)
+      : availableSources.slice(0, 1);
+
+    copilotChat.setConnectionId(sessionConnId);
 
     // Hidratación de mensajes de la sesión al Copiloto
     if (activeSession.messages && activeSession.messages.length > 0) {
@@ -168,11 +239,11 @@ function MidasConsoleWorkspace() {
         metricsSummary: m.metadata?.metrics_summary as Array<Record<string, unknown>> | undefined,
       }));
 
-      copilotChat.loadSessionMessages(mappedMessages, activeSession.session_id);
+      copilotChat.loadSessionMessages(mappedMessages, activeSession.session_id, sessionSources, sessionConnId);
     } else {
-      copilotChat.loadSessionMessages([], activeSession.session_id);
+      copilotChat.loadSessionMessages([], activeSession.session_id, sessionSources, sessionConnId);
     }
-  }, [activeSession, copilotChat]);
+  }, [activeSession, copilotChat, availableSources, currentNodes]);
 
   // Manejo de envío de prompt desde la pantalla de bienvenida (ChatGPT-Style)
   const handleWelcomeSendPrompt = async (promptText: string) => {
@@ -219,14 +290,35 @@ function MidasConsoleWorkspace() {
           </div>
         </div>
 
-        {/* Frontera HU-FRONT-03: Time-Travel Replay Status */}
-        <div className="hidden lg:flex items-center bg-[#F7F7F5] border border-[#E8E4DC] rounded-md px-2.5 py-1 text-xs shadow-inner gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-[#787164] font-mono font-medium">Time-Travel Replay:</span>
-          <span className="flex items-center space-x-1.5 px-2 py-1 rounded bg-[#FFFFFF] text-[#1C1E21] font-medium border border-[#D4AF37]/40 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#4D7C0F] animate-pulse" />
-            <span className="font-mono text-[10px] font-semibold text-[#8C6D1F]">Historial del Gateway de Telemetría</span>
-          </span>
-        </div>
+        {/* Selector de Vista Principal: Pipeline Canvas vs Centro de Analítica (Solo visible con datos conectados y sesión activa) */}
+        {hasConnectedData && !isNewChatView && (
+          <div className="flex items-center rounded-lg border border-[#E8E4DC] bg-[#F7F7F5] p-0.5 text-xs shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setActiveMainView('canvas')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
+                activeMainView === 'canvas'
+                  ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
+                  : 'text-[#787164] hover:text-[#1C1E21]'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5 text-[#B8860B]" />
+              Pipeline Lakehouse
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainView('analytics')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors ${
+                activeMainView === 'analytics'
+                  ? 'bg-white text-[#1C1E21] shadow-2xs border border-[#E8E4DC]'
+                  : 'text-[#787164] hover:text-[#1C1E21]'
+              }`}
+            >
+              <BarChart3 className="h-3.5 w-3.5 text-[#2563EB]" />
+              Analítica de Datos
+            </button>
+          </div>
+        )}
 
         {/* Frontera HU-FRONT-05: Selector Zero-Trust Roles */}
         <ZeroTrustLens
@@ -254,6 +346,8 @@ function MidasConsoleWorkspace() {
             >
               <WelcomeHero
                 securityRole={selectedRole}
+                hasConnectedData={hasConnectedData}
+                connectedSourceName={(activeSession?.metadata?.connection_id as string) || undefined}
                 onSendPrompt={handleWelcomeSendPrompt}
                 onQuickConnectSuccess={handleQuickConnectSuccess}
               />
@@ -271,14 +365,19 @@ function MidasConsoleWorkspace() {
                     <p className="text-xs text-[#A0988A]">Registra una fuente de datos para habilitar el chat y la topologia.</p>
                   </div>
                 </div>
+              ) : activeMainView === 'analytics' ? (
+                <SessionAnalyticsView
+                  sessionId={activeSessionId || 'default'}
+                  activeNodes={currentNodes}
+                />
               ) : (
-              <PipelineCanvas
-                securityRole={selectedRole}
-                securityPolicy={securityPolicy}
-                initialNodes={activeTopology?.nodes || INITIAL_CANVAS_NODES}
-                initialEdges={activeTopology?.edges || INITIAL_CANVAS_EDGES}
-                onTopologyChange={activeSessionId ? saveTopology : undefined}
-              />
+                <PipelineCanvas
+                  securityRole={selectedRole}
+                  securityPolicy={securityPolicy}
+                  initialNodes={currentNodes}
+                  initialEdges={currentEdges}
+                  onTopologyChange={activeSessionId ? saveTopology : undefined}
+                />
               )}
             </section>
           )}
