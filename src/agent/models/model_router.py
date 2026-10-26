@@ -400,7 +400,109 @@ def deterministic_sql(
     if is_summary_request:
         return validate_query(f"SELECT * FROM {table_name} LIMIT 20", catalog)
 
-    # 3. Detectar si hay intención de agrupación (" por ")
+    # 3. Detectar polaridad de ordenamiento (Ascendente vs Descendente)
+    is_asc = any(
+        w in normalized_question
+        for w in (
+            "menos", "menor", "menores", "peor", "peores", "barato", "baratos",
+            "economico", "economicos", "económico", "económicos", "más bajo",
+            "mas bajo", "mas bajos", "más bajos", "bottom", "minimo", "mínimo"
+        )
+    )
+    order_dir = "ASC" if is_asc else "DESC"
+
+    # 4. Detectar consultas sobre estados o inventario específico (ej. "out of stock")
+    is_out_of_stock = any(w in normalized_question for w in ("out of stock", "agotado", "agotados", "sin stock"))
+
+    # 5. Detectar consultas a nivel de Entidad o Superlativos (ej: "top 10 productos más caros", "qué producto tiene el mayor valor")
+    is_entity_query = any(
+        w in normalized_question
+        for w in (
+            "producto", "productos", "articulo", "articulos", "item", "items",
+            "qué producto", "que producto", "cuál producto", "cual producto",
+            "qué tiene el mayor", "que tiene el mayor", "cuál tiene el mayor", "cual tiene el mayor",
+            "qué tiene el menor", "que tiene el menor", "cuál tiene el menor", "cual tiene el menor",
+            "qué producto tiene", "que producto tiene", "cuál producto tiene", "cual producto tiene"
+        )
+    ) and not any(w in normalized_question for w in (" por producto", "por categoria", "por categoría", "por brand", "por marca"))
+
+    if is_entity_query or is_out_of_stock:
+        entity_col = None
+        for p in (("name", "nombre", "producto", "product", "item", "title", "titulo"), ("description", "descripcion"), ("internal_id", "internal id", "id", "ean")):
+            entity_candidates = [c for c in columns if any(k in c.lower() for k in p)]
+            if entity_candidates:
+                entity_col = entity_candidates[0]
+                break
+
+        metric_col = None
+        if any(k in normalized_question for k in ("caro", "caros", "barato", "baratos", "costoso", "costosos", "precio", "price", "cost", "costo", "valor")):
+            metric_candidates = [c for c in columns if any(k in c.lower() for k in ("price", "precio", "unitprice", "valor", "cost", "costo", "monto", "total"))]
+            if metric_candidates:
+                metric_col = metric_candidates[0]
+        elif any(k in normalized_question for k in ("stock", "inventario", "existencia")):
+            metric_candidates = [c for c in columns if any(k in c.lower() for k in ("stock", "cantidad", "inventory"))]
+            if metric_candidates:
+                metric_col = metric_candidates[0]
+        else:
+            try:
+                metric_col = _numeric_column(normalized_question, columns)
+            except Exception:
+                pass
+
+        # Determinar límite
+        if any(w in normalized_question for w in ("qué producto", "que producto", "cuál producto", "cual producto", "mayor valor", "menor valor")) and not re.search(r"\b(?:top\s*)?\d+\b", normalized_question):
+            limit_val = 1
+        else:
+            top_match = re.search(r"\b(?:top\s*)?(\d+)\b", normalized_question)
+            limit_val = int(top_match.group(1)) if top_match else 10
+
+        where_clause = ""
+        if is_out_of_stock:
+            avail_cand = [c for c in columns if any(k in c.lower() for k in ("availability", "estado", "status"))]
+            if avail_cand:
+                where_clause = f" WHERE LOWER({avail_cand[0]}) = 'out_of_stock'"
+            elif "stock" in columns:
+                where_clause = " WHERE TRY_CAST(stock AS DOUBLE) = 0"
+
+        if entity_col and metric_col:
+            q_sql = f"SELECT {entity_col}, {metric_col} FROM {table_name}{where_clause} ORDER BY TRY_CAST({metric_col} AS DOUBLE) {order_dir} LIMIT {limit_val}"
+            return validate_query(q_sql, catalog)
+        elif entity_col and is_out_of_stock:
+            avail_col = next((c for c in columns if "avail" in c.lower()), entity_col)
+            q_sql = f"SELECT {entity_col}, {avail_col} FROM {table_name}{where_clause} LIMIT {limit_val}"
+            return validate_query(q_sql, catalog)
+
+    # 6. Detectar agregación o ranking temporal anual ("top años con mayor venta", "por año")
+    is_yearly_request = any(
+        w in normalized_question
+        for w in (
+            "top años", "top anos", "ranking de años", "ranking años", "ranking anos",
+            "años con mayor", "anos con mayor", "años con menor", "anos con menor",
+            "por año", "por ano", "cada año", "cada ano", "anual"
+        )
+    ) or (any(w in normalized_question for w in ("año", "años", "ano", "anos")) and any(w in normalized_question for w in ("top", "ranking", "mayor", "menor", "mas", "más")))
+
+    if is_yearly_request:
+        temp_col = next(
+            (c for c in columns if any(k in c.lower() for k in ("period", "fecha", "date", "anio", "año"))),
+            None,
+        )
+        if temp_col:
+            if temp_col.lower() in ("anio", "año"):
+                year_expr = temp_col
+            else:
+                year_expr = f"SUBSTR(CAST({temp_col} AS VARCHAR), 1, 4)"
+
+            try:
+                num_c = _numeric_column(normalized_question, columns)
+            except Exception:
+                num_c = next((c for c in columns if any(k in c.lower() for k in ("data_value", "monto", "total", "valor", "magnitude"))), None)
+
+            if num_c:
+                y_sql = f"SELECT {year_expr} AS anio, SUM(TRY_CAST({num_c} AS DOUBLE)) AS total_ventas FROM {table_name} GROUP BY {year_expr} ORDER BY 2 {order_dir} LIMIT 10"
+                return validate_query(y_sql, catalog)
+
+    # 7. Detectar si hay intención de agrupación (" por ")
     group_col = None
     if " por " in normalized_question:
         after_por = normalized_question.split(" por ", 1)[1].strip()
@@ -492,7 +594,7 @@ def deterministic_sql(
         query = query.where(exp.EQ(this=exp.column(col), expression=exp.Literal.string(val)))
 
     if group_col:
-        query = query.group_by(exp.column(group_col)).order_by(exp.var("2"), desc=True).limit(20)
+        query = query.group_by(exp.column(group_col)).order_by(exp.var("2"), desc=(not is_asc)).limit(20)
 
     return validate_query(query.sql(dialect="trino"), catalog)
 
@@ -505,7 +607,7 @@ def _allowed_tables(
         name, columns = entry.get("table"), entry.get("columns")
         if not isinstance(name, str) or not isinstance(columns, (list, tuple, set)):
             continue
-        if name.casefold().startswith(("silver.", "gold.")) and columns:
+        if name.casefold().startswith(("silver.", "gold.", "clean_")) and columns:
             tables.append((name, {str(column).casefold() for column in columns}))
     return tables
 
@@ -518,6 +620,7 @@ def _numeric_column(question: str, columns: set[str]) -> str:
         "ingresos": "monto",
         "revenue": "monto",
         "costos": "costo_operativo_fijo",
+        "costo": "costo_operativo_fijo",
         "gastos": "gasto_marketing",
         "satisfaccion": "calificacion_satisfaccion",
         "satisfacción": "calificacion_satisfaccion",
@@ -526,17 +629,33 @@ def _numeric_column(question: str, columns: set[str]) -> str:
         "horas": "horas",
         "stock": "stock",
         "inventario": "stock",
-        "precio": "precio",
+        "precio": "price",
+        "price": "price",
+        "caro": "price",
+        "caros": "price",
+        "barato": "price",
+        "baratos": "price",
+        "costoso": "price",
+        "costosos": "price",
         "cantidad": "cantidad",
-        "valor": "data_value",
+        "valor": "price",
         "data_value": "data_value",
         "magnitude": "magnitude",
     }
-    for word, column in synonyms.items():
+    for word, target in synonyms.items():
         if word in question:
-            if column in columns:
-                return column
+            if target in columns:
+                return target
+            if target == "price" and "precio" in columns:
+                return "precio"
+            if target == "precio" and "price" in columns:
+                return "price"
             if word in ("venta", "ventas", "monto", "ingreso", "ingresos", "revenue", "valor") and "data_value" in columns:
+                return "data_value"
+            if word == "valor" and "monto" in columns:
+                return "monto"
+            if word == "valor" and "total_neto" in columns:
+                return "total_neto"
                 return "data_value"
     for column in sorted(columns, key=len, reverse=True):
         if column in columns and re.search(rf"\b{re.escape(column)}\b", question):

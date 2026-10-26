@@ -213,8 +213,37 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
   // Sincronización reactiva con la sesión activa (HU-FRONT-07 / ADR-010)
   useEffect(() => {
-    if (initialNodes) {
-      setNodes(initialNodes);
+    if (initialNodes && initialNodes.length > 0) {
+      setNodes((current) => {
+        // Prevenir degradación a 'N/D': si los nodos actuales ya tienen métricas calculadas
+        // y los nodos entrantes vienen en STANDBY o sin métricas, fusionar preservando el conteo real.
+        const hasCurrentMetrics = current.some((n) => typeof n.data?.recordsIn === 'number' && n.data.recordsIn > 0);
+        const hasIncomingMetrics = initialNodes.some((n) => typeof n.data?.recordsIn === 'number' && n.data.recordsIn > 0);
+
+        if (hasCurrentMetrics && !hasIncomingMetrics) {
+          return initialNodes.map((initNode) => {
+            const curr = current.find((c) => c.id === initNode.id);
+            if (curr && typeof curr.data?.recordsIn === 'number') {
+              return {
+                ...initNode,
+                data: {
+                  ...initNode.data,
+                  status: curr.data.status,
+                  recordsIn: curr.data.recordsIn,
+                  recordsOut: curr.data.recordsOut,
+                  quarantinedRecords: curr.data.quarantinedRecords,
+                  details: {
+                    ...(initNode.data.details || {}),
+                    ...(curr.data.details || {}),
+                  },
+                },
+              };
+            }
+            return initNode;
+          });
+        }
+        return initialNodes;
+      });
     }
   }, [initialNodes, setNodes]);
 
@@ -930,8 +959,8 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
         onClose={() => setSelectedNodeData(null)}
         onPipelineExecuted={(res) => {
           if (res) {
-            setNodes((current) =>
-              current.map((n) => {
+            setNodes((current) => {
+              const updatedNodes = current.map((n) => {
                 if (n.id === selectedNodeData?.id || n.data.nodeType === 'source' || n.id.startsWith('source_')) {
                   const hasGold = (res.gold_records_generated ?? 0) > 0;
                   return {
@@ -1005,8 +1034,15 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                   };
                 }
                 return n;
-              }),
-            );
+              });
+
+              // Persistir topología con métricas reales al backend y contexto de sesión
+              if (onTopologyChange) {
+                onTopologyChange(updatedNodes, edges);
+              }
+
+              return updatedNodes;
+            });
           }
         }}
       />

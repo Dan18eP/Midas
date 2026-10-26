@@ -213,9 +213,17 @@ def evaluate_quality_gate(
     
     :return: QualityGateResult con cleaned_record si es válido, o quarantine_record si es inválido.
     """
-    pk_cols = primary_key_fields or ["transaccion_id", "id_orden", "id_registro", "pedido_id", "cliente_id", "_raw_id"]
-    amt_cols = amount_fields or ["monto", "precio_unitario", "total_neto", "total_amount", "monto_bruto", "valor"]
-    dt_cols = date_fields or ["fecha_transaccion", "fecha_pedido", "fecha_creacion", "fecha_actualizacion", "_ingested_at"]
+    pk_cols = primary_key_fields or [
+        "transaccion_id", "id_orden", "id_registro", "pedido_id", "cliente_id",
+        "internal_id", "internal id", "ean", "sku", "product_id", "id_producto", "item_id", "_raw_id"
+    ]
+    amt_cols = amount_fields or [
+        "monto", "precio_unitario", "precio", "price", "unit_price", "total_neto",
+        "total_amount", "monto_bruto", "valor", "cost", "costo", "stock"
+    ]
+    dt_cols = date_fields or [
+        "fecha_transaccion", "fecha_pedido", "fecha_creacion", "fecha_actualizacion", "_ingested_at"
+    ]
 
     raw_id = str(record.get("_raw_id") or uuid.uuid4())
     cleaned = dict(record)
@@ -237,7 +245,11 @@ def evaluate_quality_gate(
     if not found_pk_col:
         for rk in record:
             rk_norm = rk.strip().lower().replace(" ", "_").replace("-", "_")
-            if rk_norm in ("id", "index", "customer_id", "cliente_id", "order_id", "id_orden", "transaccion_id", "transaction_id", "code", "codigo", "key", "id_registro", "_raw_id") or rk_norm.endswith("_id") or rk_norm.startswith("id_"):
+            if rk_norm in (
+                "id", "index", "customer_id", "cliente_id", "order_id", "id_orden",
+                "transaccion_id", "transaction_id", "code", "codigo", "key", "id_registro",
+                "internal_id", "ean", "sku", "product_id", "item_id", "_raw_id"
+            ) or rk_norm.endswith("_id") or rk_norm.startswith("id_"):
                 found_pk_col = rk
                 break
 
@@ -256,23 +268,56 @@ def evaluate_quality_gate(
     else:
         return _build_quarantine_result(raw_id, source_name, "NULL_PRIMARY_KEY", record)
 
-    # 2. Validar y normalizar montos monetarios
+    # 2. Validar y normalizar montos monetarios y stock
     for amt_col in amt_cols:
-        if amt_col in record and record[amt_col] is not None:
-            try:
-                norm_amt = normalize_currency(record[amt_col])
-                if norm_amt < Decimal("0.00"):
-                    return _build_quarantine_result(raw_id, source_name, "NEGATIVE_AMOUNT", record)
-                cleaned[amt_col] = float(norm_amt)  # O Decimal en PySpark/PyArrow
-                cleaned[f"{amt_col}_decimal"] = str(norm_amt)
-            except ValueError:
-                return _build_quarantine_result(raw_id, source_name, "INVALID_AMOUNT_FORMAT", record)
+        matched_rk = None
+        if amt_col in record:
+            matched_rk = amt_col
+        else:
+            amt_clean = amt_col.strip().lower().replace(" ", "_").replace("-", "_")
+            for rk in record:
+                if rk.strip().lower().replace(" ", "_").replace("-", "_") == amt_clean:
+                    matched_rk = rk
+                    break
+
+        if matched_rk and record[matched_rk] is not None:
+            val_raw = record[matched_rk]
+            if "stock" in amt_col.lower():
+                try:
+                    s_val = float(str(val_raw).strip())
+                    if s_val < 0:
+                        return _build_quarantine_result(raw_id, source_name, "NEGATIVE_AMOUNT", record)
+                    cleaned[matched_rk] = int(s_val) if s_val == int(s_val) else s_val
+                except (ValueError, TypeError):
+                    return _build_quarantine_result(raw_id, source_name, "INVALID_AMOUNT_FORMAT", record)
+            else:
+                try:
+                    norm_amt = normalize_currency(val_raw)
+                    if norm_amt < Decimal("0.00"):
+                        return _build_quarantine_result(raw_id, source_name, "NEGATIVE_AMOUNT", record)
+                    cleaned[matched_rk] = float(norm_amt)
+                    cleaned[f"{matched_rk}_decimal"] = str(norm_amt)
+                except ValueError:
+                    return _build_quarantine_result(raw_id, source_name, "INVALID_AMOUNT_FORMAT", record)
 
     # 3. Validar y normalizar fechas
     for dt_col in dt_cols:
-        if dt_col in record and record[dt_col] is not None:
+        matched_dt = None
+        if dt_col in record:
+            matched_dt = dt_col
+        else:
+            dt_clean = dt_col.strip().lower().replace(" ", "_").replace("-", "_")
+            for rk in record:
+                if rk.strip().lower().replace(" ", "_").replace("-", "_") == dt_clean:
+                    matched_dt = rk
+                    break
+
+        if matched_dt and record[matched_dt] is not None and str(record[matched_dt]).strip():
             try:
-                norm_dt = normalize_timestamp_utc(record[dt_col])
+                norm_dt = normalize_timestamp_utc(record[matched_dt])
+                cleaned[matched_dt] = norm_dt
+            except ValueError:
+                return _build_quarantine_result(raw_id, source_name, "INVALID_DATE", record)
                 cleaned[dt_col] = norm_dt
             except ValueError:
                 return _build_quarantine_result(raw_id, source_name, "INVALID_DATE", record)

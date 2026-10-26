@@ -59,6 +59,10 @@ class QueryResult:
     security_policy: Optional[Dict[str, Any]] = None
 
 
+# Caché en memoria para evitar descargas y parses repetitivos de 16MB+ desde MinIO
+_MINIO_DATA_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+
+
 class TrinoClient:
     """
     Cliente asíncrono de alto rendimiento para Trino con soporte para:
@@ -718,14 +722,20 @@ class TrinoClient:
                             matched_obj = obj
                             break
                     if matched_obj and matched_bucket:
+                        cache_key = f"{matched_bucket}/{matched_obj}"
+                        if cache_key in _MINIO_DATA_CACHE:
+                            sample_records = _MINIO_DATA_CACHE[cache_key]
+                            break
+
                         raw_bytes = minio_cli.get_object(matched_bucket, matched_obj)
                         if raw_bytes:
-                            # 1. Intentar decodificación Parquet con Pandas/PyArrow
+                            # 1. Intentar decodificación Parquet con PyArrow
                             try:
                                 import io
-                                import pandas as pd
-                                df_loaded = pd.read_parquet(io.BytesIO(raw_bytes))
-                                sample_records = df_loaded.to_dict(orient="records")
+                                import pyarrow.parquet as pq
+                                pa_tbl = pq.read_table(io.BytesIO(raw_bytes))
+                                sample_records = pa_tbl.to_pylist()
+                                _MINIO_DATA_CACHE[cache_key] = sample_records
                                 break
                             except Exception:
                                 pass
@@ -735,46 +745,78 @@ class TrinoClient:
                                 loaded = json.loads(raw_bytes.decode("utf-8", errors="replace"))
                                 if isinstance(loaded, list) and loaded:
                                     sample_records = loaded
+                                    _MINIO_DATA_CACHE[cache_key] = sample_records
                                     break
                             except Exception:
                                 pass
         except Exception as minio_err:
             logger.debug("No se pudieron cargar datos reales de MinIO para la consulta: %s", minio_err)
 
-        # Si se cargaron registros reales de MinIO, ejecutar la consulta SQL real en memoria con SQLite
+        # Si se cargaron registros reales de MinIO, ejecutar la consulta SQL real en memoria con SQLite nativo (Zero-Pandas)
         if sample_records and len(sample_records) > 0:
             try:
                 import sqlite3
-                import io
-                import pandas as pd
                 conn = sqlite3.connect(":memory:")
-                df_src = pd.DataFrame(sample_records)
-                for tbl in tables:
-                    pure_name = tbl.split(".")[-1]
-                    df_src.to_sql(pure_name, conn, index=False, if_exists="replace")
-                    if "_" in pure_name:
-                        df_src.to_sql(pure_name.replace("clean_", ""), conn, index=False, if_exists="replace")
+
+                first_rec = sample_records[0]
+                rec_keys = list(first_rec.keys())
 
                 # Transpilar de dialecto Trino a SQLite
                 transpiled_sql = sqlglot.transpile(safe_sql, read="trino", write="sqlite")[0]
                 transpiled_sql = re.sub(r"\b(silver|bronze|gold|iceberg)\.", "", transpiled_sql, flags=re.IGNORECASE)
-                transpiled_sql = re.sub(r"\bTRY_CAST\((.*?) AS .*?\)", r"\1", transpiled_sql, flags=re.IGNORECASE)
+                transpiled_sql = re.sub(r"\bTRY_CAST\((.*?)\s+AS\s+.*?\)", r"\1", transpiled_sql, flags=re.IGNORECASE)
 
-                res_df = pd.read_sql(transpiled_sql, conn)
+                cols_def = []
+                for k in rec_keys:
+                    val = first_rec.get(k)
+                    if isinstance(val, (int, float)) or (isinstance(val, str) and val.replace(".", "", 1).isdigit()):
+                        cols_def.append(f'"{k}" NUMERIC')
+                    else:
+                        cols_def.append(f'"{k}" TEXT')
+
+                create_cols_str = ", ".join(cols_def)
+                placeholders = ", ".join(["?" for _ in rec_keys])
+
+                for tbl in tables:
+                    pure_name = tbl.split(".")[-1]
+                    conn.execute(f'CREATE TABLE IF NOT EXISTS "{pure_name}" ({create_cols_str})')
+                    if "_" in pure_name:
+                        conn.execute(f'CREATE TABLE IF NOT EXISTS "{pure_name.replace("clean_", "")}" ({create_cols_str})')
+
+                rows_to_insert = []
+                for r in sample_records[:50000]:
+                    row_vals = []
+                    for k in rec_keys:
+                        v = r.get(k)
+                        if isinstance(v, str) and v.replace(".", "", 1).isdigit():
+                            try:
+                                v = float(v) if "." in v else int(v)
+                            except ValueError:
+                                pass
+                        row_vals.append(v)
+                    rows_to_insert.append(tuple(row_vals))
+
+                for tbl in tables:
+                    pure_name = tbl.split(".")[-1]
+                    conn.executemany(f'INSERT INTO "{pure_name}" VALUES ({placeholders})', rows_to_insert)
+                    if "_" in pure_name:
+                        conn.executemany(f'INSERT INTO "{pure_name.replace("clean_", "")}" VALUES ({placeholders})', rows_to_insert)
+
+                cursor = conn.cursor()
+                cursor.execute(transpiled_sql)
+                raw_rows = cursor.fetchall()
+                real_columns = [desc[0] for desc in cursor.description] if cursor.description else []
                 conn.close()
 
-                real_columns = list(res_df.columns)
                 real_column_types = ["varchar" for _ in real_columns]
-                for idx, col in enumerate(real_columns):
-                    dtype = str(res_df[col].dtype)
-                    if "int" in dtype:
-                        real_column_types[idx] = "bigint"
-                    elif "float" in dtype:
-                        real_column_types[idx] = "double"
-                    elif "datetime" in dtype:
-                        real_column_types[idx] = "timestamp"
+                if raw_rows and len(raw_rows) > 0:
+                    for idx, val in enumerate(raw_rows[0]):
+                        if isinstance(val, int):
+                            real_column_types[idx] = "bigint"
+                        elif isinstance(val, float):
+                            real_column_types[idx] = "double"
 
-                real_data = res_df.to_dict(orient="records")
+                real_data = [dict(zip(real_columns, row)) for row in raw_rows]
                 exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
                 return QueryResult(
                     security_policy=security_policy,
@@ -909,14 +951,23 @@ class TrinoClient:
         masked_set = set(security_policy.get("masked_columns") or []) if security_policy else set()
         for rec in sample_records:
             row_dict = {}
+            rec_lower = {str(k).lower(): v for k, v in rec.items()}
             for col in columns:
+                col_clean = col.lower().strip()
                 if col in rec:
                     row_dict[col] = rec[col]
+                elif col_clean in rec_lower:
+                    row_dict[col] = rec_lower[col_clean]
                 elif "*" in col:
                     row_dict.update(rec)
                 else:
-                    # Valor sintético consistente
-                    row_dict[col] = rec.get("total_neto", rec.get("monto", 100.0))
+                    # Buscar en alternativas métricas reales de forma no ficticia
+                    val = None
+                    for alt in ("total_neto", "monto", "total", "price", "precio", "stock", "data_value", "cantidad", "valor"):
+                        if alt in rec_lower:
+                            val = rec_lower[alt]
+                            break
+                    row_dict[col] = val if val is not None else ""
 
                 # Aplicar mascaras PII simuladas si la columna fue clasificada
                 if col in masked_set:

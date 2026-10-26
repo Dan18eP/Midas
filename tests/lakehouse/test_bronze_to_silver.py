@@ -386,3 +386,29 @@ def test_bronze_envelope_unwrapping():
     assert clean_rec["fecha_transaccion"] == "2026-10-19T15:00:00Z"
     # Preserva metadatos de auditoría de Bronze
     assert clean_rec["_raw_id"] == "uuid-envelope-123"
+
+
+def test_quality_gate_product_catalog_case_insensitive_and_stock():
+    """Valida que catálogos de productos con columnas en inglés (Price, Stock) evalúen Quality Gate."""
+    products_batch = [
+        {"Internal ID": "PROD-1", "Name": "Wireless Speaker", "Price": "$173.00", "Stock": 539, "Availability": "in_stock"},
+        {"Internal ID": "PROD-2", "Name": "Broken Price", "Price": "-$50.00", "Stock": 10, "Availability": "in_stock"},
+        {"Internal ID": "PROD-3", "Name": "Broken Stock", "Price": "100.00", "Stock": -5, "Availability": "out_of_stock"},
+        {"Internal ID": None, "Name": "No ID", "Price": "100.00", "Stock": 1, "Availability": "in_stock"},
+    ]
+
+    transformer = BronzeToSilverTransformer()
+    res = transformer.process_batch(
+        records=products_batch,
+        source_name="products_csv",
+        persist_to_storage=False,
+    )
+
+    assert res.total_read == 4
+    assert res.valid_count == 1
+    assert res.quarantined_count == 3
+    assert res.valid_records[0]["Internal ID"] == "PROD-1"
+    assert res.valid_records[0]["Price"] == 173.00
+    reasons = [q.failure_reason for q in res.quarantined_records]
+    assert "NEGATIVE_AMOUNT" in reasons
+    assert "NULL_PRIMARY_KEY" in reasons

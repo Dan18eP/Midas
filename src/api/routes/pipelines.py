@@ -349,17 +349,17 @@ async def trigger_pipeline(
                 from src.core.query_engine.trino_client import TrinoClient
                 tc = TrinoClient()
                 if not os.getenv("PYTEST_CURRENT_TEST"):
-                    import pandas as pd
                     import pyarrow as pa
                     from pyiceberg.catalog import load_catalog
 
-                    df_records = pd.DataFrame(transform_result.valid_records)
-                    clean_cols = {col: re.sub(r"[^a-zA-Z0-9_]", "_", str(col).lower()).strip("_") or "col" for col in df_records.columns}
-                    df_records.rename(columns=clean_cols, inplace=True)
-                    for c in df_records.columns:
-                        df_records[c] = df_records[c].fillna("").astype(str)
+                    first_rec = transform_result.valid_records[0]
+                    col_map = {k: re.sub(r"[^a-zA-Z0-9_]", "_", str(k).lower()).strip("_") or "col" for k in first_rec.keys()}
+                    clean_records = []
+                    for r in transform_result.valid_records:
+                        clean_records.append({col_map.get(k, k): ("" if v is None else str(v)) for k, v in r.items()})
 
-                    col_defs_list = [f'"{c}" VARCHAR' for c in df_records.columns]
+                    valid_cols = list(col_map.values())
+                    col_defs_list = [f'"{c}" VARCHAR' for c in valid_cols]
 
                     if col_defs_list:
                         tc.execute_ddl_sync("CREATE SCHEMA IF NOT EXISTS iceberg.silver")
@@ -391,7 +391,7 @@ async def trigger_pipeline(
                             })
 
                             tbl = iceberg_cat.load_table(("silver", clean_tbl))
-                            arrow_tbl = pa.Table.from_pandas(df_records)
+                            arrow_tbl = pa.Table.from_pylist(clean_records)
                             tbl.overwrite(arrow_tbl)
                             logger.info("Sincronizados %s registros reales en iceberg.silver.%s exitosamente vía PyIceberg", len(arrow_tbl), clean_tbl)
                         except Exception as iceberg_sync_err:
@@ -399,10 +399,9 @@ async def trigger_pipeline(
                             try:
                                 chk_res = tc.execute_query_sync(f'SELECT count(*) as cnt FROM iceberg.silver."{clean_tbl}"')
                                 cnt = int(chk_res.data[0].get("cnt", 0) or 0) if chk_res and chk_res.data else 0
-                                if cnt == 0 and len(df_records) > 0:
-                                    valid_cols = list(df_records.columns)
+                                if cnt == 0 and len(clean_records) > 0:
                                     cols_sql = ", ".join([f'"{c}"' for c in valid_cols])
-                                    batch_sample = df_records.to_dict(orient="records")[:5000]
+                                    batch_sample = clean_records[:5000]
                                     chunk_size = 500
                                     for i in range(0, len(batch_sample), chunk_size):
                                         chunk = batch_sample[i : i + chunk_size]
@@ -410,7 +409,7 @@ async def trigger_pipeline(
                                         for r in chunk:
                                             r_vals = []
                                             for c in valid_cols:
-                                                clean_val = str(r[c]).replace("'", "''")
+                                                clean_val = str(r.get(c, "")).replace("'", "''")
                                                 r_vals.append(f"'{clean_val}'")
                                             rows_values.append(f"({', '.join(r_vals)})")
                                         if rows_values:
