@@ -447,8 +447,9 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                     for i, t in enumerate(materialized_tables_info)
                 )
                 confirmation_msg = (
-                    f"Capa Gold compuesta generada exitosamente. Se materializaron **{len(materialized_tables_info)} tablas** analíticas en el Lakehouse gobernado:\n\n"
+                    f"Capa Gold compuesta generada exitosamente. Se materializaron **{len(materialized_tables_info)} tablas** analíticas en Iceberg mediante Trino y sus contratos quedaron registrados en MinIO para Airflow:\n\n"
                     f"{tables_md}\n\n"
+                    f"- **Motor de ejecución inmediata:** Trino 450 (Apache Iceberg REST)\n"
                     f"- **Total registros en Data Mart:** {total_records_count}\n"
                     f"- **Subcarpeta de contratos en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
                     f"> **Listo para Dashboard:** Las tablas ya están disponibles en el **Centro de Analítica** de tu sesión como pestañas interactivas para explorar y exportar."
@@ -456,11 +457,12 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
             else:
                 t0 = materialized_tables_info[0]
                 confirmation_msg = (
-                    f"Capa Gold generada exitosamente. El pipeline **{t0['pipeline_id']}** ha sido programado en Airflow y materializado en el Lakehouse.\n\n"
+                    f"Capa Gold generada exitosamente. La tabla **{t0['table']}** ha sido materializada en Iceberg mediante Trino y su contrato declarativo quedó registrado en MinIO para Airflow.\n\n"
                     f"- **Tabla de salida:** `{t0['table']}`\n"
+                    f"- **Motor de ejecución inmediata:** Trino 450 (Apache Iceberg REST)\n"
                     f"- **Contrato gobernado:** `{t0['spec_uri']}`\n"
                     f"- **Registros consolidados:** {t0['records'] if t0['records'] else 'Procesados'}\n"
-                    f"- **Subcarpeta de sesión:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
+                    f"- **Subcarpeta de sesión en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
                     f"> **Listo para Dashboard:** Esta tabla Gold ya está disponible en el **Centro de Analítica** de tu sesión para consultas interactivas, gráficos y reportes ejecutivos."
                 )
 
@@ -507,6 +509,10 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                             gold_list.append(t_item["table"])
                     meta["gold_tables"] = gold_list
                     meta["latest_gold_table"] = latest_table_name
+                    meta["total_records"] = total_records_count
+                    meta["records_count"] = total_records_count
+                    meta["spec_uri"] = materialized_tables_info[0]["spec_uri"]
+                    meta["pipeline_id"] = materialized_tables_info[0]["pipeline_id"]
                     sess.metadata = meta
 
                 s_store.add_message(session_id=thread_id, sender="user", content=user_message)

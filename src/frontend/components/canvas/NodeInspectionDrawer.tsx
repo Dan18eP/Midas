@@ -1,5 +1,5 @@
 import React, { memo, useState } from 'react';
-import { X, HardDrive, Clock, Activity, Shield, AlertCircle, FileCode, CheckCircle, Play } from 'lucide-react';
+import { X, HardDrive, Clock, Activity, Shield, AlertCircle, FileCode, CheckCircle, Play, Sparkles } from 'lucide-react';
 import { MidasNodeData, NODE_STATUS_REGISTRY } from '@/types/canvas';
 import { triggerPipeline } from '@/services/sessionService';
 
@@ -130,6 +130,42 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose, onPipelineExe
             <p className="text-xs text-[#5C4A1D] leading-relaxed">
               El pipeline procesó las capas Bronze y Silver exitosamente. La capa Gold se encuentra en espera interactiva y se materializará de forma gobernada en Trino / Iceberg una vez formules o apruebes un reporte analítico en el Copiloto.
             </p>
+          </div>
+        )}
+
+        {/* Tablas Gold Certificadas en Iceberg */}
+        {selectedNode.id === 'gold_marts' && selectedNode.status === 'HEALTHY' && (
+          <div className="rounded-xl border border-[#D4AF37]/50 bg-[#FBF8EF]/60 p-3.5 shadow-sm space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[#8C6D1F] flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-[#B8860B]" />
+                Tablas Gold Certificadas ({Array.isArray(selectedNode.details?.tables) ? (selectedNode.details.tables as string[]).length : 1})
+              </span>
+              <span className="text-[10px] font-mono bg-[#4D7C0F]/10 text-[#4D7C0F] border border-[#4D7C0F]/30 px-1.5 py-0.5 rounded font-medium">
+                Iceberg REST
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {Array.isArray(selectedNode.details?.tables) && (selectedNode.details.tables as string[]).length > 0 ? (
+                (selectedNode.details.tables as string[]).map((tbl) => (
+                  <div key={tbl} className="flex items-center justify-between rounded-lg bg-white border border-[#E8E4DC] p-2 text-xs font-mono shadow-2xs">
+                    <span className="font-semibold text-[#1C1E21]">{tbl}</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[#4D7C0F] font-sans font-medium bg-[#4D7C0F]/10 px-1.5 py-0.5 rounded">
+                      <CheckCircle className="h-3 w-3" />
+                      Certificado WAP
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-center justify-between rounded-lg bg-white border border-[#E8E4DC] p-2 text-xs font-mono shadow-2xs">
+                  <span className="font-semibold text-[#1C1E21]">{selectedNode.catalogTable || 'gold.marts'}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] text-[#4D7C0F] font-sans font-medium bg-[#4D7C0F]/10 px-1.5 py-0.5 rounded">
+                    <CheckCircle className="h-3 w-3" />
+                    Certificado WAP
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
