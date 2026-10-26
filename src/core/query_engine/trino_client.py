@@ -254,6 +254,12 @@ class TrinoClient:
         safe_sql = re.sub(r"\byear\s*\(\s*([a-zA-Z_]+)\s*\)", r"year(TRY_CAST(\1 AS DATE))", safe_sql, flags=re.IGNORECASE)
         safe_sql = re.sub(r"\bmonth\s*\(\s*([a-zA-Z_]+)\s*\)", r"month(TRY_CAST(\1 AS DATE))", safe_sql, flags=re.IGNORECASE)
         safe_sql = re.sub(r"\b(fecha|fecha_orden|timestamp|created_at)\s+LIKE\s+", r"CAST(\1 AS VARCHAR) LIKE ", safe_sql, flags=re.IGNORECASE)
+        safe_sql = re.sub(
+            r"\bCAST\s*\(\s*([^()]+?)\s+AS\s+(DOUBLE|REAL|FLOAT|BIGINT|INTEGER|INT|DECIMAL(\([^()]+\))?)\s*\)",
+            r"TRY_CAST(\1 AS \2)",
+            safe_sql,
+            flags=re.IGNORECASE,
+        )
 
         cost_est = await self.estimate_query_cost(safe_sql, target_catalog, target_schema)
 
@@ -426,6 +432,12 @@ class TrinoClient:
         effective_sql = re.sub(r"\byear\s*\(\s*([a-zA-Z_]+)\s*\)", r"year(TRY_CAST(\1 AS DATE))", effective_sql, flags=re.IGNORECASE)
         effective_sql = re.sub(r"\bmonth\s*\(\s*([a-zA-Z_]+)\s*\)", r"month(TRY_CAST(\1 AS DATE))", effective_sql, flags=re.IGNORECASE)
         effective_sql = re.sub(r"\b(fecha|fecha_orden|timestamp|created_at)\s+LIKE\s+", r"CAST(\1 AS VARCHAR) LIKE ", effective_sql, flags=re.IGNORECASE)
+        effective_sql = re.sub(
+            r"\bCAST\s*\(\s*([^()]+?)\s+AS\s+(DOUBLE|REAL|FLOAT|BIGINT|INTEGER|INT|DECIMAL(\([^()]+\))?)\s*\)",
+            r"TRY_CAST(\1 AS \2)",
+            effective_sql,
+            flags=re.IGNORECASE,
+        )
         cost_est = QueryCostEstimate(
             estimated_rows=1000,
             estimated_cpu_cost=1.0,

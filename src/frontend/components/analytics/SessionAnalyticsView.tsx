@@ -95,6 +95,16 @@ export function SessionAnalyticsView({
       candidateTables.push(`silver.clean_${cleanSuffix}`);
     }
 
+    // Descubrir tablas Gold legítimas asociadas a los nodos de la sesión si ya fueron materializadas
+    activeNodes.forEach(({ data }) => {
+      if (data.catalogTable && typeof data.catalogTable === 'string') {
+        const tbl = data.catalogTable.trim();
+        if (tbl.startsWith('gold.') && !tbl.includes('personalizado') && !tbl.toLowerCase().includes('por definir')) {
+          candidateTables.push(tbl);
+        }
+      }
+    });
+
     const uniqueCandidates = Array.from(new Set(candidateTables));
     if (uniqueCandidates.length === 0) {
       setRealData([]);
@@ -205,7 +215,10 @@ export function SessionAnalyticsView({
         silverClean += data.recordsOut ?? 0;
         silverQuarantine += data.quarantinedRecords ?? 0;
       } else if (data.subType === 'gold') {
-        goldOut += data.recordsOut ?? 0;
+        // Solo considerar filas Gold si fue materializada legítimamente
+        if (data.status === 'HEALTHY' && !data.label?.toLowerCase().includes('por definir')) {
+          goldOut += data.recordsOut ?? 0;
+        }
       }
     });
 
@@ -315,7 +328,7 @@ export function SessionAnalyticsView({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {availableTables.length > 1 && (
+          {availableTables.length > 0 && (
             <div className="flex items-center gap-1 rounded-lg border border-[#E8E4DC] bg-white p-1 text-xs font-mono shadow-2xs">
               <span className="px-1 text-[10px] text-[#787164] font-sans font-medium">TABLA:</span>
               {availableTables.map((t) => (
@@ -583,7 +596,7 @@ export function SessionAnalyticsView({
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium text-[#787164]">Gold Marts (Agregaciones de Negocio)</span>
                   <span className="font-mono text-[#B8860B]">
-                    {metrics.goldOut > 0 ? `${metrics.goldOut} filas` : 'En espera'}
+                    {metrics.goldOut > 0 ? `${metrics.goldOut.toLocaleString()} filas` : 'En espera (Por definir)'}
                   </span>
                 </div>
                 <div className="h-3 w-full bg-[#F0EDE7] rounded-full overflow-hidden">
@@ -591,9 +604,9 @@ export function SessionAnalyticsView({
                     className="h-full bg-[#B8860B] transition-all duration-500 rounded-full"
                     style={{
                       width:
-                        metrics.bronzeIn > 0
+                        metrics.bronzeIn > 0 && metrics.goldOut > 0
                           ? `${(metrics.goldOut / metrics.bronzeIn) * 100}%`
-                          : '5%',
+                          : '0%',
                     }}
                   />
                 </div>
