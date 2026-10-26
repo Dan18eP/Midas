@@ -13,12 +13,15 @@ import type { NodeStatus } from '@/types/canvas';
 import type { TelemetryEventPayload } from '@/types/telemetry';
 import { getActiveUserRole } from './securityRolesApi';
 
-const DEFAULT_API_BASE = 'http://localhost:8000';
+const DEFAULT_API_BASE =
+  typeof window === 'undefined'
+    ? (process.env.INTERNAL_API_URL || 'http://midas-api:8000')
+    : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
-export const TELEMETRY_API_BASE = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
+export const TELEMETRY_API_BASE = DEFAULT_API_BASE;
 export const TELEMETRY_HISTORY_PATH = '/api/v1/telemetry/history';
 export const TELEMETRY_SCENARIOS_PATH = '/api/v1/telemetry/scenarios';
-export const TELEMETRY_HISTORY_TIMEOUT_MS = 2500;
+export const TELEMETRY_HISTORY_TIMEOUT_MS = 10000;
 
 /** Discriminante canónico emitido por el backend al anunciar un mart Gold nuevo. */
 export const NEW_GOLD_NODE_EVENT_TYPE = 'NEW_GOLD_NODE_AVAILABLE';
@@ -190,9 +193,24 @@ async function requestJson(
     });
   } catch (cause) {
     if (options.signal?.aborted) throw cause;
-    throw new TelemetryHistoryError(
-      'El historial de telemetría no está disponible: no se pudo contactar al Gateway.',
-    );
+    if (typeof window !== 'undefined' && url.startsWith('http')) {
+      try {
+        const fallbackUrl = url.replace(/^https?:\/\/[^/]+/, '');
+        response = await fetchImpl(fallbackUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+      } catch {
+        throw new TelemetryHistoryError(
+          'El historial de telemetría no está disponible: no se pudo contactar al Gateway.',
+        );
+      }
+    } else {
+      throw new TelemetryHistoryError(
+        'El historial de telemetría no está disponible: no se pudo contactar al Gateway.',
+      );
+    }
   } finally {
     clearTimeout(timeout);
     options.signal?.removeEventListener('abort', onExternalAbort);

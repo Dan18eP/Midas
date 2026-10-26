@@ -11,11 +11,14 @@
  * No se inventa ningún campo: el parser valida y estrecha el payload real.
  */
 
-const DEFAULT_API_BASE = 'http://localhost:8000';
+const DEFAULT_API_BASE =
+  typeof window === 'undefined'
+    ? (process.env.INTERNAL_API_URL || 'http://midas-api:8000')
+    : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
-export const SECURITY_API_BASE = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
+export const SECURITY_API_BASE = DEFAULT_API_BASE;
 export const SECURITY_ROLES_PATH = '/api/v1/auth/roles';
-export const SECURITY_ROLES_TIMEOUT_MS = 2500;
+export const SECURITY_ROLES_TIMEOUT_MS = 10000;
 let currentActiveRole: string = 'director_general';
 
 /**
@@ -117,9 +120,23 @@ export async function fetchSecurityRoles(
     });
   } catch (cause) {
     if (options.signal?.aborted) throw cause;
-    throw new SecurityRolesError(
-      'El catálogo de identidades Zero-Trust no está disponible: no se pudo contactar al Gateway.',
-    );
+    if (typeof window !== 'undefined') {
+      try {
+        response = await fetchImpl(SECURITY_ROLES_PATH, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+      } catch {
+        throw new SecurityRolesError(
+          'El catálogo de identidades Zero-Trust no está disponible: no se pudo contactar al Gateway.',
+        );
+      }
+    } else {
+      throw new SecurityRolesError(
+        'El catálogo de identidades Zero-Trust no está disponible: no se pudo contactar al Gateway.',
+      );
+    }
   } finally {
     clearTimeout(timeout);
     options.signal?.removeEventListener('abort', onExternalAbort);

@@ -69,7 +69,11 @@ export const SourceNode = memo(({ data, selected }: NodeProps<SourceCanvasNode>)
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Emitidas</span>
           <span className="text-xs font-semibold text-[#1E293B]">
-            {nodeData.recordsOut !== undefined ? nodeData.recordsOut.toLocaleString() : 'N/D'}
+            {nodeData.recordsOut !== undefined
+              ? nodeData.recordsOut.toLocaleString()
+              : nodeData.recordsIn !== undefined
+              ? nodeData.recordsIn.toLocaleString()
+              : 'N/D'}
           </span>
         </div>
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">

@@ -116,13 +116,21 @@ export const StageNode = memo(({ data, selected }: NodeProps<StageCanvasNode>) =
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Recibidas</span>
           <span className="text-xs font-semibold text-[#1E293B]">
-            {nodeData.recordsIn !== undefined ? nodeData.recordsIn.toLocaleString() : 'N/D'}
+            {nodeData.recordsIn !== undefined
+              ? nodeData.recordsIn.toLocaleString()
+              : nodeData.recordsOut !== undefined
+              ? nodeData.recordsOut.toLocaleString()
+              : 'N/D'}
           </span>
         </div>
         <div className="rounded bg-[#FAFAFA] border border-[#F0EDE7] p-2">
           <span className="block text-[9px] uppercase tracking-tight text-[#8A8374]">Filas Válidas</span>
           <span className="text-xs font-semibold text-[#4D7C0F]">
-            {nodeData.recordsOut !== undefined ? nodeData.recordsOut.toLocaleString() : 'N/D'}
+            {nodeData.recordsOut !== undefined
+              ? nodeData.recordsOut.toLocaleString()
+              : nodeData.recordsIn !== undefined
+              ? nodeData.recordsIn.toLocaleString()
+              : 'N/D'}
           </span>
         </div>
       </div>

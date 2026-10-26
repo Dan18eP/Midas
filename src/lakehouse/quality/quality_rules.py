@@ -214,8 +214,8 @@ def evaluate_quality_gate(
     :return: QualityGateResult con cleaned_record si es válido, o quarantine_record si es inválido.
     """
     pk_cols = primary_key_fields or [
-        "transaccion_id", "id_orden", "id_registro", "pedido_id", "cliente_id",
-        "internal_id", "internal id", "ean", "sku", "product_id", "id_producto", "item_id", "_raw_id"
+        "index", "Index", "transaccion_id", "id_orden", "id_registro", "pedido_id", "cliente_id",
+        "ean", "sku", "product_id", "id_producto", "item_id", "_raw_id"
     ]
     amt_cols = amount_fields or [
         "monto", "precio_unitario", "precio", "price", "unit_price", "total_neto",

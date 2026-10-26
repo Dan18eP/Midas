@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { MidasNodeData } from '@/types/canvas';
 import { listSourceConnections, triggerPipeline, executeTrinoQuery, getSessionDetail } from '@/services/sessionService';
+import { useSession } from '@/context/SessionContext';
 
 interface SessionAnalyticsViewProps {
   sessionId?: string;
@@ -38,14 +39,27 @@ export function SessionAnalyticsView({
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'kpis' | 'data' | 'governance'>('kpis');
 
+  const { activeSession } = useSession();
+  const sessionMeta = activeSession?.metadata as Record<string, any> | undefined;
+  const targetConnId = (sessionMeta?.connection_id as string) || '';
+
   // Identificar el nodo fuente exclusivo de esta sesión (1 sesión = 1 conexión de datos)
-  const sessionSourceNode = useMemo(
-    () => activeNodes.find((n) => n.data.nodeType === 'source'),
-    [activeNodes]
-  );
-  const sessionConnId = (sessionSourceNode?.data?.connectionId || (sessionSourceNode?.data?.details?.connectionId as string) || '') as string;
-  const sessionSourceName = sessionSourceNode?.data?.label || 'Fuente de Datos';
-  const sessionSourceType = sessionSourceNode?.data?.subType || 'csv';
+  const sessionSourceNode = useMemo(() => {
+    if (targetConnId) {
+      const match = activeNodes.find(
+        (n) => n.data?.nodeType === 'source' && (n.data?.connectionId === targetConnId || n.id.includes(targetConnId))
+      );
+      if (match) return match;
+    }
+    const nonDemo = activeNodes.find(
+      (n) => n.data?.nodeType === 'source' && !n.id.includes('postgres') && !n.id.includes('crm') && !n.id.includes('budget')
+    );
+    return nonDemo || activeNodes.find((n) => n.data?.nodeType === 'source');
+  }, [activeNodes, targetConnId]);
+
+  const sessionConnId = (targetConnId || sessionSourceNode?.data?.connectionId || (sessionSourceNode?.data?.details?.connectionId as string) || '') as string;
+  const sessionSourceName = (sessionMeta?.connection_name as string) || sessionSourceNode?.data?.label || 'Fuente de Datos';
+  const sessionSourceType = (sessionMeta?.source_type as string) || sessionSourceNode?.data?.subType || 'csv';
 
   // Estados para datos vivos de Trino
   const [realData, setRealData] = useState<TablePreviewRow[]>([]);
@@ -139,7 +153,10 @@ export function SessionAnalyticsView({
 
     for (const tbl of tablesToTry) {
       try {
-        const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
+        const [result, countResult] = await Promise.all([
+          executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`),
+          executeTrinoQuery(`SELECT COUNT(*) as total_rows FROM ${tbl}`).catch(() => null),
+        ]);
         const isValidColumns = Boolean(
           result &&
           Array.isArray(result.columns) &&
@@ -156,20 +173,19 @@ export function SessionAnalyticsView({
             }
             loaded = true;
 
-            // Obtener conteo total real
-            try {
-              const countResult = await executeTrinoQuery(`SELECT COUNT(*) as total_rows FROM ${tbl}`);
-              if (countResult?.data?.[0]) {
-                const val = countResult.data[0].total_rows ?? countResult.data[0]._col0;
-                if (typeof val === 'number') {
-                  setRealTotalCount(val);
-                }
+            if (countResult?.data?.[0]) {
+              const val = countResult.data[0].total_rows ?? countResult.data[0]._col0;
+              if (typeof val === 'number') {
+                setRealTotalCount(val);
+              } else {
+                setRealTotalCount(result.row_count || result.data.length);
               }
-            } catch {
+            } else {
               setRealTotalCount(result.row_count || result.data.length);
             }
           }
           foundTables.push(tbl);
+          if (loaded) break; // Terminar inmediatamente si la tabla principal cargó
         }
       } catch {
         // Continuar con siguiente tabla candidata
@@ -239,18 +255,22 @@ export function SessionAnalyticsView({
       }
     });
 
+    const rCount: number = typeof realTotalCount === 'number' && realTotalCount > 0 ? realTotalCount : 0;
+    const effectiveSilver: number = silverClean > 0 ? silverClean : rCount;
+    const effectiveBronze: number = bronzeIn > 0 ? bronzeIn : effectiveSilver;
+
     return {
       activeSources,
-      bronzeIn,
-      silverClean,
+      bronzeIn: effectiveBronze,
+      silverClean: effectiveSilver,
       silverQuarantine,
       goldOut,
       qualityScore:
-        bronzeIn > 0
-          ? Math.round(((bronzeIn - silverQuarantine) / bronzeIn) * 100)
+        effectiveBronze > 0
+          ? Math.round(((effectiveBronze - silverQuarantine) / effectiveBronze) * 100)
           : 100,
     };
-  }, [activeNodes]);
+  }, [activeNodes, realTotalCount]);
 
   // Análisis visual dinámico calculado directamente de los registros de la tabla activa
   const visualInsights = useMemo(() => {

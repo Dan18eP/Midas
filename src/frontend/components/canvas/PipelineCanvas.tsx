@@ -967,7 +967,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                     ...n,
                     data: {
                       ...n.data,
-                      status: hasGold ? 'HEALTHY' : 'IN_PROGRESS',
+                      status: (hasGold ? 'HEALTHY' : 'IN_PROGRESS') as NodeStatus,
                       recordsIn: res.records_ingested,
                       recordsOut: res.records_ingested,
                     },
@@ -978,7 +978,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                     ...n,
                     data: {
                       ...n.data,
-                      status: 'HEALTHY',
+                      status: 'HEALTHY' as NodeStatus,
                       recordsIn: res.records_ingested,
                       recordsOut: res.records_ingested,
                     },
@@ -989,7 +989,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                     ...n,
                     data: {
                       ...n.data,
-                      status: res.records_quarantined > 0 ? 'DEGRADED' : 'HEALTHY',
+                      status: (res.records_quarantined > 0 ? 'DEGRADED' : 'HEALTHY') as NodeStatus,
                       recordsIn: res.records_ingested,
                       recordsOut: res.records_cleaned,
                       quarantinedRecords: res.records_quarantined,
@@ -1001,7 +1001,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                     ...n,
                     data: {
                       ...n.data,
-                      status: 'AUTO_HEALING',
+                      status: 'AUTO_HEALING' as NodeStatus,
                       recordsIn: res.records_quarantined,
                       quarantinedRecords: res.records_quarantined,
                     },
@@ -1014,7 +1014,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                     ...n,
                     data: {
                       ...n.data,
-                      status: hasGold ? 'HEALTHY' : 'STANDBY',
+                      status: (hasGold ? 'HEALTHY' : 'STANDBY') as NodeStatus,
                       label: hasGold
                         ? (goldTbls.length > 1 ? `Gold Marts (${goldTbls.length} Tablas)` : 'Gold Mart (Materializado)')
                         : 'Gold Marts (Por Definir)',

@@ -138,14 +138,14 @@ class BronzeToSilverTransformer:
         total_read = len(records)
 
         pk_cols = primary_key_fields or [
+            "index",
+            "Index",
             "transaccion_id",
             "id_orden",
             "id_pedido",
             "pedido_id",
             "id_registro",
             "cliente_id",
-            "internal_id",
-            "internal id",
             "ean",
             "sku",
             "product_id",

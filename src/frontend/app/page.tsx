@@ -129,10 +129,37 @@ function MidasConsoleWorkspace() {
   );
 
   const currentNodes = useMemo(() => {
-    const rawNodes =
+    let rawNodes =
       activeTopology?.nodes && activeTopology.nodes.length > 0
         ? activeTopology.nodes
         : dynamicTopology.nodes;
+
+    // Aislamiento Multi-Sesión Estricto: Si la sesión activa está vinculada a una fuente específica,
+    // filtrar cualquier fuente demo o ajena (como PostgreSQL CRM/ERP o Presupuesto Excel)
+    const targetConnId = (activeSession?.metadata?.connection_id as string) || '';
+    if (targetConnId) {
+      const matchingSource = rawNodes.find(
+        (n) => n.data?.nodeType === 'source' && (n.data?.connectionId === targetConnId || n.id.includes(targetConnId))
+      );
+      if (matchingSource) {
+        rawNodes = rawNodes.filter(
+          (n) => n.data?.nodeType !== 'source' || n.id === matchingSource.id
+        );
+      } else {
+        rawNodes = rawNodes.filter(
+          (n) => n.data?.nodeType !== 'source' || (!n.id.includes('postgres') && !n.id.includes('crm') && !n.id.includes('budget'))
+        );
+      }
+    } else {
+      const hasCustomSource = rawNodes.some(
+        (n) => n.data?.nodeType === 'source' && !n.id.includes('postgres') && !n.id.includes('crm')
+      );
+      if (hasCustomSource) {
+        rawNodes = rawNodes.filter(
+          (n) => n.data?.nodeType !== 'source' || (!n.id.includes('postgres') && !n.id.includes('crm'))
+        );
+      }
+    }
 
     const goldTables: string[] =
       (activeSession?.metadata?.gold_tables as string[]) ||

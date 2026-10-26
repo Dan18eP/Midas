@@ -109,35 +109,16 @@ export function CopilotChatDrawer() {
         <div className="flex items-center justify-between border-b border-[#F0EDE7] bg-[#FDFCFB] px-4 py-2 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-medium text-[#787164]">Inferencia:</span>
-            <div className="inline-flex rounded-md border border-[#E8E4DC] bg-white p-0.5 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setInferenceMode('cloud')}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium transition-colors ${
-                  inferenceMode === 'cloud'
-                    ? 'bg-[#B8860B] text-white shadow-2xs'
-                    : 'text-[#787164] hover:text-[#1C1E21]'
-                }`}
-                title="Modo Nube rápido con Gemini API Key"
-              >
-                ⚡ Cloud (Gemini)
-              </button>
-              <button
-                type="button"
-                onClick={() => setInferenceMode('local')}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium transition-colors ${
-                  inferenceMode === 'local'
-                    ? 'bg-[#4D7C0F] text-white shadow-2xs'
-                    : 'text-[#787164] hover:text-[#1C1E21]'
-                }`}
-                title="Modo 100% Confidencial en máquina local sin enviar datos a internet"
-              >
-                🔒 Zero-Trust Local (Qwen 2.5: 3B)
-              </button>
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-[#D1E7DD] bg-[#F0FDF4] px-2.5 py-1 text-[11px] font-medium text-[#166534] shadow-2xs">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+              </span>
+              🔒 Zero-Trust Local (Qwen 2.5: 3B)
             </div>
           </div>
-          <span className="text-[9px] font-mono text-[#8C6D1F]">
-            {inferenceMode === 'local' ? '100% Soberano (Ollama)' : 'Procesamiento Gemini'}
+          <span className="text-[9px] font-mono text-[#166534]">
+            100% Soberano (Zero-Trust Local)
           </span>
         </div>
 

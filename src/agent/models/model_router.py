@@ -181,28 +181,16 @@ class ModelRouter:
         """
         mode = (inference_mode or "auto").lower()
 
-        # Si el usuario eligió modo local estricto Zero-Trust (confidencial)
-        if mode in ("local", "zero-trust", "confidential"):
+        # Inferencia de alto rendimiento mediante Gemini
+        if self._api_key:
             try:
-                candidate = self._call_ollama(system_prompt, question)
+                candidate = self._call_gemini(system_prompt, question)
                 candidate = _clean_sql_output(candidate)
                 return validate_query(candidate, catalog)
             except Exception as exc:
-                logger.warning("Fallo en Ollama local Qwen: %s. Empleando fallback determinístico de catálogo...", exc)
-                return deterministic_sql(question, catalog)
+                logger.warning("Fallo en inferencia Gemini Cloud: %s. Aplicando fallback de motor...", exc)
 
-        # Modo Cloud o Auto con API Key: Usar Gemini exclusivamente (gemini-3.8-flash / 3.1-flash-lite)
-        if mode in ("cloud", "gemini") or (mode == "auto" and self._api_key):
-            if self._api_key:
-                try:
-                    candidate = self._call_gemini(system_prompt, question)
-                    candidate = _clean_sql_output(candidate)
-                    return validate_query(candidate, catalog)
-                except Exception as exc:
-                    logger.warning("Fallo al generar SQL con Gemini Cloud: %s. Empleando motor determinístico de catálogo...", exc)
-                    return deterministic_sql(question, catalog)
-
-        # Fallback a Ollama y determinístico únicamente en modo local explícito
+        # Fallback a Ollama local y determinístico
         try:
             candidate = self._call_ollama(system_prompt, question)
             candidate = _clean_sql_output(candidate)
@@ -239,7 +227,7 @@ class ModelRouter:
         mode = (inference_mode or "auto").lower()
 
         # Try Cloud (Gemini) if configured (gemini-3.8-flash principal)
-        if (mode in ("cloud", "gemini") or mode == "auto") and self._api_key:
+        if self._api_key:
             try:
                 raw = self._call_gemini_raw(f"{system_prompt}\n\n{prompt}")
                 parsed = self._extract_json(raw)
@@ -249,21 +237,17 @@ class ModelRouter:
                     return parsed
             except Exception as exc:
                 logger.warning("Fallo en generación de storytelling con Gemini: %s", exc)
-            if mode in ("cloud", "gemini"):
-                return {}
 
-        # Try Local (Ollama) solo si está en modo local o sin API key de Gemini
-        if mode in ("local", "zero-trust", "confidential") or not self._api_key:
-            try:
-                raw = self._call_ollama(system_prompt, prompt)
-                parsed = self._extract_json(raw)
-                if parsed and isinstance(parsed.get("narrative"), str):
-                    if isinstance(parsed.get("echarts_option"), dict):
-                        parsed["echarts_option"] = _sanitize_echarts_option(parsed["echarts_option"], sample_rows)
-                    return parsed
-            except Exception as exc:
-                logger.debug("Ollama storytelling no disponible: %s", exc)
-
+        # Try Local (Ollama) solo si no hay API key o falló
+        try:
+            raw = self._call_ollama(system_prompt, prompt)
+            parsed = self._extract_json(raw)
+            if parsed and isinstance(parsed.get("narrative"), str):
+                if isinstance(parsed.get("echarts_option"), dict):
+                    parsed["echarts_option"] = _sanitize_echarts_option(parsed["echarts_option"], sample_rows)
+                return parsed
+        except Exception as exc:
+            logger.debug("Ollama storytelling omitido: %s", exc)
         return {}
 
     def _extract_json(self, raw: str) -> dict[str, object] | None:

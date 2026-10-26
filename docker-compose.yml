@@ -398,6 +398,8 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__PARALLELISM: 4
+      AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: 2
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-midas_admin}:${POSTGRES_PASSWORD:-midas_secret_password_2026}@midas-postgres:5432/airflow_db
       AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 30
@@ -448,7 +450,7 @@ services:
       context: .
       dockerfile: docker/airflow/Dockerfile
     container_name: midas-airflow-scheduler
-    mem_limit: 512m
+    mem_limit: 1024m
     restart: unless-stopped
     profiles: ["orchestration", "full"]
     depends_on:

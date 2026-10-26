@@ -123,6 +123,13 @@ def resolve_connection(
 
 
 @router.post(
+    "/{connection_id}/run",
+    response_model=PipelineTriggerResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Alias de disparo de pipeline Lakehouse",
+    include_in_schema=False,
+)
+@router.post(
     "/{connection_id}/trigger",
     response_model=PipelineTriggerResponse,
     status_code=status.HTTP_200_OK,
@@ -391,7 +398,22 @@ async def trigger_pipeline(
                             })
 
                             tbl = iceberg_cat.load_table(("silver", clean_tbl))
-                            arrow_tbl = pa.Table.from_pylist(clean_records)
+                            tbl_fields = [f.name for f in tbl.schema().fields]
+                            aligned_records = []
+                            for r in clean_records:
+                                aligned = {}
+                                for f in tbl_fields:
+                                    f_norm = f.lower().replace(" ", "_").replace("-", "_")
+                                    val = r.get(f)
+                                    if val is None:
+                                        for k, v in r.items():
+                                            if k.lower().replace(" ", "_").replace("-", "_") == f_norm:
+                                                val = v
+                                                break
+                                    aligned[f] = "" if val is None else str(val)
+                                aligned_records.append(aligned)
+
+                            arrow_tbl = pa.Table.from_pylist(aligned_records)
                             tbl.overwrite(arrow_tbl)
                             logger.info("Sincronizados %s registros reales en iceberg.silver.%s exitosamente vía PyIceberg", len(arrow_tbl), clean_tbl)
                         except Exception as iceberg_sync_err:
