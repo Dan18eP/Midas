@@ -51,6 +51,7 @@ export interface SessionContextValue {
   isRestoring: boolean;
   error: string | null;
   fetchSessions: () => Promise<void>;
+  refreshActiveSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   startNewSession: () => void;
   createAndSelectSession: (title?: string, initialTopology?: TopologyStateDTO, metadata?: SessionMetadata) => Promise<string>;
@@ -140,6 +141,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   }, []);
+
+  const refreshActiveSession = useCallback(async () => {
+    if (!activeSessionId) return;
+    try {
+      const detail = await getSessionDetail(activeSessionId);
+      setActiveSession(detail);
+      if (detail.topology_state && detail.topology_state.nodes) {
+        let topState = detail.topology_state;
+        if (topState.nodes.length === 1 && topState.nodes[0].type === 'source') {
+          const sNode = topState.nodes[0];
+          const connId = sNode.data?.connectionId || (detail.metadata?.connection_id as string) || 'conn_restored';
+          const sName = sNode.data?.label || 'Fuente Conectada';
+          const sType = sNode.data?.subType || 'csv';
+          topState = buildCanvasTopologyFromConnections([{ connection_id: connId, name: sName, source_type: sType }]);
+        }
+        setActiveTopology(topState);
+      }
+    } catch (err) {
+      console.warn('No se pudo refrescar la sesión activa:', err);
+    }
+  }, [activeSessionId]);
 
   useEffect(() => {
     fetchSessions();
@@ -289,6 +311,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       isRestoring,
       error,
       fetchSessions,
+      refreshActiveSession,
       selectSession,
       startNewSession,
       createAndSelectSession,
@@ -309,6 +332,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       isRestoring,
       error,
       fetchSessions,
+      refreshActiveSession,
       selectSession,
       startNewSession,
       createAndSelectSession,
@@ -337,6 +361,7 @@ export function useSession(): SessionContextValue {
       isRestoring: false,
       error: null,
       fetchSessions: async () => {},
+      refreshActiveSession: async () => {},
       selectSession: async () => {},
       startNewSession: () => {},
       createAndSelectSession: async () => 'session_mock',

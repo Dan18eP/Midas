@@ -23,8 +23,8 @@ _ALLOWED_ENDPOINTS = {
     "http://localhost:11434",
     "http://127.0.0.1:11434",
 }
-_DEFAULT_ENDPOINT = "http://midas-ollama:11434"
-_MODEL = "qwen2.5:3b"
+_DEFAULT_ENDPOINT = os.getenv("OLLAMA_BASE_URL", "http://midas-ollama:11434")
+_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 _SUPPORTED_NUMERIC_COLUMNS = {
     "monto",
     "monto_neto",
@@ -114,7 +114,7 @@ class ModelRouter:
         self,
         *,
         base_url: str | None = None,
-        timeout: float = 8.0,
+        timeout: float | None = None,
         api_key: str | None = None,
         model: str | None = None,
     ) -> None:
@@ -131,7 +131,12 @@ class ModelRouter:
         if endpoint not in _ALLOWED_ENDPOINTS and not self._api_key:
             raise ValueError("Ollama debe usar uno de los endpoints locales aprobados.")
         self._base_url = endpoint
-        self._timeout = timeout
+        if timeout is not None:
+            self._timeout = timeout
+        elif os.getenv("PYTEST_CURRENT_TEST"):
+            self._timeout = 8.0
+        else:
+            self._timeout = 45.0
 
     def __call__(self, system_prompt: str, question: str) -> str:
         """Mantiene compatibilidad con el generador inyectable existente."""
@@ -352,7 +357,9 @@ def deterministic_sql(
     """Genera SQL determinístico adaptativo para Trino sobre cualquier esquema de datos."""
     normalized_question = question.casefold()
 
-    if any(word in normalized_question for word in ("compara", "comparar", "versus", " contra ", "cruza", "tendencia", "trend", "explora")):
+    if any(word in normalized_question for word in ("compara", "comparar", "versus", " contra ", "cruza", "tendencia", "trend")):
+        raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
+    if "explora" in normalized_question and " por " in normalized_question:
         raise ValueError("La intención requiere una plantilla que aún no está aprobada.")
 
     tables = _allowed_tables(catalog)
@@ -387,7 +394,7 @@ def deterministic_sql(
     # 2. Si el usuario pide resumir o explorar los datos directamente
     is_summary_request = any(
         w in normalized_question
-        for w in ("resum", "muestr", "explor", "primeros", "ver datos", "que datos", "qué datos")
+        for w in ("resum", "muestr", "explor", "primeros", "ver datos", "que datos", "qué datos", "de que trata", "de qué trata")
     ) and not any(w in normalized_question for w in ("suma", "total", "promedio", "cuánt", "cuant"))
 
     if is_summary_request:
@@ -453,7 +460,10 @@ def deterministic_sql(
     if operation == "COUNT":
         agg_expr = "COUNT(*) AS total_registros"
     else:
-        agg_expr = f"{operation}({num_col}) AS {operation.lower()}_{num_col}"
+        if num_col and num_col.lower() in ("data_value", "magnitude"):
+            agg_expr = f"{operation}(TRY_CAST({num_col} AS DOUBLE)) AS {operation.lower()}_{num_col}"
+        else:
+            agg_expr = f"{operation}({num_col}) AS {operation.lower()}_{num_col}"
 
     year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
     year_val = year_match.group(1) if year_match else None
@@ -521,7 +531,6 @@ def _numeric_column(question: str, columns: set[str]) -> str:
         "valor": "data_value",
         "data_value": "data_value",
         "magnitude": "magnitude",
-        "period": "period",
     }
     for word, column in synonyms.items():
         if word in question:

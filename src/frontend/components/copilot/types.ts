@@ -27,6 +27,7 @@ export interface CopilotMessage {
   metricsSummary?: CopilotMetricSummary[];
   textToGold?: boolean;
   approvalState?: CopilotApprovalState;
+  sql?: string;
   error?: boolean;
 }
 
@@ -39,6 +40,7 @@ export interface CopilotChatResponse {
   echarts_option?: EChartsOption | null;
   echarts_spec?: EChartsOption | null;
   metrics_summary?: CopilotMetricSummary[];
+  sql?: string;
   timestamp?: string;
 }
 

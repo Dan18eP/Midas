@@ -204,6 +204,13 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeData, setSelectedNodeData] = useState<MidasNodeData | null>(null);
 
+  // Derivación reactiva del nodo seleccionado para el Drawer de inspección en vivo
+  const activeSelectedNode = useMemo(() => {
+    if (!selectedNodeData) return null;
+    const live = nodes.find((n) => n.id === selectedNodeData.id);
+    return live ? live.data : selectedNodeData;
+  }, [nodes, selectedNodeData]);
+
   // Sincronización reactiva con la sesión activa (HU-FRONT-07 / ADR-010)
   useEffect(() => {
     if (initialNodes) {
@@ -919,7 +926,7 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
 
       {/* Panel Lateral de Inspección (Drawer) */}
       <NodeInspectionDrawer
-        selectedNode={selectedNodeData}
+        selectedNode={activeSelectedNode}
         onClose={() => setSelectedNodeData(null)}
         onPipelineExecuted={(res) => {
           if (res) {

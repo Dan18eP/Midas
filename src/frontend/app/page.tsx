@@ -115,6 +115,7 @@ function MidasConsoleWorkspace() {
     setWorkspaceMode,
     saveTopology,
     fetchSessions,
+    refreshActiveSession,
   } = useSession();
 
   const copilotChat = useCopilotChatContext();
@@ -261,9 +262,11 @@ function MidasConsoleWorkspace() {
   useEffect(() => {
     copilotChat?.setOnTurnComplete?.(async (threadId) => {
       await fetchSessions();
-      if (!activeSessionId) return;
+      await refreshActiveSession();
+      const targetId = activeSessionId || threadId;
+      if (!targetId) return;
       try {
-        const sess = await getSessionDetail(activeSessionId);
+        const sess = await getSessionDetail(targetId);
         const meta = sess?.metadata as Record<string, any> | undefined;
         const goldTables: string[] = meta?.gold_tables || (meta?.gold_table ? [meta.gold_table] : []);
         if (goldTables.length > 0) {
@@ -309,7 +312,7 @@ function MidasConsoleWorkspace() {
         // Fallback silencioso
       }
     });
-  }, [copilotChat, fetchSessions, activeSessionId, currentNodes, currentEdges, saveTopology]);
+  }, [copilotChat, fetchSessions, refreshActiveSession, activeSessionId, currentNodes, currentEdges, saveTopology]);
 
   // Sincronizar rol activo con el contexto del Copiloto para inyección en X-User-Role (ADR-011)
   useEffect(() => {
