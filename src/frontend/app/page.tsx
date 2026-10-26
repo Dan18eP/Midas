@@ -128,11 +128,63 @@ function MidasConsoleWorkspace() {
   );
 
   const currentNodes = useMemo(() => {
-    if (activeTopology?.nodes && activeTopology.nodes.length > 0) {
-      return activeTopology.nodes;
-    }
-    return dynamicTopology.nodes;
-  }, [activeTopology, dynamicTopology]);
+    const rawNodes =
+      activeTopology?.nodes && activeTopology.nodes.length > 0
+        ? activeTopology.nodes
+        : dynamicTopology.nodes;
+
+    const goldTables: string[] =
+      (activeSession?.metadata?.gold_tables as string[]) ||
+      (activeSession?.metadata?.gold_table ? [activeSession.metadata.gold_table as string] : []);
+    const hasGold = goldTables.length > 0;
+
+    return rawNodes.map((n) => {
+      // 1. Guardrail para Gold Marts:
+      // Si aún no se ha generado una capa Gold real para esta sesión, el nodo permanece estrictamente en STANDBY (0 filas)
+      if (n.id === 'gold_marts') {
+        if (!hasGold) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              status: 'STANDBY' as const,
+              recordsIn: 0,
+              recordsOut: 0,
+              label: 'Gold Marts (Por Definir)',
+              description:
+                'Marts y vistas analíticas personalizables. Interactúa con el Copiloto para crear tu capa Gold.',
+            },
+          };
+        }
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            status: 'HEALTHY' as const,
+            label: 'Gold Marts (Materializado)',
+          },
+        };
+      }
+
+      // 2. Guardrail para Nodo Fuente:
+      // Conforme a la regla de negocio: el flujo sólo se marca como completado/saludable cuando existe un mart Gold.
+      // Si ya procesó filas de ingesta, pasa a IN_PROGRESS en lugar de quedarse congelado en RUNNING.
+      if (n.data?.nodeType === 'source' || n.id.startsWith('source_')) {
+        const hasRecords = (n.data.recordsOut ?? 0) > 0 || (n.data.recordsIn ?? 0) > 0;
+        if (hasRecords) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              status: hasGold ? ('HEALTHY' as const) : ('IN_PROGRESS' as const),
+            },
+          };
+        }
+      }
+
+      return n;
+    });
+  }, [activeTopology, dynamicTopology, activeSession]);
 
   const currentEdges = useMemo(() => {
     if (activeTopology?.edges && activeTopology.edges.length > 0) {
@@ -194,6 +246,15 @@ function MidasConsoleWorkspace() {
                     spec_uri: meta?.spec_uri,
                     audit_status: 'Certificado WAP en catálogo Iceberg',
                   },
+                },
+              };
+            }
+            if (n.data?.nodeType === 'source' || n.id.startsWith('source_')) {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: 'HEALTHY' as const,
                 },
               };
             }

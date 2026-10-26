@@ -21,17 +21,18 @@
    - Detección automática y conmutación transparente entre tipos CSV y Excel según la extensión soltada.
    - Feedback visual interactivo al arrastrar elementos sobre el modal.
 
-3. **Auditoría Real y Cero Mocks en Nodo Gold:**
+3. **Ciclo de Vida de Flujo de Datos y Cero Hardcoding en Canvas:**
    - Adición del estado canónico `STANDBY` en `NodeStatus` (Python y TypeScript).
-   - Erradicación de las 5,000 filas sintéticas en telemetría base e inicialización de topología.
-   - El nodo Gold inicia y se mantiene en `STANDBY` con 0 filas procesadas hasta que el usuario formula o aprueba un reporte.
-   - Sincronización dinámica de `page.tsx` y `PipelineCanvas.tsx` con las tablas Iceberg reales creadas en la sesión (`chat_sessions.metadata.gold_tables`).
+   - Erradicación de las 5,000 filas sintéticas en telemetría base e inicialización de topología: guardrail estricto en `page.tsx` y `PipelineCanvas.tsx` forzando `STANDBY` y 0 registros mientras no exista materialización Gold.
+   - **Regla de Flujo Completo:** El nodo fuente pasa de `RUNNING` a `IN_PROGRESS` (con el conteo exacto de registros ingeridos, ej. 9,795) al culminar la etapa Bronze/Silver, y **solo transiciona a `HEALTHY` ("Completado") una vez que se ha generado un Gold Mart**.
+   - Sincronización viva en `page.tsx` y `PipelineCanvas.tsx` con las tablas Iceberg reales creadas en la sesión (`chat_sessions.metadata.gold_tables`).
    - Detalle de auditoría transparente en `NodeInspectionDrawer.tsx` exponiendo contratos WAP y estado del pipeline en Airflow.
 
-4. **Optimización del Botón de Materialización Gold:**
-   - Declaración a nivel de módulo de `live_catalog_source_provider()` y resolución dinámica de esquemas Trino.
-   - Detección directa de la consulta analítica previa (`metadata.sql`) sin preguntas redundantes sobre dimensiones o métricas cuando el reporte ya fue emitido.
-   - El mensaje explicativo se reserva estrictamente para cuando no existan consultas previas en la conversación.
+4. **Optimización del Botón de Materialización Gold y Resiliencia:**
+   - Corrección del fallo `TypeError: Cannot read properties of undefined (reading 'length')` en `ChatStatusIndicator.tsx` mediante fallback seguro `STATUS_STEPS[status] ?? []` y soporte para estado `analyzing`.
+   - Corrección de la extracción de metadatos en `agent.py`: resolución del `AttributeError` al acceder a `m.metadata` sobre instancias Pydantic `SessionMessage`.
+   - Materialización física inmediata vía CTAS en Trino Iceberg y guardado de contratos YAML en MinIO (`s3://midas-governance/airflow-specs/{thread_id}/`) al pulsar `[★ Optimizar y Materializar como Capa Gold]`, reconociendo automáticamente el SQL y contexto analítico de la sesión sin preguntas redundantes.
+   - Preservación del mensaje de aclaración dimensional exclusivamente para turnos en los que no existan consultas previas.
 
 ---
 

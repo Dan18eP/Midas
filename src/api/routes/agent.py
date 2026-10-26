@@ -290,12 +290,12 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                     if not msgs and thread_id:
                         msgs = s_store.get_messages(thread_id.lower())
                     for m in reversed(msgs):
-                        meta = m.get("metadata") or {}
+                        meta = m.metadata if hasattr(m, "metadata") else (m.get("metadata") if isinstance(m, dict) else {})
                         if isinstance(meta, dict) and meta.get("sql"):
                             sql = meta.get("sql")
                             break
-                except Exception:
-                    pass
+                except Exception as ex_sql:
+                    logger.debug("Error recuperando SQL previo: %s", ex_sql)
 
             if not schemas:
                 try:
@@ -361,13 +361,13 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 if not msgs and thread_id:
                     msgs = s_store.get_messages(thread_id.lower())
                 for m in reversed(msgs):
-                    meta = m.get("metadata") or {}
+                    meta = m.metadata if hasattr(m, "metadata") else (m.get("metadata") if isinstance(m, dict) else {})
                     if isinstance(meta, dict) and meta.get("sql"):
                         q = str(meta.get("sql")).strip()
                         if q and q not in recent_queries:
                             recent_queries.append(q)
-            except Exception:
-                pass
+            except Exception as ex_recent:
+                logger.debug("Error recolectando recent_queries: %s", ex_recent)
 
             if not sql and recent_queries:
                 sql = recent_queries[0]

@@ -186,7 +186,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
             if (!isStreaming) {
               isStreaming = true;
               clearPhaseTimers();
-              setStatus('analyzing');
+              setStatus('thinking');
               setMessages((current) => [
                 ...current,
                 {

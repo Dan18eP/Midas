@@ -925,12 +925,14 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           if (res) {
             setNodes((current) =>
               current.map((n) => {
-                if (n.id === selectedNodeData?.id) {
+                if (n.id === selectedNodeData?.id || n.data.nodeType === 'source' || n.id.startsWith('source_')) {
+                  const hasGold = (res.gold_records_generated ?? 0) > 0;
                   return {
                     ...n,
                     data: {
                       ...n.data,
-                      status: (res.status as NodeStatus) ?? 'HEALTHY',
+                      status: hasGold ? 'HEALTHY' : 'IN_PROGRESS',
+                      recordsIn: res.records_ingested,
                       recordsOut: res.records_ingested,
                     },
                   };
