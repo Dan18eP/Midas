@@ -2,20 +2,22 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Cpu } from 'lucide-react';
 import type { CopilotAgentStatus } from './types';
 
-const STATUS_LABEL: Record<CopilotAgentStatus, string> = {
+const STATUS_LABEL: Record<string, string> = {
   idle: '',
   thinking: 'Pensando',
   querying: 'Consultando esquema',
   visualizing: 'Generando visualización',
   error: 'Sin conexión con el agente',
+  analyzing: 'Analizando consulta',
 };
 
-const STATUS_STEPS: Record<CopilotAgentStatus, string[]> = {
+const STATUS_STEPS: Record<string, string[]> = {
   idle: [],
   thinking: ['Analizando tu solicitud...', 'Detectando la intención...', 'Preparando contexto de sesión...'],
   querying: ['Consultando esquema...', 'Validando seguridad Zero-Trust...', 'Ejecutando consulta gobernada...'],
   visualizing: ['Generando visualización...', 'Aplicando paleta Midas...', 'Redactando narrativa ejecutiva...'],
   error: ['No pude completar la consulta con el agente.'],
+  analyzing: ['Analizando tu consulta analítica...', 'Verificando tablas de la sesión...'],
 };
 
 export interface ChatStatusIndicatorProps {
@@ -23,22 +25,23 @@ export interface ChatStatusIndicatorProps {
 }
 
 export function ChatStatusIndicator({ status }: ChatStatusIndicatorProps) {
-  const steps = STATUS_STEPS[status];
+  const steps = STATUS_STEPS[status] ?? [];
+  const stepsCount = steps.length;
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
     setStepIndex(0);
-    if (steps.length <= 1) return undefined;
+    if (stepsCount <= 1) return undefined;
     const interval = setInterval(() => {
-      setStepIndex((current) => (current + 1) % steps.length);
+      setStepIndex((current) => (current + 1) % stepsCount);
     }, 1100);
     return () => clearInterval(interval);
-  }, [status, steps.length]);
+  }, [status, stepsCount]);
 
-  if (status === 'idle') return null;
+  if (status === 'idle' || stepsCount === 0) return null;
 
   const isError = status === 'error';
-  const step = steps[stepIndex] ?? steps[0];
+  const step = steps[stepIndex] ?? steps[0] ?? '';
 
   return (
     <div

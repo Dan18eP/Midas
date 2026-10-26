@@ -51,3 +51,16 @@ def test_agent_empty_message_validation():
     """Verify empty message returns 422 Unprocessable Entity."""
     response = client.post("/api/v1/agent/chat", json={"message": "   "})
     assert response.status_code == 422
+
+
+def test_agent_stream_greeting_emits_sse_events():
+    """Verify POST /api/v1/agent/chat/stream returns valid SSE stream with tokens and result."""
+    payload = {"message": "Hola Midas, ¿qué información tenemos disponible?"}
+    response = client.post("/api/v1/agent/chat/stream", json=payload)
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    text = response.text
+    assert "event: status" in text
+    assert "event: token" in text
+    assert "event: result" in text
+    assert "discovery" in text

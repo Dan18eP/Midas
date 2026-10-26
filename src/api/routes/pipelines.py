@@ -500,6 +500,41 @@ async def trigger_pipeline(
             )
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+        # Notificar finalización de ingesta hacia el nodo fuente
+        src_status = NodeStatus.HEALTHY if should_generate_gold else NodeStatus.IN_PROGRESS
+        telemetry_hub.publish_sync(
+            TelemetryEvent(
+                event_id=f"evt_src_done_{run_id}",
+                pipeline_id=pipe_name,
+                node_id=node_source_id,
+                status=src_status,
+                records_in=records_ingested_count,
+                records_out=records_ingested_count,
+                latency_ms=round(elapsed_ms, 2),
+                details={
+                    "message": f"Ingesta completada ({records_ingested_count} registros)" + ("" if should_generate_gold else ". Esperando materialización de Capa Gold."),
+                    "phase": "COMPLETED" if should_generate_gold else "AWAITING_GOLD",
+                },
+            )
+        )
+        if alt_node_source_id != node_source_id:
+            telemetry_hub.publish_sync(
+                TelemetryEvent(
+                    event_id=f"evt_src_alt_done_{run_id}",
+                    pipeline_id=pipe_name,
+                    node_id=alt_node_source_id,
+                    status=src_status,
+                    records_in=records_ingested_count,
+                    records_out=records_ingested_count,
+                    latency_ms=round(elapsed_ms, 2),
+                    details={
+                        "message": f"Ingesta completada ({records_ingested_count} registros)" + ("" if should_generate_gold else ". Esperando materialización de Capa Gold."),
+                        "phase": "COMPLETED" if should_generate_gold else "AWAITING_GOLD",
+                    },
+                )
+            )
+
         final_status = "DEGRADED" if records_quarantined_count > 0 else "HEALTHY"
 
         detail_msg = (

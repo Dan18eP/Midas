@@ -17,6 +17,7 @@ class NodeStatus(str, Enum):
     ERROR = "ERROR"
     IN_PROGRESS = "IN_PROGRESS"
     AUTO_HEALING = "AUTO_HEALING"
+    STANDBY = "STANDBY"
 
 
 class AnomalyType(str, Enum):

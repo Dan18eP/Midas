@@ -925,12 +925,14 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
           if (res) {
             setNodes((current) =>
               current.map((n) => {
-                if (n.id === selectedNodeData?.id) {
+                if (n.id === selectedNodeData?.id || n.data.nodeType === 'source' || n.id.startsWith('source_')) {
+                  const hasGold = (res.gold_records_generated ?? 0) > 0;
                   return {
                     ...n,
                     data: {
                       ...n.data,
-                      status: (res.status as NodeStatus) ?? 'HEALTHY',
+                      status: hasGold ? 'HEALTHY' : 'IN_PROGRESS',
+                      recordsIn: res.records_ingested,
                       recordsOut: res.records_ingested,
                     },
                   };
@@ -970,13 +972,28 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                   };
                 }
                 if (n.id === 'gold_marts') {
+                  const hasGold = (res.gold_records_generated ?? 0) > 0;
+                  const goldTbls = res.output_tables?.filter((t: string) => t.startsWith('gold.')) || [];
                   return {
                     ...n,
                     data: {
                       ...n.data,
-                      status: 'HEALTHY',
-                      recordsIn: res.records_cleaned,
-                      recordsOut: res.gold_records_generated,
+                      status: hasGold ? 'HEALTHY' : 'STANDBY',
+                      label: hasGold
+                        ? (goldTbls.length > 1 ? `Gold Marts (${goldTbls.length} Tablas)` : 'Gold Mart (Materializado)')
+                        : 'Gold Marts (Por Definir)',
+                      catalogTable: hasGold && goldTbls.length > 0 ? goldTbls.join(', ') : 'gold.personalizado',
+                      recordsIn: hasGold ? res.records_cleaned : 0,
+                      recordsOut: hasGold ? res.gold_records_generated : 0,
+                      description: hasGold
+                        ? `Capa Gold materializada y certificada en catálogo Iceberg: ${goldTbls.join(', ')}.`
+                        : 'Marts y vistas analíticas personalizables. Interactúa con el Copiloto para crear tu capa Gold.',
+                      details: {
+                        ...n.data.details,
+                        tables: goldTbls,
+                        tables_count: goldTbls.length,
+                        audit_status: 'Certificado WAP en catálogo Iceberg',
+                      },
                     },
                   };
                 }

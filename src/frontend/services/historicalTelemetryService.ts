@@ -109,12 +109,12 @@ export function createBaseNodesState(): Record<string, PipelineSnapshotNodeState
       },
     },
     gold_marts: {
-      status: 'HEALTHY',
-      recordsIn: 6690,
-      recordsOut: 6690,
-      latencyMs: 85.3,
+      status: 'STANDBY',
+      recordsIn: 0,
+      recordsOut: 0,
+      latencyMs: 0.0,
       alertsCount: 0,
-      description: 'Gold Marts dimensionales certificados en Iceberg.',
+      description: 'Gold Marts en espera de definición analítica vía Copiloto.',
     },
   };
 }

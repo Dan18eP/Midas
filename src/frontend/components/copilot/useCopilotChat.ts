@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { CopilotApiError, sendChatMessage } from './copilotApi';
+import { CopilotApiError, sendChatMessage, streamChatMessage } from './copilotApi';
 import type { CopilotAgentStatus, CopilotMessage, CopilotRole, EChartsOption } from './types';
 import { detectTextToGoldProposal, TEXT_TO_GOLD_CONFIRMATION } from './textToGold';
 
@@ -168,18 +168,47 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         }, phase.at),
       );
 
+      const assistantId = createId('assistant');
+      let streamingContent = '';
+      let isStreaming = false;
+
       try {
-        const payload = await sendChatMessage({
-          message: content,
-          threadId,
-          connectionId: connectionIdRef.current,
-          userRole: activeRoleRef.current,
-          inferenceMode: inferenceModeRef.current,
-        });
+        const payload = await streamChatMessage(
+          {
+            message: content,
+            threadId,
+            connectionId: connectionIdRef.current,
+            userRole: activeRoleRef.current,
+            inferenceMode: inferenceModeRef.current,
+          },
+          (delta) => {
+            streamingContent += delta;
+            if (!isStreaming) {
+              isStreaming = true;
+              clearPhaseTimers();
+              setStatus('thinking');
+              setMessages((current) => [
+                ...current,
+                {
+                  id: assistantId,
+                  role: 'assistant',
+                  content: streamingContent,
+                  timestamp: new Date().toISOString(),
+                },
+              ]);
+            } else {
+              setMessages((current) =>
+                current.map((m) =>
+                  m.id === assistantId ? { ...m, content: streamingContent } : m,
+                ),
+              );
+            }
+          },
+        );
         const assistantMessage: CopilotMessage = {
-          id: createId('assistant'),
+          id: assistantId,
           role: 'assistant',
-          content: payload.response,
+          content: payload.response || streamingContent,
           timestamp: new Date().toISOString(),
           intent: payload.intent,
           needsClarification: payload.needs_clarification,
@@ -190,7 +219,13 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
           approvalState: 'idle',
         };
         clearPhaseTimers();
-        appendMessage(assistantMessage);
+        if (isStreaming) {
+          setMessages((current) =>
+            current.map((m) => (m.id === assistantId ? assistantMessage : m)),
+          );
+        } else {
+          appendMessage(assistantMessage);
+        }
         setSuggestions(payload.suggestions && payload.suggestions.length > 0 ? payload.suggestions : DEFAULT_SUGGESTIONS);
         setStatus('idle');
         onTurnCompleteRef.current?.(threadId);

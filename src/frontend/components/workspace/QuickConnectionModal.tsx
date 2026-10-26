@@ -54,6 +54,7 @@ export function QuickConnectionModal({
 
   const [selectedType, setSelectedType] = useState<QuickSourceType>(initialType);
   const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<FileUploadResponseDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +111,42 @@ export function QuickConnectionModal({
       setFile(e.target.files[0]);
       setError(null);
       setUploadResult(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const droppedFiles = e.dataTransfer?.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      const droppedFile = droppedFiles[0];
+      const ext = droppedFile.name.split('.').pop()?.toLowerCase();
+      if (ext === 'xlsx' || ext === 'xls') {
+        setSelectedType('excel');
+        setFile(droppedFile);
+        setError(null);
+        setUploadResult(null);
+      } else if (ext === 'csv') {
+        setSelectedType('csv');
+        setFile(droppedFile);
+        setError(null);
+        setUploadResult(null);
+      } else {
+        setError(`Formato .${ext} no soportado. Por favor arrastra un archivo .csv o .xlsx válido.`);
+      }
     }
   };
 
@@ -399,11 +436,23 @@ export function QuickConnectionModal({
                 <div>
                   <div
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#E8E4DC] hover:border-[#D4AF37]/60 bg-[#FAFAFA] p-8 cursor-pointer transition-colors"
+                    onDragOver={handleDragOver}
+                    onDragEnter={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 cursor-pointer transition-all duration-200 ${
+                      isDragging
+                        ? 'border-[#D4AF37] bg-[#FFFDF5] scale-[1.01] ring-2 ring-[#D4AF37]/40 shadow-sm'
+                        : 'border-[#E8E4DC] hover:border-[#D4AF37]/60 bg-[#FAFAFA]'
+                    }`}
                   >
-                    <UploadCloud className="h-10 w-10 text-[#A0988A] mb-3" />
+                    <UploadCloud className={`h-10 w-10 mb-3 transition-colors ${isDragging ? 'text-[#B8860B] animate-bounce' : 'text-[#A0988A]'}`} />
                     <p className="text-sm font-medium text-[#1C1E21]">
-                      {file ? file.name : 'Arrastra o haz clic para seleccionar archivo'}
+                      {isDragging
+                        ? '¡Suelta tu archivo aquí!'
+                        : file
+                        ? file.name
+                        : 'Arrastra o haz clic para seleccionar archivo'}
                     </p>
                     <p className="text-xs text-[#787164] mt-1">
                       {selectedType === 'excel'
