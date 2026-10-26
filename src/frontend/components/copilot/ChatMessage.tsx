@@ -311,7 +311,21 @@ export function ChatMessage({ message, onSuggestion, onApprove }: ChatMessagePro
         )}
 
         {!isUser && hasChart && (
-          <EChartsRenderer option={message.echartsOption} fileName={`midas-${message.intent ?? 'consulta'}`} />
+          <div className="flex flex-col gap-2">
+            <EChartsRenderer option={message.echartsOption} fileName={`midas-${message.intent ?? 'consulta'}`} />
+            {onApprove && !message.textToGold && (
+              <button
+                type="button"
+                data-testid="optimize-gold-button"
+                onClick={() => onApprove(message.id)}
+                className="self-start flex items-center gap-1.5 rounded-lg border border-[#D4AF37] bg-[#FFFDF5] px-3 py-1.5 text-xs font-semibold text-[#8C6D1F] hover:bg-[#FBF8EF] hover:border-[#B8860B] transition-all shadow-2xs cursor-pointer active:scale-95"
+                title="Convertir esta consulta analítica en una tabla Gold permanente y programada en Airflow"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[#B8860B]" />
+                <span>★ Optimizar y Materializar como Capa Gold</span>
+              </button>
+            )}
+          </div>
         )}
 
         {!isUser && message.textToGold && onApprove && (

@@ -17,7 +17,7 @@ import {
   Play,
 } from 'lucide-react';
 import { MidasNodeData } from '@/types/canvas';
-import { listSourceConnections, triggerPipeline, executeTrinoQuery } from '@/services/sessionService';
+import { listSourceConnections, triggerPipeline, executeTrinoQuery, getSessionDetail } from '@/services/sessionService';
 
 interface SessionAnalyticsViewProps {
   sessionId?: string;
@@ -104,6 +104,23 @@ export function SessionAnalyticsView({
         }
       }
     });
+
+    // Descubrir tablas Gold guardadas en los metadatos persistentes de la sesión en PostgreSQL
+    if (sessionId && sessionId !== 'sesion_default' && sessionId !== 'default') {
+      try {
+        const sess = await getSessionDetail(sessionId);
+        const meta = sess?.metadata as Record<string, any> | undefined;
+        if (meta?.gold_tables && Array.isArray(meta.gold_tables)) {
+          meta.gold_tables.forEach((gt: unknown) => {
+            if (typeof gt === 'string' && gt.trim().startsWith('gold.')) {
+              candidateTables.push(gt.trim());
+            }
+          });
+        }
+      } catch {
+        // Fallback silencioso
+      }
+    }
 
     const uniqueCandidates = Array.from(new Set(candidateTables));
     if (uniqueCandidates.length === 0) {

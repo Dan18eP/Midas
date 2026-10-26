@@ -23,7 +23,7 @@ _ALL_YEARS = re.compile(
     re.IGNORECASE,
 )
 _GOLD_MATERIALIZATION = re.compile(
-    r"\b(materializ|crear tabla gold|crea tabla gold|construir gold|guardar como tabla gold|generar capa gold|nueva tabla gold)\b",
+    r"\b(materializ|crear\s+(?:una\s+)?tabla\s+gold|crea\s+(?:una\s+)?tabla\s+gold|construir\s+gold|guardar\s+como\s+(?:tabla\s+)?gold|generar\s+capa\s+gold|nueva\s+tabla\s+gold|capa\s+gold|gold\s+mart)\b",
     re.IGNORECASE,
 )
 

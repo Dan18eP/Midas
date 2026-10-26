@@ -93,6 +93,10 @@ def _sanitize_echarts_option(
             if "{b}" in fmt:
                 label["formatter"] = "{c}"
             label["distance"] = 5
+            data = s.get("data")
+            if isinstance(data, list) and len(data) > 5:
+                label["rotate"] = 45
+                label["fontSize"] = 9
 
     # Asegurar márgenes y no recorte de etiquetas en el eje X
     if "grid" not in option or not isinstance(option.get("grid"), dict):

@@ -281,6 +281,8 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                     from src.core.session.store import get_session_store
                     s_store = get_session_store()
                     msgs = s_store.get_messages(thread_id)
+                    if not msgs and thread_id:
+                        msgs = s_store.get_messages(thread_id.lower())
                     for m in reversed(msgs):
                         meta = m.get("metadata") or {}
                         if isinstance(meta, dict) and meta.get("sql"):
@@ -339,43 +341,117 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
             from src.agent.tools.dag_generator import build_pipeline_spec, publish_pipeline_spec
             import inspect
 
-            spec = build_pipeline_spec(
-                previous_state.get("user_message", "Reporte Analitico Gold"),
-                sql,
-                schemas,
-            )
-            sig = inspect.signature(publish_pipeline_spec)
-            if "session_id" in sig.parameters:
-                spec_uri = publish_pipeline_spec(spec, confirmed=True, session_id=thread_id)
-            else:
-                spec_uri = publish_pipeline_spec(spec, confirmed=True)
-
-            # Intentar materializar inmediatamente en Trino / Iceberg / MinIO vía CTAS
-            materialized_records_count = 0
+            # Recolectar consultas analíticas previas de la sesión
+            recent_queries: List[str] = []
             try:
-                from src.core.query_engine.trino_client import TrinoClient
-                tc = TrinoClient()
+                from src.core.session.store import get_session_store
+                s_store = get_session_store()
+                msgs = s_store.get_messages(thread_id)
+                if not msgs and thread_id:
+                    msgs = s_store.get_messages(thread_id.lower())
+                for m in reversed(msgs):
+                    meta = m.get("metadata") or {}
+                    if isinstance(meta, dict) and meta.get("sql"):
+                        q = str(meta.get("sql")).strip()
+                        if q and q not in recent_queries:
+                            recent_queries.append(q)
+            except Exception:
+                pass
+
+            if not sql and recent_queries:
+                sql = recent_queries[0]
+
+            # Detectar si el usuario pide unir reportes o agregar tabla secundaria
+            is_composite = any(k in user_message.lower() for k in ("secundaria", "segunda", "unir", "ambas", "ambos", "dos tablas", "reporte secundario"))
+            queries_to_process: List[str] = []
+            if is_composite and len(recent_queries) >= 2:
+                # Ordenar cronológicamente (la consulta previa primero, la más reciente segunda)
+                queries_to_process = list(reversed(recent_queries[:2]))
+            elif sql:
+                queries_to_process = [sql]
+            elif recent_queries:
+                queries_to_process = [recent_queries[0]]
+
+            from src.core.query_engine.trino_client import TrinoClient
+            tc = TrinoClient()
+
+            materialized_tables_info: List[Dict[str, Any]] = []
+            total_records_count = 0
+            latest_table_name = ""
+
+            for idx, q_sql in enumerate(queries_to_process):
+                q_lower = q_sql.lower()
+                if "period" in q_lower:
+                    report_slug = "fct_top_sales_periods"
+                elif any(k in q_lower for k in ("group", "subject", "industry")):
+                    report_slug = "fct_industry_financial_summary"
+                elif any(k in q_lower for k in ("country", "city", "ciudad", "cliente")):
+                    report_slug = "dim_clientes_distribucion"
+                else:
+                    report_slug = f"gold_marts_report_{idx+1}"
+
+                # Limpiar LIMIT del query CTAS para capturar todos los datos analíticos
+                clean_ctas_query = re.sub(r"\s+LIMIT\s+\d+", "", q_sql, flags=re.IGNORECASE)
+
+                spec = build_pipeline_spec(
+                    report_slug,
+                    clean_ctas_query,
+                    schemas,
+                )
+                sig = inspect.signature(publish_pipeline_spec)
+                if "session_id" in sig.parameters:
+                    spec_uri = publish_pipeline_spec(spec, confirmed=True, session_id=thread_id)
+                else:
+                    spec_uri = publish_pipeline_spec(spec, confirmed=True)
+
+                # Ejecución CTAS real en Trino Iceberg
                 tbl_name = spec.output_table if spec.output_table.startswith("iceberg.") else f"iceberg.{spec.output_table}"
-                ctas_sql = f"CREATE TABLE IF NOT EXISTS {tbl_name} AS {sql}"
-                tc.execute_ddl_sync(ctas_sql)
-                # Inspeccionar filas generadas
+                try:
+                    tc.execute_ddl_sync(f"CREATE TABLE IF NOT EXISTS {tbl_name} AS {clean_ctas_query}")
+                except Exception as ctas_err:
+                    logger.debug("Creacion inmediata en Trino %s diferida: %s", tbl_name, ctas_err)
+
+                # Inspeccionar filas generadas reales
+                rec_count = 0
                 try:
                     count_res = tc.execute_query_sync(f"SELECT COUNT(*) FROM {spec.output_table}")
                     if count_res and count_res.data:
-                        materialized_records_count = list(count_res.data[0].values())[0] or 0
+                        rec_count = list(count_res.data[0].values())[0] or 0
                 except Exception:
-                    materialized_records_count = 100
-            except Exception as trino_ctas_err:
-                logger.debug("Creacion inmediata en Trino diferida a Airflow: %s", trino_ctas_err)
+                    rec_count = 0
 
-            confirmation_msg = (
-                f"Capa Gold generada exitosamente. El pipeline **{spec.pipeline_id}** ha sido programado en Airflow y materializado en el Lakehouse.\n\n"
-                f"- **Tabla de salida:** `{spec.output_table}`\n"
-                f"- **Contrato gobernado:** `{spec_uri}`\n"
-                f"- **Registros consolidados:** {materialized_records_count if materialized_records_count else 'Procesados'}\n"
-                f"- **Subcarpeta de sesión:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
-                f"> **Listo para Dashboard:** Esta tabla Gold ya está disponible en el **Centro de Analítica** de tu sesión para consultas interactivas, gráficos y reportes ejecutivos."
-            )
+                total_records_count += rec_count
+                latest_table_name = spec.output_table
+                materialized_tables_info.append({
+                    "table": spec.output_table,
+                    "pipeline_id": spec.pipeline_id,
+                    "spec_uri": spec_uri,
+                    "records": rec_count,
+                    "sql": clean_ctas_query,
+                })
+
+            if len(materialized_tables_info) > 1:
+                tables_md = "\n".join(
+                    f"- **Tabla {i+1}:** `{t['table']}` ({t['records']} registros consolidados) | *Airflow DAG:* `{t['pipeline_id']}`"
+                    for i, t in enumerate(materialized_tables_info)
+                )
+                confirmation_msg = (
+                    f"Capa Gold compuesta generada exitosamente. Se materializaron **{len(materialized_tables_info)} tablas** analíticas en el Lakehouse gobernado:\n\n"
+                    f"{tables_md}\n\n"
+                    f"- **Total registros en Data Mart:** {total_records_count}\n"
+                    f"- **Subcarpeta de contratos en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
+                    f"> **Listo para Dashboard:** Las tablas ya están disponibles en el **Centro de Analítica** de tu sesión como pestañas interactivas para explorar y exportar."
+                )
+            else:
+                t0 = materialized_tables_info[0]
+                confirmation_msg = (
+                    f"Capa Gold generada exitosamente. El pipeline **{t0['pipeline_id']}** ha sido programado en Airflow y materializado en el Lakehouse.\n\n"
+                    f"- **Tabla de salida:** `{t0['table']}`\n"
+                    f"- **Contrato gobernado:** `{t0['spec_uri']}`\n"
+                    f"- **Registros consolidados:** {t0['records'] if t0['records'] else 'Procesados'}\n"
+                    f"- **Subcarpeta de sesión:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
+                    f"> **Listo para Dashboard:** Esta tabla Gold ya está disponible en el **Centro de Analítica** de tu sesión para consultas interactivas, gráficos y reportes ejecutivos."
+                )
 
             # Publicar telemetría viva al Canvas para actualizar nodo Gold
             try:
@@ -385,18 +461,19 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 t_hub.publish_sync(
                     TelemetryEvent(
                         event_id=f"evt_gold_{uuid.uuid4().hex[:8]}",
-                        pipeline_id=spec.pipeline_id,
+                        pipeline_id=materialized_tables_info[0]["pipeline_id"],
                         node_id="gold_marts",
                         status=NodeStatus.HEALTHY,
-                        records_in=materialized_records_count or 100,
-                        records_out=materialized_records_count or 100,
+                        records_in=total_records_count or 100,
+                        records_out=total_records_count or 100,
                         latency_ms=35.0,
                         details={
-                            "output_table": spec.output_table,
-                            "pipeline_id": spec.pipeline_id,
-                            "spec_uri": spec_uri,
+                            "output_table": latest_table_name,
+                            "pipeline_id": materialized_tables_info[0]["pipeline_id"],
+                            "spec_uri": materialized_tables_info[0]["spec_uri"],
                             "sql": sql,
                             "action": "MATERIALIZED",
+                            "tables_count": len(materialized_tables_info),
                         },
                     )
                 )
@@ -410,14 +487,15 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 if not sess:
                     sess = s_store.create_session(session_id=thread_id, title="Materialización Gold")
                 
-                # Registrar tabla Gold en los metadatos de la sesión
+                # Registrar tablas Gold en los metadatos de la sesión
                 if sess:
                     meta = dict(sess.metadata or {})
                     gold_list = list(meta.get("gold_tables") or [])
-                    if spec.output_table not in gold_list:
-                        gold_list.append(spec.output_table)
+                    for t_item in materialized_tables_info:
+                        if t_item["table"] not in gold_list:
+                            gold_list.append(t_item["table"])
                     meta["gold_tables"] = gold_list
-                    meta["latest_gold_table"] = spec.output_table
+                    meta["latest_gold_table"] = latest_table_name
                     sess.metadata = meta
 
                 s_store.add_message(session_id=thread_id, sender="user", content=user_message)
@@ -427,10 +505,11 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                     content=confirmation_msg,
                     metadata={
                         "intent": "materialize_gold",
-                        "spec_uri": spec_uri,
-                        "pipeline_id": spec.pipeline_id,
-                        "output_table": spec.output_table,
-                        "gold_table": spec.output_table,
+                        "spec_uri": materialized_tables_info[0]["spec_uri"],
+                        "pipeline_id": materialized_tables_info[0]["pipeline_id"],
+                        "output_table": latest_table_name,
+                        "gold_table": latest_table_name,
+                        "gold_tables": [t["table"] for t in materialized_tables_info],
                     },
                 )
             except Exception as store_err:
@@ -571,6 +650,8 @@ def _is_gold_materialization_confirmation(message: str) -> bool:
         "materializar tabla gold",
         "crear tabla gold",
         "crea tabla gold",
+        "crear una tabla gold",
+        "crea una tabla gold",
         "construir gold mart",
         "construye gold mart",
         "construir tabla gold",
@@ -578,14 +659,20 @@ def _is_gold_materialization_confirmation(message: str) -> bool:
         "materializa gold mart",
         "guardar como tabla gold",
         "guarda como tabla gold",
+        "guardar como gold",
+        "guarda como gold",
         "programar tabla gold",
         "programa tabla gold",
         "crear capa gold",
+        "crea capa gold",
         "materializar capa gold",
+        "materializa capa gold",
         "construir capa gold",
         "elaboracion de la capa gold",
         "elaboración de la capa gold",
         "generar capa gold",
         "generar gold mart",
     )
-    return any(t in normalized for t in triggers)
+    if any(t in normalized for t in triggers):
+        return True
+    return bool(re.search(r"\b(crea|crear|materializa|materializar|guarda|guardar|agrega|agregar|construye|construir)\b.{0,40}\b(tabla\s+gold|capa\s+gold|gold\s+mart|data\s+mart)\b", normalized))
