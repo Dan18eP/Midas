@@ -19,7 +19,7 @@ _DISCOVERY = re.compile(
 _SALES = re.compile(r"\b(ventas?|ingresos?|facturación)\b", re.IGNORECASE)
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _ALL_YEARS = re.compile(
-    r"\b(todos los años|todos los anos|todos los periodos|todos los trimestres|todos|todo|histórico|historico|anual|global|total|cada año|por año)\b",
+    r"\b(todos los años|todos los anos|todos los periodos|todos los trimestres|todos|todo|histórico|historico|anual|anuales|global|total|cada año|por año|top años|top anos|ranking de años|ranking años|años|anos|periodos|trimestres|meses)\b",
     re.IGNORECASE,
 )
 _GOLD_MATERIALIZATION = re.compile(
@@ -65,7 +65,14 @@ def route_intent(state: AgentState) -> dict[str, object]:
         _SALES.search(message)
         and not _YEAR.search(message)
         and not _ALL_YEARS.search(message)
-        and not any(w in message.lower() for w in (" por ", "group", "agrup", "departamento", "categoria", "producto", "almacen"))
+        and not any(
+            w in message.lower()
+            for w in (
+                " por ", "group", "agrup", "departamento", "categoria", "producto", "almacen",
+                "año", "ano", "period", "trimestre", "mes", "top", "ranking", "mejores", "peores",
+                "historico", "anual", "evolucion", "tendencia", "mayor", "menor"
+            )
+        )
     ):
         return {
             "intent": "analytics",

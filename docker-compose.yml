@@ -366,6 +366,9 @@ services:
       # Motor LLM Gemini para analitica avanzada, graficos y Gold Marts
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      # Inferencia Local Soberana Zero-Trust (Ollama Qwen 2.5 en Host)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

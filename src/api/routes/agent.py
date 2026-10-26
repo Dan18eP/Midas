@@ -38,6 +38,10 @@ class ChatRequest(BaseModel):
         default="cloud",
         description="Inference provider sovereignty: 'local' (Qwen 2.5: 3B local Zero-Trust) or 'cloud' (Gemini Cloud API).",
     )
+    sql_query: Optional[str] = Field(
+        default=None,
+        description="Explicit Trino SQL query associated with a specific report when materializing Gold.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -49,6 +53,7 @@ class ChatResponse(BaseModel):
     needs_clarification: bool = Field(False, description="True if the agent requires further parameters (e.g. missing year).")
     echarts_option: Optional[Dict[str, Any]] = Field(None, description="Apache ECharts JSON configuration option.")
     metrics_summary: List[Dict[str, Any]] = Field(default_factory=list, description="Structured lineage metrics summary.")
+    sql: Optional[str] = Field(None, description="Executed Trino SQL query behind this analytical finding.")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -68,6 +73,36 @@ class MaterializeResponse(BaseModel):
     spec_uri: str
     pipeline_id: str
     output_table: str
+
+
+def _trigger_airflow_dag(pipeline_id: str) -> bool:
+    """Intenta disparar una ejecución de DAG en Airflow si el servicio está activo."""
+    import base64
+    import urllib.request
+    airflow_url = os.getenv(
+        "AIRFLOW_WEBSERVER_URL",
+        "http://midas-airflow-webserver:8080" if os.path.exists("/.dockerenv") else "http://localhost:8085",
+    )
+    user = os.getenv("AIRFLOW_ADMIN_USERNAME", "admin")
+    pwd = os.getenv("AIRFLOW_ADMIN_PASSWORD", "midas_airflow_admin_2026")
+    try:
+        dag_id = f"dag_gold_{pipeline_id}"
+        url = f"{airflow_url}/api/v1/dags/{dag_id}/dagRuns"
+        data = json.dumps({"conf": {}}).encode("utf-8")
+        auth_header = "Basic " + base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": auth_header,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            return resp.status in (200, 201)
+    except Exception:
+        return False
 
 
 # Lazily-compiled LangGraph singleton
@@ -278,7 +313,7 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
         if _is_gold_materialization_confirmation(user_message):
             snapshot = graph.get_state({"configurable": {"thread_id": thread_id}})
             previous_state = snapshot.values if snapshot else {}
-            sql = previous_state.get("sql")
+            sql = payload.sql_query or previous_state.get("sql")
             schemas = previous_state.get("schemas", [])
 
             # Recuperar SQL previo desde los metadatos de la sesion si el snapshot en memoria no lo tiene
@@ -394,12 +429,16 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 q_lower = q_sql.lower()
                 if "period" in q_lower:
                     report_slug = "fct_top_sales_periods"
+                elif any(k in q_lower for k in ("price", "precio", "caro", "cost")):
+                    report_slug = "gold_top_productos_precio"
+                elif any(k in q_lower for k in ("stock", "cantidad", "inventory")):
+                    report_slug = "gold_top_productos_stock"
                 elif any(k in q_lower for k in ("group", "subject", "industry")):
                     report_slug = "fct_industry_financial_summary"
                 elif any(k in q_lower for k in ("country", "city", "ciudad", "cliente")):
                     report_slug = "dim_clientes_distribucion"
                 else:
-                    report_slug = f"gold_marts_report_{idx+1}"
+                    report_slug = f"gold_mart_{thread_id[:6]}_{idx+1}"
 
                 # Limpiar LIMIT del query CTAS para capturar todos los datos analíticos
                 clean_ctas_query = re.sub(r"\s+LIMIT\s+\d+", "", q_sql, flags=re.IGNORECASE)
@@ -415,6 +454,26 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 else:
                     spec_uri = publish_pipeline_spec(spec, confirmed=True)
 
+                # Ejecutar consulta analítica para obtener y persistir registros reales de inmediato
+                query_result = tc.execute_query_sync(q_sql)
+                if not (query_result and query_result.data):
+                    query_result = tc.execute_query_sync(clean_ctas_query)
+
+                from src.lakehouse.storage.minio_client import MidasMinioClient
+                minio_cli = MidasMinioClient()
+                if minio_cli.check_health() and query_result and query_result.data:
+                    minio_cli.ensure_canonical_buckets()
+                    json_bytes = json.dumps(query_result.data, ensure_ascii=False, default=str).encode("utf-8")
+                    minio_cli.put_object("midas-gold", f"gold/{report_slug}.json", json_bytes, content_type="application/json")
+                    try:
+                        import pandas as pd, io
+                        df_gold = pd.DataFrame(query_result.data)
+                        buf = io.BytesIO()
+                        df_gold.to_parquet(buf, index=False)
+                        minio_cli.put_object("midas-gold", f"gold/{report_slug}.parquet", buf.getvalue(), content_type="application/octet-stream")
+                    except Exception:
+                        pass
+
                 # Ejecución CTAS real en Trino Iceberg
                 tbl_name = spec.output_table if spec.output_table.startswith("iceberg.") else f"iceberg.{spec.output_table}"
                 try:
@@ -422,14 +481,14 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 except Exception as ctas_err:
                     logger.debug("Creacion inmediata en Trino %s diferida: %s", tbl_name, ctas_err)
 
-                # Inspeccionar filas generadas reales
-                rec_count = 0
-                try:
-                    count_res = tc.execute_query_sync(f"SELECT COUNT(*) FROM {spec.output_table}")
-                    if count_res and count_res.data:
-                        rec_count = list(count_res.data[0].values())[0] or 0
-                except Exception:
-                    rec_count = 0
+                rec_count = len(query_result.data) if (query_result and query_result.data) else 0
+                if rec_count == 0:
+                    try:
+                        count_res = tc.execute_query_sync(f"SELECT COUNT(*) FROM {spec.output_table}")
+                        if count_res and count_res.data:
+                            rec_count = list(count_res.data[0].values())[0] or 0
+                    except Exception:
+                        rec_count = 0
 
                 total_records_count += rec_count
                 latest_table_name = spec.output_table
@@ -441,17 +500,29 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                     "sql": clean_ctas_query,
                 })
 
+            airflow_triggered = False
+            for t_item in materialized_tables_info:
+                if _trigger_airflow_dag(t_item["pipeline_id"]):
+                    airflow_triggered = True
+
+            airflow_status_note = (
+                "- **Orquestador Airflow:** DAG activado exitosamente y enviado a Spark Master (Spark UI: `http://localhost:8086`, Airflow: `http://localhost:8085`)."
+                if airflow_triggered
+                else "- **Orquestador Airflow:** Contrato YAML registrado en MinIO. Listo para orquestar con Spark al iniciar Airflow (`docker compose --profile orchestration up -d`)."
+            )
+
             if len(materialized_tables_info) > 1:
                 tables_md = "\n".join(
-                    f"- **Tabla {i+1}:** `{t['table']}` ({t['records']} registros consolidados) | *Airflow DAG:* `{t['pipeline_id']}`"
+                    f"- **Tabla {i+1}:** `{t['table']}` ({t['records']} registros consolidados) | *Airflow DAG:* `dag_{t['pipeline_id']}`"
                     for i, t in enumerate(materialized_tables_info)
                 )
                 confirmation_msg = (
                     f"Capa Gold compuesta generada exitosamente. Se materializaron **{len(materialized_tables_info)} tablas** analíticas en Iceberg mediante Trino y sus contratos quedaron registrados en MinIO para Airflow:\n\n"
                     f"{tables_md}\n\n"
                     f"- **Motor de ejecución inmediata:** Trino 450 (Apache Iceberg REST)\n"
+                    f"{airflow_status_note}\n"
                     f"- **Total registros en Data Mart:** {total_records_count}\n"
-                    f"- **Subcarpeta de contratos en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
+                    f"- **Subcarpeta de contratos en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/` (Consola Web: `http://localhost:9001` con usuario `midas_minio_admin`)\n\n"
                     f"> **Listo para Dashboard:** Las tablas ya están disponibles en el **Centro de Analítica** de tu sesión como pestañas interactivas para explorar y exportar."
                 )
             else:
@@ -460,9 +531,10 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                     f"Capa Gold generada exitosamente. La tabla **{t0['table']}** ha sido materializada en Iceberg mediante Trino y su contrato declarativo quedó registrado en MinIO para Airflow.\n\n"
                     f"- **Tabla de salida:** `{t0['table']}`\n"
                     f"- **Motor de ejecución inmediata:** Trino 450 (Apache Iceberg REST)\n"
+                    f"{airflow_status_note}\n"
                     f"- **Contrato gobernado:** `{t0['spec_uri']}`\n"
                     f"- **Registros consolidados:** {t0['records'] if t0['records'] else 'Procesados'}\n"
-                    f"- **Subcarpeta de sesión en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/`\n\n"
+                    f"- **Subcarpeta de sesión en MinIO:** `s3://midas-governance/airflow-specs/{thread_id}/` (Consola Web: `http://localhost:9001` con usuario `midas_minio_admin`)\n\n"
                     f"> **Listo para Dashboard:** Esta tabla Gold ya está disponible en el **Centro de Analítica** de tu sesión para consultas interactivas, gráficos y reportes ejecutivos."
                 )
 
@@ -625,6 +697,7 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
         needs_clarification=bool(needs_clarification),
         echarts_option=echarts_option if isinstance(echarts_option, dict) else None,
         metrics_summary=metrics_summary if isinstance(metrics_summary, list) else [],
+        sql=result_state.get("sql"),
     )
 
 
@@ -646,7 +719,7 @@ async def chat_with_agent_stream(payload: ChatRequest, request: Request):
         try:
             # 1. Etapa de análisis inicial
             yield f"event: status\ndata: {json.dumps({'stage': 'routing', 'message': 'Analizando consulta y verificando fuentes conectadas...'})}\n\n"
-            await asyncio.sleep(0.04)
+            await asyncio.sleep(0.02)
 
             # 2. Etapa de consulta al motor
             yield f"event: status\ndata: {json.dumps({'stage': 'query', 'message': 'Consultando motor analítico Trino / Iceberg...'})}\n\n"
@@ -656,18 +729,18 @@ async def chat_with_agent_stream(payload: ChatRequest, request: Request):
 
             # 3. Etapa de síntesis
             yield f"event: status\ndata: {json.dumps({'stage': 'storytelling', 'message': 'Generando síntesis ejecutiva y visualización...'})}\n\n"
-            await asyncio.sleep(0.03)
+            await asyncio.sleep(0.01)
 
             # 4. Stream continuo de tokens de narrativa
             text = chat_response.response or ""
             words = text.split(" ")
-            chunk_size = 4
+            chunk_size = 2
             for i in range(0, len(words), chunk_size):
                 chunk = " ".join(words[i : i + chunk_size])
                 if i + chunk_size < len(words):
                     chunk += " "
                 yield f"event: token\ndata: {json.dumps({'delta': chunk})}\n\n"
-                await asyncio.sleep(0.015)
+                await asyncio.sleep(0.008)
 
             # 5. Payload final estructurado
             final_dict = jsonable_encoder(chat_response)

@@ -51,10 +51,7 @@ export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: str
   };
 }
 
-const PHASE_TIMERS = [
-  { at: 900, status: 'querying' as CopilotAgentStatus },
-  { at: 2400, status: 'visualizing' as CopilotAgentStatus },
-];
+const PHASE_TIMERS: { at: number; status: CopilotAgentStatus }[] = [];
 
 let messageCounter = 0;
 
@@ -81,7 +78,7 @@ export interface CopilotChatController {
   drawerOpen: boolean;
   expanded: boolean;
   unread: number;
-  send: (text: string) => Promise<void>;
+  send: (text: string, sqlQuery?: string) => Promise<void>;
   approvePipeline: (messageId: string) => Promise<void>;
   openDrawer: () => void;
   closeDrawer: () => void;
@@ -154,7 +151,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   );
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, sqlQuery?: string) => {
       const content = text.trim();
       if (!content) return;
 
@@ -180,6 +177,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
             connectionId: connectionIdRef.current,
             userRole: activeRoleRef.current,
             inferenceMode: inferenceModeRef.current,
+            sqlQuery,
           },
           (delta) => {
             streamingContent += delta;
@@ -204,6 +202,15 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
               );
             }
           },
+          (statusMsg) => {
+            if (statusMsg.includes('Trino') || statusMsg.includes('motor')) {
+              setStatus('querying');
+            } else if (statusMsg.includes('síntesis') || statusMsg.includes('visualización')) {
+              setStatus('visualizing');
+            } else {
+              setStatus('thinking');
+            }
+          },
         );
         const assistantMessage: CopilotMessage = {
           id: assistantId,
@@ -217,6 +224,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
           metricsSummary: payload.metrics_summary,
           textToGold: detectTextToGoldProposal(payload),
           approvalState: 'idle',
+          sql: payload.sql || sqlQuery,
         };
         clearPhaseTimers();
         if (isStreaming) {
@@ -250,12 +258,14 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
   const approvePipeline = useCallback(
     async (messageId: string) => {
       if (status !== 'idle' && status !== 'error') return;
+      const targetMsg = messages.find((m) => m.id === messageId);
+      const targetSql = targetMsg?.sql;
       setMessages((current) =>
         current.map((message) =>
           message.id === messageId ? { ...message, approvalState: 'submitting' as const } : message,
         ),
       );
-      await send(TEXT_TO_GOLD_CONFIRMATION);
+      await send(TEXT_TO_GOLD_CONFIRMATION, targetSql);
       setMessages((current) =>
         current.map((message) =>
           message.id === messageId && message.approvalState === 'submitting'
@@ -264,7 +274,7 @@ export function useCopilotChat(options?: { activeRole?: string }): CopilotChatCo
         ),
       );
     },
-    [send, status],
+    [messages, send, status],
   );
 
   const openDrawer = useCallback(() => {

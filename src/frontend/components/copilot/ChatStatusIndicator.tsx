@@ -13,11 +13,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_STEPS: Record<string, string[]> = {
   idle: [],
-  thinking: ['Analizando tu solicitud...', 'Detectando la intención...', 'Preparando contexto de sesión...'],
-  querying: ['Consultando esquema...', 'Validando seguridad Zero-Trust...', 'Ejecutando consulta gobernada...'],
-  visualizing: ['Generando visualización...', 'Aplicando paleta Midas...', 'Redactando narrativa ejecutiva...'],
+  thinking: ['Analizando consulta y esquema...'],
+  querying: ['Consultando motor analítico Trino / Iceberg...'],
+  visualizing: ['Sintetizando narrativa ejecutiva y métricas...'],
   error: ['No pude completar la consulta con el agente.'],
-  analyzing: ['Analizando tu consulta analítica...', 'Verificando tablas de la sesión...'],
+  analyzing: ['Analizando fuentes de la sesión...'],
 };
 
 export interface ChatStatusIndicatorProps {

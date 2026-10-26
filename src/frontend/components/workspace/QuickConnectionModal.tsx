@@ -76,6 +76,7 @@ export function QuickConnectionModal({
   const [dbPassword, setDbPassword] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     setSelectedType(initialType);
@@ -114,21 +115,38 @@ export function QuickConnectionModal({
     }
   };
 
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
     if (!isDragging) setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(false);
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    dragCounterRef.current = 0;
     setIsDragging(false);
     const droppedFiles = e.dataTransfer?.files;
     if (droppedFiles && droppedFiles.length > 0) {
@@ -437,7 +455,7 @@ export function QuickConnectionModal({
                   <div
                     onClick={() => fileInputRef.current?.click()}
                     onDragOver={handleDragOver}
-                    onDragEnter={handleDragOver}
+                    onDragEnter={handleDragEnter}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 cursor-pointer transition-all duration-200 ${
@@ -446,15 +464,15 @@ export function QuickConnectionModal({
                         : 'border-[#E8E4DC] hover:border-[#D4AF37]/60 bg-[#FAFAFA]'
                     }`}
                   >
-                    <UploadCloud className={`h-10 w-10 mb-3 transition-colors ${isDragging ? 'text-[#B8860B] animate-bounce' : 'text-[#A0988A]'}`} />
-                    <p className="text-sm font-medium text-[#1C1E21]">
+                    <UploadCloud className={`h-10 w-10 mb-3 transition-colors pointer-events-none ${isDragging ? 'text-[#B8860B] animate-bounce' : 'text-[#A0988A]'}`} />
+                    <p className="text-sm font-medium text-[#1C1E21] pointer-events-none">
                       {isDragging
                         ? '¡Suelta tu archivo aquí!'
                         : file
                         ? file.name
                         : 'Arrastra o haz clic para seleccionar archivo'}
                     </p>
-                    <p className="text-xs text-[#787164] mt-1">
+                    <p className="text-xs text-[#787164] mt-1 pointer-events-none">
                       {selectedType === 'excel'
                         ? 'Soporta archivos .xlsx y .xls (máximo 50MB)'
                         : 'Soporta archivos .csv con detección automática de delimitador'}

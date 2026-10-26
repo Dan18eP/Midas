@@ -24,6 +24,7 @@ export interface SendChatMessageInput {
   connectionId?: string;
   userRole?: string;
   inferenceMode?: 'local' | 'cloud';
+  sqlQuery?: string;
   signal?: AbortSignal;
 }
 
@@ -52,6 +53,7 @@ export function normalizeChatResponse(payload: Partial<CopilotChatResponse>): Co
     needs_clarification: Boolean(payload.needs_clarification),
     echarts_option: parseChartOption(payload.echarts_option) ?? parseChartOption(payload.echarts_spec) ?? unpacked.option,
     metrics_summary: Array.isArray(payload.metrics_summary) ? payload.metrics_summary : [],
+    sql: typeof payload.sql === 'string' ? payload.sql : undefined,
     timestamp: payload.timestamp,
   };
 }
@@ -61,6 +63,7 @@ export async function sendChatMessage(input: SendChatMessageInput): Promise<Copi
   if (input.threadId) body.thread_id = input.threadId;
   if (input.connectionId) body.connection_id = input.connectionId;
   if (input.inferenceMode) body.inference_mode = input.inferenceMode;
+  if (input.sqlQuery) body.sql_query = input.sqlQuery;
 
   let response: Response;
   try {
@@ -107,6 +110,7 @@ export async function streamChatMessage(
   if (input.threadId) body.thread_id = input.threadId;
   if (input.connectionId) body.connection_id = input.connectionId;
   if (input.inferenceMode) body.inference_mode = input.inferenceMode;
+  if (input.sqlQuery) body.sql_query = input.sqlQuery;
 
   const requestHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
   const effectiveRole = input.userRole || getActiveUserRole();
