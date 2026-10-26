@@ -89,11 +89,12 @@ def make_introspector(
                 ]
                 gold_sources = [
                     s for s in all_sources
-                    if s.get("kind") == "Iceberg" and any("gold." in str(t.get("table", "")).lower() for t in s.get("tables", []) if isinstance(t, dict))
+                    if s.get("kind") == "Iceberg" and any(
+                        "gold." in str(t.get("table", "")).lower() and active_cid_clean in str(t.get("table", "")).lower()
+                        for t in s.get("tables", []) if isinstance(t, dict)
+                    )
                 ]
-                sources = filtered if filtered else all_sources
-                if filtered and gold_sources:
-                    sources = filtered + gold_sources
+                sources = filtered + gold_sources
             else:
                 sources = all_sources
         schemas = []
@@ -115,14 +116,17 @@ def proactive_suggest(state: AgentState) -> dict[str, object]:
     if state.get("needs_clarification"):
         pending = str(state.get("pending_query") or state.get("user_message") or "").lower()
         if any(k in pending for k in ("venta", "ingreso", "facturaci")):
-            question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026?"
+            question = "¿De qué año quieres consultar las ventas: 2024, 2025 o 2026? (o escribe 'todos los años' para el histórico global)"
+            suggestions = ["todos los años", "2024", "2025", "2026"]
         else:
             question = "¿Podrías indicar la dimensión de agrupación o el período que deseas analizar en tus datos?"
+            suggestions = []
         return {
             "clarification": question,
             "response": question,
-            "suggestions": [],
+            "suggestions": suggestions,
             "messages": [AIMessage(content=question)],
+            "storytelling_result": None,
         }
 
     sources = state.get("sources", DEMO_SOURCES)

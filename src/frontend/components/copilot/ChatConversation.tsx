@@ -34,9 +34,9 @@ export function ChatConversation({ autoFocus = false }: ChatConversationProps) {
       <ChatParticleBackground />
 
       <div ref={scrollRef} className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto py-3 pr-1">
-        {messages.map((message) => (
+        {messages.map((message, idx) => (
           <ChatMessage
-            key={message.id}
+            key={`${message.id || 'msg'}-${idx}`}
             message={message}
             onSuggestion={idle ? send : undefined}
             onApprove={approvePipeline}

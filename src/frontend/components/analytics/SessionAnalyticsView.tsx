@@ -17,7 +17,7 @@ import {
   Play,
 } from 'lucide-react';
 import { MidasNodeData } from '@/types/canvas';
-import { listSourceConnections, triggerPipeline, executeTrinoQuery } from '@/services/sessionService';
+import { listSourceConnections, triggerPipeline, executeTrinoQuery, getSessionDetail } from '@/services/sessionService';
 
 interface SessionAnalyticsViewProps {
   sessionId?: string;
@@ -85,7 +85,7 @@ export function SessionAnalyticsView({
     setIsQueryingData(true);
     setQueryError(null);
 
-    // Determinar tablas candidatas a consultar según la fuente de esta sesión
+    // Determinar tablas candidatas a consultar exclusivamente según la fuente de esta sesión (1 Sesión = 1 Conexión)
     let candidateTables: string[] = [];
     if (sessionConnId) {
       const cleanSuffix = sessionConnId
@@ -93,28 +93,46 @@ export function SessionAnalyticsView({
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '_');
       candidateTables.push(`silver.clean_${cleanSuffix}`);
-      candidateTables.push(`silver.${cleanSuffix}`);
-      const cleanName = sessionSourceName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-      candidateTables.push(`silver.clean_${cleanName}`);
-      candidateTables.push(`gold.gold_${cleanSuffix}`);
-      candidateTables.push(`gold.${cleanSuffix}`);
     }
 
-    // Agregar fallback para tablas de conexiones registradas
-    connections.forEach((c) => {
-      const cleanSuffix = c.connection_id
-        .replace(/^conn_/, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, '_');
-      candidateTables.push(`silver.clean_${cleanSuffix}`);
-      candidateTables.push(`gold.gold_${cleanSuffix}`);
+    // Descubrir tablas Gold legítimas asociadas a los nodos de la sesión si ya fueron materializadas
+    activeNodes.forEach(({ data }) => {
+      if (data.catalogTable && typeof data.catalogTable === 'string') {
+        const tbl = data.catalogTable.trim();
+        if (tbl.startsWith('gold.') && !tbl.includes('personalizado') && !tbl.toLowerCase().includes('por definir')) {
+          candidateTables.push(tbl);
+        }
+      }
     });
-    candidateTables.push('gold.fact_ventas');
+
+    // Descubrir tablas Gold guardadas en los metadatos persistentes de la sesión en PostgreSQL
+    if (sessionId && sessionId !== 'sesion_default' && sessionId !== 'default') {
+      try {
+        const sess = await getSessionDetail(sessionId);
+        const meta = sess?.metadata as Record<string, any> | undefined;
+        if (meta?.gold_tables && Array.isArray(meta.gold_tables)) {
+          meta.gold_tables.forEach((gt: unknown) => {
+            if (typeof gt === 'string' && gt.trim().startsWith('gold.')) {
+              candidateTables.push(gt.trim());
+            }
+          });
+        }
+      } catch {
+        // Fallback silencioso
+      }
+    }
 
     const uniqueCandidates = Array.from(new Set(candidateTables));
-    const tablesToTry = targetTable
-      ? [targetTable, ...uniqueCandidates.filter((t) => t !== targetTable)]
-      : uniqueCandidates;
+    if (uniqueCandidates.length === 0) {
+      setRealData([]);
+      setRealColumns([]);
+      setRealTotalCount(null);
+      setActiveTableName('');
+      setIsQueryingData(false);
+      return;
+    }
+
+    const tablesToTry = targetTable ? [targetTable] : uniqueCandidates;
 
     let loaded = false;
     const foundTables: string[] = [];
@@ -122,12 +140,20 @@ export function SessionAnalyticsView({
     for (const tbl of tablesToTry) {
       try {
         const result = await executeTrinoQuery(`SELECT * FROM ${tbl} LIMIT 50`);
-        if (result && result.data && result.data.length > 0) {
+        const isValidColumns = Boolean(
+          result &&
+          Array.isArray(result.columns) &&
+          result.columns.length > 0 &&
+          !result.columns.includes('*')
+        );
+        if (result && Array.isArray(result.data) && result.data.length > 0 && isValidColumns) {
           if (!loaded) {
             setRealData(result.data as TablePreviewRow[]);
             setRealColumns(result.columns || Object.keys(result.data[0]));
             setActiveTableName(tbl);
-            setSelectedTable(tbl);
+            if (!selectedTable) {
+              setSelectedTable(tbl);
+            }
             loaded = true;
 
             // Obtener conteo total real
@@ -151,21 +177,27 @@ export function SessionAnalyticsView({
     }
 
     if (foundTables.length > 0) {
-      setAvailableTables(Array.from(new Set(foundTables)));
+      setAvailableTables((prev) => {
+        const combined = Array.from(new Set([...prev, ...foundTables]));
+        if (combined.length === prev.length && combined.every((t, i) => t === prev[i])) {
+          return prev;
+        }
+        return combined;
+      });
     }
 
     if (!loaded) {
-      setRealData([]);
-      setRealColumns([]);
-      setRealTotalCount(null);
-      setActiveTableName(targetTable || candidateTables[0] || 'silver');
+      setRealData((prev) => (targetTable && targetTable !== selectedTable ? [] : prev));
+      if (!targetTable || targetTable === candidateTables[0]) {
+        setActiveTableName(candidateTables[0] || 'silver');
+      }
     }
     setIsQueryingData(false);
-  }, [sessionConnId, sessionSourceName, connections]);
+  }, [sessionConnId, selectedTable]);
 
   useEffect(() => {
     loadTableData(selectedTable);
-  }, [loadTableData, selectedTable, activeTab]);
+  }, [loadTableData, selectedTable]);
 
   const handleRunPipeline = async () => {
     if (!sessionConnId) return;
@@ -200,7 +232,10 @@ export function SessionAnalyticsView({
         silverClean += data.recordsOut ?? 0;
         silverQuarantine += data.quarantinedRecords ?? 0;
       } else if (data.subType === 'gold') {
-        goldOut += data.recordsOut ?? 0;
+        // Solo considerar filas Gold si fue materializada legítimamente
+        if (data.status === 'HEALTHY' && !data.label?.toLowerCase().includes('por definir')) {
+          goldOut += data.recordsOut ?? 0;
+        }
       }
     });
 
@@ -310,7 +345,7 @@ export function SessionAnalyticsView({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {availableTables.length > 1 && (
+          {availableTables.length > 0 && (
             <div className="flex items-center gap-1 rounded-lg border border-[#E8E4DC] bg-white p-1 text-xs font-mono shadow-2xs">
               <span className="px-1 text-[10px] text-[#787164] font-sans font-medium">TABLA:</span>
               {availableTables.map((t) => (
@@ -413,7 +448,13 @@ export function SessionAnalyticsView({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-[#1C1E21]">
-              {realTotalCount !== null ? realTotalCount.toLocaleString() : (metrics.bronzeIn > 0 ? metrics.bronzeIn.toLocaleString() : 'Standby')}
+              {realTotalCount !== null && realTotalCount > 0
+                ? realTotalCount.toLocaleString()
+                : metrics.bronzeIn > 0
+                ? metrics.bronzeIn.toLocaleString()
+                : realData.length > 0
+                ? `${realData.length.toLocaleString()}+`
+                : 'Standby'}
             </span>
             <span className="text-[10px] text-[#787164]">filas</span>
           </div>
@@ -429,7 +470,13 @@ export function SessionAnalyticsView({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-[#4D7C0F]">
-              {realTotalCount !== null ? realTotalCount.toLocaleString() : (metrics.silverClean > 0 ? metrics.silverClean.toLocaleString() : 'Standby')}
+              {realTotalCount !== null && realTotalCount > 0
+                ? realTotalCount.toLocaleString()
+                : metrics.silverClean > 0
+                ? metrics.silverClean.toLocaleString()
+                : realData.length > 0
+                ? `${realData.length.toLocaleString()}+`
+                : 'Standby'}
             </span>
             {metrics.silverQuarantine > 0 && (
               <span className="text-[10px] font-mono text-[#A8422B] bg-[#FFF8F5] px-1.5 py-0.5 rounded border border-[#ECCFC5]">
@@ -566,7 +613,7 @@ export function SessionAnalyticsView({
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium text-[#787164]">Gold Marts (Agregaciones de Negocio)</span>
                   <span className="font-mono text-[#B8860B]">
-                    {metrics.goldOut > 0 ? `${metrics.goldOut} filas` : 'En espera'}
+                    {metrics.goldOut > 0 ? `${metrics.goldOut.toLocaleString()} filas` : 'En espera (Por definir)'}
                   </span>
                 </div>
                 <div className="h-3 w-full bg-[#F0EDE7] rounded-full overflow-hidden">
@@ -574,9 +621,9 @@ export function SessionAnalyticsView({
                     className="h-full bg-[#B8860B] transition-all duration-500 rounded-full"
                     style={{
                       width:
-                        metrics.bronzeIn > 0
+                        metrics.bronzeIn > 0 && metrics.goldOut > 0
                           ? `${(metrics.goldOut / metrics.bronzeIn) * 100}%`
-                          : '5%',
+                          : '0%',
                     }}
                   />
                 </div>

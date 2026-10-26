@@ -18,8 +18,12 @@ _DISCOVERY = re.compile(
 )
 _SALES = re.compile(r"\b(ventas?|ingresos?|facturación)\b", re.IGNORECASE)
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_ALL_YEARS = re.compile(
+    r"\b(todos los años|todos los anos|todos los periodos|todos los trimestres|todos|todo|histórico|historico|anual|global|total|cada año|por año)\b",
+    re.IGNORECASE,
+)
 _GOLD_MATERIALIZATION = re.compile(
-    r"\b(materializ|crear tabla gold|crea tabla gold|construir gold|guardar como tabla gold|generar capa gold|nueva tabla gold)\b",
+    r"\b(materializ|crear\s+(?:una\s+)?tabla\s+gold|crea\s+(?:una\s+)?tabla\s+gold|construir\s+gold|guardar\s+como\s+(?:tabla\s+)?gold|generar\s+capa\s+gold|nueva\s+tabla\s+gold|capa\s+gold|gold\s+mart)\b",
     re.IGNORECASE,
 )
 
@@ -39,6 +43,15 @@ def route_intent(state: AgentState) -> dict[str, object]:
                 "pending_intent": "",
                 "pending_query": "",
             }
+        if _ALL_YEARS.search(message):
+            query = state.get("pending_query", "").strip()
+            return {
+                "intent": "analytics",
+                "needs_clarification": False,
+                "user_message": f"{query} todos los años",
+                "pending_intent": "",
+                "pending_query": "",
+            }
         return {"intent": "analytics", "needs_clarification": True}
 
     if _DISCOVERY.search(message):
@@ -48,7 +61,12 @@ def route_intent(state: AgentState) -> dict[str, object]:
         return {"intent": "materialize_gold", "needs_clarification": False}
 
     # Mantener compatibilidad con flujo dialógico de ventas cuando se consulta ventas de forma abstracta sin año
-    if _SALES.search(message) and not _YEAR.search(message) and not any(w in message.lower() for w in (" por ", "group", "agrup", "departamento", "categoria", "producto", "almacen")):
+    if (
+        _SALES.search(message)
+        and not _YEAR.search(message)
+        and not _ALL_YEARS.search(message)
+        and not any(w in message.lower() for w in (" por ", "group", "agrup", "departamento", "categoria", "producto", "almacen"))
+    ):
         return {
             "intent": "analytics",
             "needs_clarification": True,

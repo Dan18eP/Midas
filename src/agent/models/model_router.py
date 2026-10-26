@@ -53,7 +53,58 @@ _SUPPORTED_NUMERIC_COLUMNS = {
     "peso",
     "duracion",
     "unidades",
+    "data_value",
+    "magnitude",
+    "period",
 }
+
+
+def _sanitize_echarts_option(
+    option: dict[str, object] | None,
+    rows: list[dict[str, object]],
+) -> dict[str, object] | None:
+    """Valida y sanea la configuración de ECharts para evitar anomalías visuales:
+    1. Si todas las barras tienen valor unitario 1 (listado no agregado), anula el gráfico para usar vista tabla.
+    2. Evita solapamiento de etiquetas en el tope de las barras reemplazando '{b}' por '{c}'.
+    3. Asegura containLabel y padding inferior en el grid.
+    """
+    if not option or not isinstance(option, dict):
+        return None
+
+    series_list = option.get("series")
+    if not isinstance(series_list, list) or not series_list:
+        return option
+
+    for s in series_list:
+        if not isinstance(s, dict):
+            continue
+
+        # Validar si las barras no tienen variación métrica y son meros placeholders
+        data = s.get("data")
+        if isinstance(data, list) and len(data) > 1:
+            raw_vals = [d.get("value") if isinstance(d, dict) else d for d in data]
+            if all(v in (1, 1.0, "1", 0, 0.0, "0") for v in raw_vals):
+                return None
+
+        # Corregir solapamiento de nombres en la parte superior de las barras
+        label = s.get("label")
+        if isinstance(label, dict):
+            fmt = str(label.get("formatter", ""))
+            if "{b}" in fmt:
+                label["formatter"] = "{c}"
+            label["distance"] = 5
+            data = s.get("data")
+            if isinstance(data, list) and len(data) > 5:
+                label["rotate"] = 45
+                label["fontSize"] = 9
+
+    # Asegurar márgenes y no recorte de etiquetas en el eje X
+    if "grid" not in option or not isinstance(option.get("grid"), dict):
+        option["grid"] = {"left": "4%", "right": "4%", "bottom": "25%", "containLabel": True}
+    else:
+        option["grid"]["containLabel"] = True
+
+    return option
 
 
 class ModelRouter:
@@ -67,7 +118,13 @@ class ModelRouter:
         api_key: str | None = None,
         model: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if api_key is not None:
+            self._api_key = api_key
+        elif os.getenv("PYTEST_CURRENT_TEST") and not os.getenv("TEST_WITH_GEMINI"):
+            # En suites de pruebas unitarias aisladas sin mock de genai, no contaminar con GEMINI_API_KEY ambiental
+            self._api_key = None
+        else:
+            self._api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self._gemini_model = model or os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
         env_endpoint = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_HOST")
         endpoint = (base_url or env_endpoint or _DEFAULT_ENDPOINT).rstrip("/")
@@ -141,6 +198,10 @@ class ModelRouter:
             "Genera un objeto JSON estricto con dos claves:\n"
             "1. 'narrative': Markdown profesional con encabezados ('## Hallazgo principal', '## Análisis de Tendencia', '## Recomendación estratégica') explicando los datos reales sin inventar cifras.\n"
             "2. 'echarts_option': Configuración completa y válida de Apache ECharts adaptada a la intención (ej: 'pie'/'donut' si pidió pastel/distribución, 'line'/'area' si es temporal/tendencia, 'bar' si es comparativo/ranking, o 'scatter'). Usa datos reales de las filas.\n"
+            "REGLAS ESTRICTAS DE VISUALIZACIÓN:\n"
+            "- Si el conjunto de datos no tiene métricas numéricas agregadas (solo lista nombres, entidades, o cada fila representa una unidad aislada con valor 1), NO generes un gráfico de barras idénticas donde todas las barras miden 1. En ese caso devuelve 'echarts_option': null para que la interfaz presente los datos en formato de Tabla interactiva estructurada.\n"
+            "- En gráficos de barras ('bar'), las barras DEBEN representar un valor métrico real cuantificable. En 'series[].label', NUNCA uses 'formatter': '{b}' porque el nombre de la categoría ya está en el eje X y provoca colisiones ilegibles en la parte superior. Si usas label superior, usa únicamente 'formatter': '{c}' (el valor numérico) con position: 'top'.\n"
+            "- En el eje X (xAxis), rota las etiquetas entre 30 y 45 grados y configura grid: { bottom: '25%', containLabel: true } para evitar solapamientos.\n"
             "Responde ÚNICAMENTE el objeto JSON sin texto antes ni después."
         )
         sample_rows = list(rows)[:25]
@@ -156,7 +217,9 @@ class ModelRouter:
             try:
                 raw = self._call_gemini_raw(f"{system_prompt}\n\n{prompt}")
                 parsed = self._extract_json(raw)
-                if parsed and isinstance(parsed.get("narrative"), str) and isinstance(parsed.get("echarts_option"), dict):
+                if parsed and isinstance(parsed.get("narrative"), str):
+                    if isinstance(parsed.get("echarts_option"), dict):
+                        parsed["echarts_option"] = _sanitize_echarts_option(parsed["echarts_option"], sample_rows)
                     return parsed
             except Exception as exc:
                 logger.warning("Fallo en generación de storytelling con Gemini: %s", exc)
@@ -165,7 +228,9 @@ class ModelRouter:
         try:
             raw = self._call_ollama(system_prompt, prompt)
             parsed = self._extract_json(raw)
-            if parsed and isinstance(parsed.get("narrative"), str) and isinstance(parsed.get("echarts_option"), dict):
+            if parsed and isinstance(parsed.get("narrative"), str):
+                if isinstance(parsed.get("echarts_option"), dict):
+                    parsed["echarts_option"] = _sanitize_echarts_option(parsed["echarts_option"], sample_rows)
                 return parsed
         except Exception as exc:
             logger.debug("Ollama storytelling no disponible: %s", exc)
@@ -195,6 +260,7 @@ class ModelRouter:
         prompt = (
             f"{system_prompt}\n\n"
             f"Pregunta del usuario: {question}\n\n"
+            f"Regla de análisis de rankings: Si el usuario solicita un 'top 10', 'top 5', 'mejores' o ranking sobre una tabla que no tiene columna monetaria o de ventas (por ejemplo una tabla de clientes o productos), agrupa por la dimensión categórica más representativa (como country, city, company, category) y totaliza con COUNT(*) ordenado descendente con LIMIT 10 (ej: SELECT country, count(*) AS total_clientes FROM table GROUP BY country ORDER BY total_clientes DESC LIMIT 10).\n\n"
             f"Responde EXCLUSIVAMENTE con la sentencia SQL ejecutable en Trino (sin explicaciones ni bloques markdown adicionales):"
         )
         return self._call_gemini_raw(prompt)
@@ -350,6 +416,15 @@ def deterministic_sql(
         if cat_candidates:
             group_col = cat_candidates[0]
 
+    # Si es solicitud de ranking / "top" sin agrupación explícita
+    if not group_col and any(w in normalized_question for w in ("top 10", "top 5", "top", "ranking", "mejores", "principales")):
+        cat_candidates = [
+            c for c in columns
+            if any(k in c.lower() for k in ("country", "pais", "ciudad", "city", "company", "empresa", "categoria", "category", "region", "canal"))
+        ]
+        if cat_candidates:
+            group_col = cat_candidates[0]
+
     # 4. Determinar la operación de agregación
     if any(word in normalized_question for word in ("promedio", "average", "avg")):
         operation = "AVG"
@@ -367,7 +442,7 @@ def deterministic_sql(
             # Fallback a la primera columna numérica detectable
             candidates = [
                 c for c in columns
-                if any(k in c for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "stock", "horas", "unitprice", "quantity", "importe"))
+                if any(k in c for k in ("monto", "precio", "valor", "total", "costo", "cantidad", "stock", "horas", "unitprice", "quantity", "importe", "data_value", "magnitude"))
             ]
             if candidates:
                 num_col = candidates[0]
@@ -428,7 +503,9 @@ def _allowed_tables(
 def _numeric_column(question: str, columns: set[str]) -> str:
     synonyms = {
         "venta": "monto",
+        "ventas": "monto",
         "ingreso": "monto",
+        "ingresos": "monto",
         "revenue": "monto",
         "costos": "costo_operativo_fijo",
         "gastos": "gasto_marketing",
@@ -441,10 +518,17 @@ def _numeric_column(question: str, columns: set[str]) -> str:
         "inventario": "stock",
         "precio": "precio",
         "cantidad": "cantidad",
+        "valor": "data_value",
+        "data_value": "data_value",
+        "magnitude": "magnitude",
+        "period": "period",
     }
     for word, column in synonyms.items():
-        if word in question and column in columns:
-            return column
+        if word in question:
+            if column in columns:
+                return column
+            if word in ("venta", "ventas", "monto", "ingreso", "ingresos", "revenue", "valor") and "data_value" in columns:
+                return "data_value"
     for column in sorted(columns, key=len, reverse=True):
         if column in columns and re.search(rf"\b{re.escape(column)}\b", question):
             return column
@@ -454,7 +538,7 @@ def _numeric_column(question: str, columns: set[str]) -> str:
     candidates = columns & _SUPPORTED_NUMERIC_COLUMNS
     if len(candidates) == 1:
         return candidates.pop()
-    num_like = [c for c in columns if any(k in c for k in ("monto", "total", "precio", "costo", "salario", "sueldo", "horas", "cantidad", "stock", "valor", "edad", "peso", "temp", "score", "rating"))]
+    num_like = [c for c in columns if any(k in c for k in ("monto", "total", "precio", "costo", "salario", "sueldo", "horas", "cantidad", "stock", "valor", "data_value", "magnitude", "edad", "peso", "temp", "score", "rating"))]
     if len(num_like) == 1:
         return num_like[0]
     raise ValueError("La columna métrica no está indicada de forma inequívoca.")
