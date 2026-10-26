@@ -49,11 +49,11 @@ def get_scenario_events(scenario_id: str) -> List[TelemetryEvent]:
                 event_id="evt_t0_gld_04",
                 pipeline_id="pipe_medallion_e2e",
                 node_id="gold_marts",
-                status=NodeStatus.HEALTHY,
-                records_in=5000,
-                records_out=5000,
-                latency_ms=30.0,
-                details={"iceberg_snapshot": 2001, "quality_score": 1.0},
+                status=NodeStatus.STANDBY,
+                records_in=0,
+                records_out=0,
+                latency_ms=0.0,
+                details={"iceberg_snapshot": 0, "status_message": "En espera de definición interactiva vía Copiloto"},
             ),
         ]
 

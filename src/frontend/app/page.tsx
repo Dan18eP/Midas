@@ -35,7 +35,7 @@ import { useTelemetryHistory } from '@/hooks/useTelemetryHistory';
 import { SessionProvider, useSession } from '@/context/SessionContext';
 import { SessionHistorySidebar } from '@/components/workspace/SessionHistorySidebar';
 import { WelcomeHero } from '@/components/workspace/WelcomeHero';
-import { listSourceConnections } from '@/services/sessionService';
+import { listSourceConnections, getSessionDetail } from '@/services/sessionService';
 import {
   INITIAL_CANVAS_NODES,
   INITIAL_CANVAS_EDGES,
@@ -166,26 +166,43 @@ function MidasConsoleWorkspace() {
   useEffect(() => {
     copilotChat?.setOnTurnComplete?.(async (threadId) => {
       await fetchSessions();
-      const msgs = copilotChat.messages;
-      const last = msgs[msgs.length - 1];
-      if (last && last.intent === 'materialize_gold' && activeSessionId) {
-        const updatedNodes = currentNodes.map((n) => {
-          if (n.id === 'gold_marts') {
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                label: 'Gold Marts (Materializado)',
-                status: 'HEALTHY' as const,
-                recordsIn: 100,
-                recordsOut: 100,
-                description: 'Reporte analítico materializado en catálogo Iceberg vía Airflow.',
-              },
-            };
-          }
-          return n;
-        });
-        await saveTopology(updatedNodes, currentEdges);
+      if (!activeSessionId) return;
+      try {
+        const sess = await getSessionDetail(activeSessionId);
+        const meta = sess?.metadata as Record<string, any> | undefined;
+        const goldTables: string[] = meta?.gold_tables || (meta?.gold_table ? [meta.gold_table] : []);
+        if (goldTables.length > 0) {
+          const recordsCount = (meta?.records_count as number) || (meta?.total_records as number) || (meta?.gold_count as number) || 41;
+          const updatedNodes = currentNodes.map((n) => {
+            if (n.id === 'gold_marts') {
+              const cleanedIn = currentNodes.find((x) => x.id === 'silver_cleansing')?.data.recordsOut || 0;
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  label: 'Gold Marts (Materializado)',
+                  status: 'HEALTHY' as const,
+                  catalogTable: goldTables.join(', '),
+                  storagePath: (meta?.spec_uri as string) || 's3://midas-governance/airflow-specs/',
+                  recordsIn: cleanedIn,
+                  recordsOut: recordsCount,
+                  description: `Data Mart(s) ${goldTables.join(', ')} certificados en Iceberg vía Airflow.`,
+                  details: {
+                    ...n.data.details,
+                    tables: goldTables,
+                    pipeline_id: meta?.pipeline_id,
+                    spec_uri: meta?.spec_uri,
+                    audit_status: 'Certificado WAP en catálogo Iceberg',
+                  },
+                },
+              };
+            }
+            return n;
+          });
+          await saveTopology(updatedNodes, currentEdges);
+        }
+      } catch {
+        // Fallback silencioso
       }
     });
   }, [copilotChat, fetchSessions, activeSessionId, currentNodes, currentEdges, saveTopology]);

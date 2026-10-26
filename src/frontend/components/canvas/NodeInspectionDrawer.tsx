@@ -120,6 +120,19 @@ export const NodeInspectionDrawer = memo(({ selectedNode, onClose, onPipelineExe
           <p className="mt-1 text-xs text-[#4B4639] leading-relaxed">{selectedNode.description}</p>
         </div>
 
+        {/* Auditoría de Capa Gold Pendiente */}
+        {selectedNode.id === 'gold_marts' && selectedNode.status === 'STANDBY' && (
+          <div className="rounded-xl border border-[#D4AF37]/40 bg-[#FFFDF5] p-3.5 shadow-sm space-y-1.5">
+            <span className="text-xs font-semibold text-[#8C6D1F] flex items-center gap-1.5">
+              <Shield className="h-4 w-4 text-[#B8860B]" />
+              Auditoría de Gobernanza Lakehouse
+            </span>
+            <p className="text-xs text-[#5C4A1D] leading-relaxed">
+              El pipeline procesó las capas Bronze y Silver exitosamente. La capa Gold se encuentra en espera interactiva y se materializará de forma gobernada en Trino / Iceberg una vez formules o apruebes un reporte analítico en el Copiloto.
+            </p>
+          </div>
+        )}
+
         {/* Métricas de Rendimiento */}
         <div className="rounded-xl border border-[#E8E4DC] bg-[#FFFFFF] p-3.5 shadow-sm">
           <span className="text-xs font-semibold text-[#1C1E21] flex items-center gap-1.5">

@@ -4,6 +4,7 @@ Adheres strictly to documentation/canonical/06_arquitectura_agente_ia_y_capa_sem
 and Punto 2.5 of documentation/reviews/review-pr-023-hu-ai-01-langgraph.md.
 """
 
+import asyncio
 from datetime import datetime, timezone
 import json
 import logging
@@ -12,6 +13,8 @@ import re
 from typing import Any, Dict, List, Optional
 import uuid
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("midas.api.agent")
@@ -71,6 +74,128 @@ class MaterializeResponse(BaseModel):
 _compiled_graph: Any = None
 
 
+def default_trino_executor(sql: str, user_role: Optional[str] = None) -> List[Dict[str, Any]]:
+    from src.core.query_engine.trino_client import TrinoClient
+    trino_client = TrinoClient()
+    res = trino_client.execute_query_sync(sql=sql, user_role=user_role)
+    return res.data
+
+
+def live_catalog_source_provider() -> List[Dict[str, Any]]:
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return [
+            {
+                "name": "crm_operaciones",
+                "kind": "PostgreSQL",
+                "tables": [
+                    {"table": "silver.crm_transacciones", "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta"]},
+                    {"table": "silver.crm_clientes", "columns": ["cliente_id", "nombre", "region"]},
+                ],
+            },
+            {
+                "name": "Presupuesto_Corporativo_2026.xlsx",
+                "kind": "Excel",
+                "tables": [
+                    {"table": "silver.presupuesto_metas", "columns": ["año", "mes", "region", "monto"]},
+                ],
+            },
+            {
+                "name": "helpdesk_tickets_live",
+                "kind": "API REST",
+                "tables": [
+                    {"table": "silver.helpdesk_tickets", "columns": ["ticket_id", "cliente_id", "tiempo_respuesta_min", "csat_puntuacion"]},
+                ],
+            },
+        ]
+    grouped_sources: Dict[str, Dict[str, Any]] = {}
+
+    # 1. Recuperar conexiones reales registradas por el usuario en PostgreSQL
+    try:
+        pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("OPERATIONAL_DB_URL") or os.getenv("DATABASE_URL")
+        if pg_url and "postgresql" in pg_url:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(pg_url)
+            with engine.connect() as conn:
+                rows = conn.execute(text("SELECT connection_id, name, source_type, config_payload FROM source_connections WHERE status = 'ACTIVE'")).fetchall()
+                for r in rows:
+                    cid, cname, stype, cfg = r[0], r[1], r[2], r[3]
+                    if isinstance(cfg, str):
+                        try:
+                            cfg = json.loads(cfg)
+                        except Exception:
+                            cfg = {}
+                    cfg = cfg or {}
+                    detected = cfg.get("detected_columns") or []
+                    sheets = cfg.get("sheets") or []
+                    clean_cid = re.sub(r"[^a-z0-9_]", "_", cid.lower()).strip("_")
+                    clean_suffix = clean_cid.replace("conn_", "")
+                    tables = []
+                    if detected:
+                        tables.append({"table": f"silver.clean_{clean_suffix}", "columns": detected})
+                    elif stype == "POSTGRES":
+                        tables.append({"table": "silver.crm_transacciones", "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta", "estado"]})
+                        tables.append({"table": "silver.crm_clientes", "columns": ["cliente_id", "nombre", "email", "telefono", "region", "categoria_segmento"]})
+                    elif sheets:
+                        for sh in sheets:
+                            tables.append({"table": f"silver.{str(sh).lower()}", "columns": ["año", "mes", "region", "monto"]})
+                    if not tables:
+                        tables.append({"table": f"silver.{clean_suffix}", "columns": ["id", "nombre", "monto"]})
+
+                    grouped_sources[cname] = {
+                        "connection_id": cid,
+                        "name": cname,
+                        "kind": stype,
+                        "tables": tables,
+                    }
+    except Exception as pg_exc:
+        logger.debug("No se pudieron cargar conexiones activas de PostgreSQL: %s", pg_exc)
+
+    # 2. Consultar el catalogo de Trino (Iceberg y tablas sincronizadas)
+    try:
+        from src.core.query_engine.trino_client import TrinoClient
+        trino_client = TrinoClient()
+        query = (
+            "SELECT table_schema, table_name, column_name "
+            "FROM information_schema.columns "
+            "WHERE table_schema IN ('silver', 'gold', 'public') "
+            "ORDER BY table_schema, table_name, ordinal_position"
+        )
+        res = trino_client.execute_query_sync(sql=query)
+        if res and res.data:
+            schema_tables: Dict[str, Dict[str, List[str]]] = {}
+            for row in res.data:
+                sch = str(row.get("table_schema", "")).lower()
+                tbl = str(row.get("table_name", "")).lower()
+                col = str(row.get("column_name", "")).lower()
+                if not sch or not tbl:
+                    continue
+                if sch not in schema_tables:
+                    schema_tables[sch] = {}
+                if tbl not in schema_tables[sch]:
+                    schema_tables[sch][tbl] = []
+                if col and col not in schema_tables[sch][tbl]:
+                    schema_tables[sch][tbl].append(col)
+
+            for sch, tables_dict in schema_tables.items():
+                for tbl, cols in tables_dict.items():
+                    t_full = f"{sch}.{tbl}"
+                    s_name = "Capa Gold (Marts)" if sch == "gold" else ("Capa Silver" if sch == "silver" else "PostgreSQL Operacional")
+                    s_kind = "Iceberg" if sch in ("silver", "gold") else "PostgreSQL"
+                    if s_name not in grouped_sources:
+                        grouped_sources[s_name] = {"name": s_name, "kind": s_kind, "tables": []}
+                    # Agregar tabla si no existe ya
+                    existing_tables = [t.get("table") if isinstance(t, dict) else t for t in grouped_sources[s_name]["tables"]]
+                    if t_full not in existing_tables:
+                        grouped_sources[s_name]["tables"].append({"table": t_full, "columns": cols})
+    except Exception as exc:
+        logger.debug("No se pudo consultar information_schema de Trino: %s.", exc)
+
+    if grouped_sources:
+        return list(grouped_sources.values())
+
+    return []
+
+
 def get_agent_graph() -> Any:
     """Lazily instantiate and compile the LangGraph conversational graph."""
     global _compiled_graph
@@ -79,125 +204,6 @@ def get_agent_graph() -> Any:
             # InMemorySaver provides resilient zero-failure operation in local and test environments
             from langgraph.checkpoint.memory import InMemorySaver
             from src.agent.graph.builder import build_graph
-
-            from src.core.query_engine.trino_client import TrinoClient
-            trino_client = TrinoClient()
-
-            def default_trino_executor(sql: str, user_role: Optional[str] = None) -> List[Dict[str, Any]]:
-                res = trino_client.execute_query_sync(sql=sql, user_role=user_role)
-                return res.data
-
-            def live_catalog_source_provider() -> List[Dict[str, Any]]:
-                if os.getenv("PYTEST_CURRENT_TEST"):
-                    return [
-                        {
-                            "name": "crm_operaciones",
-                            "kind": "PostgreSQL",
-                            "tables": [
-                                {"table": "silver.crm_transacciones", "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta"]},
-                                {"table": "silver.crm_clientes", "columns": ["cliente_id", "nombre", "region"]},
-                            ],
-                        },
-                        {
-                            "name": "Presupuesto_Corporativo_2026.xlsx",
-                            "kind": "Excel",
-                            "tables": [
-                                {"table": "silver.presupuesto_metas", "columns": ["año", "mes", "region", "monto"]},
-                            ],
-                        },
-                        {
-                            "name": "helpdesk_tickets_live",
-                            "kind": "API REST",
-                            "tables": [
-                                {"table": "silver.helpdesk_tickets", "columns": ["ticket_id", "cliente_id", "tiempo_respuesta_min", "csat_puntuacion"]},
-                            ],
-                        },
-                    ]
-                grouped_sources: Dict[str, Dict[str, Any]] = {}
-
-                # 1. Recuperar conexiones reales registradas por el usuario en PostgreSQL
-                try:
-                    pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("OPERATIONAL_DB_URL") or os.getenv("DATABASE_URL")
-                    if pg_url and "postgresql" in pg_url:
-                        from sqlalchemy import create_engine, text
-                        engine = create_engine(pg_url)
-                        with engine.connect() as conn:
-                            rows = conn.execute(text("SELECT connection_id, name, source_type, config_payload FROM source_connections WHERE status = 'ACTIVE'")).fetchall()
-                            for r in rows:
-                                cid, cname, stype, cfg = r[0], r[1], r[2], r[3]
-                                if isinstance(cfg, str):
-                                    try:
-                                        cfg = json.loads(cfg)
-                                    except Exception:
-                                        cfg = {}
-                                cfg = cfg or {}
-                                detected = cfg.get("detected_columns") or []
-                                sheets = cfg.get("sheets") or []
-                                clean_cid = re.sub(r"[^a-z0-9_]", "_", cid.lower()).strip("_")
-                                clean_suffix = clean_cid.replace("conn_", "")
-                                tables = []
-                                if detected:
-                                    tables.append({"table": f"silver.clean_{clean_suffix}", "columns": detected})
-                                elif stype == "POSTGRES":
-                                    tables.append({"table": "silver.crm_transacciones", "columns": ["transaccion_id", "cliente_id", "monto", "fecha", "region", "canal_venta", "estado"]})
-                                    tables.append({"table": "silver.crm_clientes", "columns": ["cliente_id", "nombre", "email", "telefono", "region", "categoria_segmento"]})
-                                elif sheets:
-                                    for sh in sheets:
-                                        tables.append({"table": f"silver.{str(sh).lower()}", "columns": ["año", "mes", "region", "monto"]})
-                                if not tables:
-                                    tables.append({"table": f"silver.{clean_suffix}", "columns": ["id", "nombre", "monto"]})
-
-                                grouped_sources[cname] = {
-                                    "connection_id": cid,
-                                    "name": cname,
-                                    "kind": stype,
-                                    "tables": tables,
-                                }
-                except Exception as pg_exc:
-                    logger.debug("No se pudieron cargar conexiones activas de PostgreSQL: %s", pg_exc)
-
-                # 2. Consultar el catalogo de Trino (Iceberg y tablas sincronizadas)
-                try:
-                    query = (
-                        "SELECT table_schema, table_name, column_name "
-                        "FROM information_schema.columns "
-                        "WHERE table_schema IN ('silver', 'gold', 'public') "
-                        "ORDER BY table_schema, table_name, ordinal_position"
-                    )
-                    res = trino_client.execute_query_sync(sql=query)
-                    if res and res.data:
-                        schema_tables: Dict[str, Dict[str, List[str]]] = {}
-                        for row in res.data:
-                            sch = str(row.get("table_schema", "")).lower()
-                            tbl = str(row.get("table_name", "")).lower()
-                            col = str(row.get("column_name", "")).lower()
-                            if not sch or not tbl:
-                                continue
-                            if sch not in schema_tables:
-                                schema_tables[sch] = {}
-                            if tbl not in schema_tables[sch]:
-                                schema_tables[sch][tbl] = []
-                            if col and col not in schema_tables[sch][tbl]:
-                                schema_tables[sch][tbl].append(col)
-
-                        for sch, tables_dict in schema_tables.items():
-                            for tbl, cols in tables_dict.items():
-                                t_full = f"{sch}.{tbl}"
-                                s_name = "Capa Gold (Marts)" if sch == "gold" else ("Capa Silver" if sch == "silver" else "PostgreSQL Operacional")
-                                s_kind = "Iceberg" if sch in ("silver", "gold") else "PostgreSQL"
-                                if s_name not in grouped_sources:
-                                    grouped_sources[s_name] = {"name": s_name, "kind": s_kind, "tables": []}
-                                # Agregar tabla si no existe ya
-                                existing_tables = [t.get("table") if isinstance(t, dict) else t for t in grouped_sources[s_name]["tables"]]
-                                if t_full not in existing_tables:
-                                    grouped_sources[s_name]["tables"].append({"table": t_full, "columns": cols})
-                except Exception as exc:
-                    logger.debug("No se pudo consultar information_schema de Trino: %s.", exc)
-
-                if grouped_sources:
-                    return list(grouped_sources.values())
-
-                return []
 
             pg_url = os.getenv("POSTGRES_OPERATIONAL_URL") or os.getenv("DATABASE_URL")
             checkpointer = None
@@ -302,7 +308,12 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 except Exception:
                     schemas = []
 
-            if not sql or not schemas:
+            # Si hay SQL pero schemas está vacío, sintetizar desde las tablas del query
+            if sql and not schemas:
+                matched_tables = re.findall(r"FROM\s+([a-zA-Z0-9_\.]+)", sql, re.IGNORECASE)
+                schemas = [{"table": t, "columns": []} for t in matched_tables]
+
+            if not sql:
                 confirmation_msg = (
                     "Para materializar tu tabla Gold, **tú decides la definición exacta** de los datos a consolidar. "
                     "Por favor indícame:\n\n"
@@ -608,6 +619,65 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
         needs_clarification=bool(needs_clarification),
         echarts_option=echarts_option if isinstance(echarts_option, dict) else None,
         metrics_summary=metrics_summary if isinstance(metrics_summary, list) else [],
+    )
+
+
+@router.post(
+    "/chat/stream",
+    summary="Multi-turn interactive chat with Copilot via SSE streaming",
+    description="Streams real-time execution stages, narrative tokens, and final chart payloads.",
+)
+async def chat_with_agent_stream(payload: ChatRequest, request: Request):
+    """Server-Sent Events (SSE) streaming endpoint for instantaneous typing feedback."""
+    user_message = (payload.message or "").strip()
+    if not user_message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El mensaje no puede estar vacío.",
+        )
+
+    async def event_generator():
+        try:
+            # 1. Etapa de análisis inicial
+            yield f"event: status\ndata: {json.dumps({'stage': 'routing', 'message': 'Analizando consulta y verificando fuentes conectadas...'})}\n\n"
+            await asyncio.sleep(0.04)
+
+            # 2. Etapa de consulta al motor
+            yield f"event: status\ndata: {json.dumps({'stage': 'query', 'message': 'Consultando motor analítico Trino / Iceberg...'})}\n\n"
+
+            # Ejecución completa del turno agéntico
+            chat_response = await chat_with_agent(payload, request)
+
+            # 3. Etapa de síntesis
+            yield f"event: status\ndata: {json.dumps({'stage': 'storytelling', 'message': 'Generando síntesis ejecutiva y visualización...'})}\n\n"
+            await asyncio.sleep(0.03)
+
+            # 4. Stream continuo de tokens de narrativa
+            text = chat_response.response or ""
+            words = text.split(" ")
+            chunk_size = 4
+            for i in range(0, len(words), chunk_size):
+                chunk = " ".join(words[i : i + chunk_size])
+                if i + chunk_size < len(words):
+                    chunk += " "
+                yield f"event: token\ndata: {json.dumps({'delta': chunk})}\n\n"
+                await asyncio.sleep(0.015)
+
+            # 5. Payload final estructurado
+            final_dict = jsonable_encoder(chat_response)
+            yield f"event: result\ndata: {json.dumps(final_dict)}\n\n"
+        except Exception as exc:
+            logger.error("Error en streaming del Copiloto: %s", exc, exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

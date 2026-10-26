@@ -970,13 +970,18 @@ export const PipelineCanvasInner: React.FC<PipelineCanvasProps> = ({
                   };
                 }
                 if (n.id === 'gold_marts') {
+                  const hasGold = (res.gold_records_generated ?? 0) > 0;
                   return {
                     ...n,
                     data: {
                       ...n.data,
-                      status: 'HEALTHY',
-                      recordsIn: res.records_cleaned,
-                      recordsOut: res.gold_records_generated,
+                      status: hasGold ? 'HEALTHY' : 'STANDBY',
+                      label: hasGold ? 'Gold Marts (Materializado)' : 'Gold Marts (Por Definir)',
+                      recordsIn: hasGold ? res.records_cleaned : 0,
+                      recordsOut: hasGold ? res.gold_records_generated : 0,
+                      description: hasGold
+                        ? 'Capa Gold materializada y certificada en catálogo Iceberg.'
+                        : 'Marts y vistas analíticas personalizables. Interactúa con el Copiloto para crear tu capa Gold.',
                     },
                   };
                 }
