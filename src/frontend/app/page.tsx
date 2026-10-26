@@ -493,6 +493,7 @@ function MidasConsoleWorkspace() {
                 <SessionAnalyticsView
                   sessionId={activeSessionId || 'default'}
                   activeNodes={currentNodes}
+                  onRefreshTopology={refreshActiveSession}
                 />
               ) : (
                 <PipelineCanvas

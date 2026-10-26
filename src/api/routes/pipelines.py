@@ -542,6 +542,33 @@ async def trigger_pipeline(
             else "Pipeline procesado de extremo a extremo (Bronze -> Silver -> Gold)."
         )
 
+        # Sincronizar automáticamente topology_state en PostgreSQL para las sesiones vinculadas
+        try:
+            from src.core.session.store import get_session_store
+            s_store = get_session_store()
+            sessions = s_store.list_sessions(limit=50)
+            for sess in sessions:
+                meta = sess.metadata if hasattr(sess, "metadata") else {}
+                if isinstance(meta, dict) and meta.get("connection_id") == connection_id:
+                    top = sess.topology_state if hasattr(sess, "topology_state") else {}
+                    if isinstance(top, dict) and "nodes" in top:
+                        updated_nodes = []
+                        for n in top.get("nodes", []):
+                            n_data = n.get("data", {})
+                            if n.get("id") == "bronze_raw" or n_data.get("nodeType") == "source":
+                                n_data["recordsIn"] = records_ingested_count
+                                n_data["recordsOut"] = records_ingested_count
+                                n_data["status"] = "HEALTHY"
+                            elif n.get("id") == "silver_cleansing":
+                                n_data["recordsIn"] = records_ingested_count
+                                n_data["recordsOut"] = records_cleaned_count
+                                n_data["status"] = "HEALTHY" if records_quarantined_count == 0 else "DEGRADED"
+                            updated_nodes.append(n)
+                        top["nodes"] = updated_nodes
+                        s_store.update_topology(sess.session_id, top)
+        except Exception as sess_sync_err:
+            logger.debug("Error sincronizando topología de sesión tras pipeline: %s", sess_sync_err)
+
         return PipelineTriggerResponse(
             run_id=run_id,
             connection_id=connection_id,

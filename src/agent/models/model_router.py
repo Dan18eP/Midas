@@ -98,11 +98,31 @@ def _sanitize_echarts_option(
                 label["rotate"] = 45
                 label["fontSize"] = 9
 
-    # Asegurar márgenes y no recorte de etiquetas en el eje X
+        # Evitar barras gigantes aplastadas cuando hay 1 o 2 elementos
+        data = s.get("data")
+        if isinstance(data, list) and len(data) <= 2:
+            s["barMaxWidth"] = 64
+
+    # Asegurar márgenes y no recorte de etiquetas en los ejes
     if "grid" not in option or not isinstance(option.get("grid"), dict):
-        option["grid"] = {"left": "4%", "right": "4%", "bottom": "25%", "containLabel": True}
+        option["grid"] = {"left": "10%", "right": "6%", "bottom": "35%", "top": "15%", "containLabel": True}
     else:
         option["grid"]["containLabel"] = True
+        if "bottom" not in option["grid"] or option["grid"]["bottom"] == "25%":
+            option["grid"]["bottom"] = "35%"
+
+    # Saneamiento del eje Y para evitar colisión de números cuando los valores están cercanos
+    y_axis = option.get("yAxis")
+    if isinstance(y_axis, dict):
+        y_axis["splitNumber"] = 4
+        if y_axis.get("min") is None:
+            y_axis["min"] = 0
+    elif isinstance(y_axis, list):
+        for y_item in y_axis:
+            if isinstance(y_item, dict):
+                y_item["splitNumber"] = 4
+                if y_item.get("min") is None:
+                    y_item["min"] = 0
 
     return option
 
@@ -171,7 +191,7 @@ class ModelRouter:
                 logger.warning("Fallo en Ollama local Qwen: %s. Empleando fallback determinístico de catálogo...", exc)
                 return deterministic_sql(question, catalog)
 
-        # Modo Cloud o Auto con API Key
+        # Modo Cloud o Auto con API Key: Usar Gemini exclusivamente (gemini-3.8-flash / 3.1-flash-lite)
         if mode in ("cloud", "gemini") or (mode == "auto" and self._api_key):
             if self._api_key:
                 try:
@@ -179,9 +199,10 @@ class ModelRouter:
                     candidate = _clean_sql_output(candidate)
                     return validate_query(candidate, catalog)
                 except Exception as exc:
-                    logger.warning("Fallo al generar SQL con Gemini Cloud: %s. Intentando respaldo local...", exc)
+                    logger.warning("Fallo al generar SQL con Gemini Cloud: %s. Empleando motor determinístico de catálogo...", exc)
+                    return deterministic_sql(question, catalog)
 
-        # Fallback a Ollama y determinístico
+        # Fallback a Ollama y determinístico únicamente en modo local explícito
         try:
             candidate = self._call_ollama(system_prompt, question)
             candidate = _clean_sql_output(candidate)
@@ -217,7 +238,7 @@ class ModelRouter:
         )
         mode = (inference_mode or "auto").lower()
 
-        # Try Cloud (Gemini) if configured
+        # Try Cloud (Gemini) if configured (gemini-3.8-flash principal)
         if (mode in ("cloud", "gemini") or mode == "auto") and self._api_key:
             try:
                 raw = self._call_gemini_raw(f"{system_prompt}\n\n{prompt}")
@@ -228,17 +249,20 @@ class ModelRouter:
                     return parsed
             except Exception as exc:
                 logger.warning("Fallo en generación de storytelling con Gemini: %s", exc)
+            if mode in ("cloud", "gemini"):
+                return {}
 
-        # Try Local (Ollama)
-        try:
-            raw = self._call_ollama(system_prompt, prompt)
-            parsed = self._extract_json(raw)
-            if parsed and isinstance(parsed.get("narrative"), str):
-                if isinstance(parsed.get("echarts_option"), dict):
-                    parsed["echarts_option"] = _sanitize_echarts_option(parsed["echarts_option"], sample_rows)
-                return parsed
-        except Exception as exc:
-            logger.debug("Ollama storytelling no disponible: %s", exc)
+        # Try Local (Ollama) solo si está en modo local o sin API key de Gemini
+        if mode in ("local", "zero-trust", "confidential") or not self._api_key:
+            try:
+                raw = self._call_ollama(system_prompt, prompt)
+                parsed = self._extract_json(raw)
+                if parsed and isinstance(parsed.get("narrative"), str):
+                    if isinstance(parsed.get("echarts_option"), dict):
+                        parsed["echarts_option"] = _sanitize_echarts_option(parsed["echarts_option"], sample_rows)
+                    return parsed
+            except Exception as exc:
+                logger.debug("Ollama storytelling no disponible: %s", exc)
 
         return {}
 
@@ -271,42 +295,52 @@ class ModelRouter:
         return self._call_gemini_raw(prompt)
 
     def _call_gemini_raw(self, prompt: str) -> str:
+        import concurrent.futures
         import time
         from google import genai
+
         client = genai.Client(api_key=self._api_key)
+        # Priorizar self._gemini_model (gemini-3.8-flash por defecto o el especificado), seguido de 3.1-flash-lite
         candidates = [
             self._gemini_model,
             "gemini-3.8-flash",
-            "gemini-3.8-flash-lite",
-            "gemini-3.7-flash",
             "gemini-3.1-flash-lite",
-            "gemini-3.1-flash-lite-preview",
-            "gemini-3.5-flash-lite",
-            "gemini-flash-lite-latest",
-            "gemini-2.5-flash-lite",
-            "gemini-flash-latest",
             "gemini-2.5-flash",
-            "gemini-2.0-flash",
             "gemini-1.5-flash",
         ]
         seen: set[str] = set()
         unique_candidates = [c for c in candidates if c and not (c in seen or seen.add(c))]
         last_err: Exception | None = None
-        for mod in unique_candidates:
-            for attempt in range(2):
-                try:
-                    resp = client.models.generate_content(
-                        model=mod,
-                        contents=prompt,
-                    )
-                    if resp.text and resp.text.strip():
-                        return resp.text.strip()
-                except Exception as exc:
-                    last_err = exc
-                    if "503" in str(exc) or "UNAVAILABLE" in str(exc):
-                        time.sleep(0.8)
-                        continue
-                    break
+
+        def _invoke(model_name: str) -> str | None:
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            if resp.text and resp.text.strip():
+                return resp.text.strip()
+            return None
+
+        for mod in unique_candidates[:3]:  # Limitar a máximo 3 candidatos activos para fail-fast
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_invoke, mod)
+                    result = future.result(timeout=5.0)
+                    if result:
+                        return result
+            except concurrent.futures.TimeoutError:
+                last_err = TimeoutError(f"Timeout (5.0s) contactando Gemini modelo {mod}")
+                logger.warning("Timeout excedido en Gemini (%s), probando siguiente modelo de respaldo...", mod)
+                continue
+            except Exception as exc:
+                last_err = exc
+                err_str = str(exc)
+                if "503" in err_str or "UNAVAILABLE" in err_str or "404" in err_str:
+                    logger.warning("Gemini modelo %s no disponible (%s). Probando siguiente...", mod, err_str[:120])
+                    time.sleep(0.3)
+                    continue
+                break
+
         if last_err is not None:
             raise last_err
         raise ValueError("Gemini devolvió una respuesta vacía.")
@@ -450,7 +484,18 @@ def deterministic_sql(
                 pass
 
         # Determinar límite
-        if any(w in normalized_question for w in ("qué producto", "que producto", "cuál producto", "cual producto", "mayor valor", "menor valor")) and not re.search(r"\b(?:top\s*)?\d+\b", normalized_question):
+        is_singular_entity = any(
+            w in normalized_question
+            for w in (
+                "qué producto", "que producto", "cuál producto", "cual producto",
+                "producto con mayor", "producto con mas", "producto con más",
+                "producto con menor", "producto con menos",
+                "articulo con mayor", "artículo con mayor",
+                "mayor valor", "menor valor", "mayor stock", "menor stock"
+            )
+        ) and not re.search(r"\b(?:top\s*)?\d+\b", normalized_question)
+
+        if is_singular_entity:
             limit_val = 1
         else:
             top_match = re.search(r"\b(?:top\s*)?(\d+)\b", normalized_question)
@@ -499,8 +544,37 @@ def deterministic_sql(
                 num_c = next((c for c in columns if any(k in c.lower() for k in ("data_value", "monto", "total", "valor", "magnitude"))), None)
 
             if num_c:
-                y_sql = f"SELECT {year_expr} AS anio, SUM(TRY_CAST({num_c} AS DOUBLE)) AS total_ventas FROM {table_name} GROUP BY {year_expr} ORDER BY 2 {order_dir} LIMIT 10"
+                series_col = next((c for c in columns if "series_title_1" in c.lower() or "variable" in c.lower()), None)
+                where_clause = f" WHERE {series_col} LIKE '%Sales%'" if (series_col and ("venta" in normalized_question or "sales" in normalized_question)) else ""
+                y_sql = f"SELECT {year_expr} AS anio, SUM(TRY_CAST({num_c} AS DOUBLE)) AS total_ventas FROM {table_name}{where_clause} GROUP BY {year_expr} ORDER BY 2 {order_dir} LIMIT 10"
                 return validate_query(y_sql, catalog)
+
+    # 6.b Detectar consultas sobre periodos ("cuál fue el periodo con venta más baja", "periodo con mayor venta")
+    is_period_request = any(
+        w in normalized_question
+        for w in ("periodo", "periodos", "trimestre", "trimestres", "quarter")
+    )
+    if is_period_request:
+        period_col = next(
+            (c for c in columns if any(k in c.lower() for k in ("period", "fecha", "trimestre"))),
+            None,
+        )
+        num_c = next(
+            (c for c in columns if any(k in c.lower() for k in ("data_value", "total_ventas", "monto", "total", "valor"))),
+            None,
+        )
+        if period_col and num_c:
+            year_match = re.search(r"\b((?:19|20)\d{2})\b", normalized_question)
+            where_parts = []
+            if year_match:
+                where_parts.append(f"{period_col} LIKE '{year_match.group(1)}%'")
+            series_col = next((c for c in columns if "series_title_1" in c.lower() or "variable" in c.lower()), None)
+            if series_col and ("venta" in normalized_question or "sales" in normalized_question):
+                where_parts.append(f"{series_col} LIKE '%Sales%'")
+            where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
+            p_limit = 1 if any(w in normalized_question for w in ("mas baja", "más baja", "mas alta", "más alta", "mayor", "menor", "peor", "mejor", "cuál", "cual")) and not re.search(r"\b(?:top\s*)?\d+\b", normalized_question) else 10
+            p_sql = f"SELECT {period_col}, SUM(TRY_CAST({num_c} AS DOUBLE)) AS total_ventas FROM {table_name}{where_sql} GROUP BY {period_col} ORDER BY total_ventas {order_dir} LIMIT {p_limit}"
+            return validate_query(p_sql, catalog)
 
     # 7. Detectar si hay intención de agrupación (" por ")
     group_col = None

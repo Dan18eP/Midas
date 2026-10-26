@@ -51,10 +51,7 @@ export function createDynamicWelcomeMessage(connectedSources?: Array<{ name: str
   };
 }
 
-const PHASE_TIMERS = [
-  { at: 900, status: 'querying' as CopilotAgentStatus },
-  { at: 2400, status: 'visualizing' as CopilotAgentStatus },
-];
+const PHASE_TIMERS: { at: number; status: CopilotAgentStatus }[] = [];
 
 let messageCounter = 0;
 

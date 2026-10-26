@@ -86,8 +86,20 @@ function ensureGridAndTooltip(option: EChartsOption): void {
   const series = seriesList(option);
   if (series.length === 0) return;
 
-  if (option.grid === undefined) {
-    option.grid = { left: 16, right: 24, top: 56, bottom: 16, containLabel: true };
+  const existingGrid = (option.grid as Record<string, unknown> | undefined) ?? {};
+  option.grid = {
+    left: 20,
+    right: 24,
+    top: 50,
+    bottom: 52,
+    containLabel: true,
+    ...existingGrid,
+  };
+  // Asegurar que containLabel esté activo y margen inferior sea suficiente para etiquetas diagonales
+  const g = option.grid as Record<string, unknown>;
+  g.containLabel = true;
+  if (g.bottom === '25%' || g.bottom === 16 || g.bottom === undefined) {
+    g.bottom = 52;
   }
 
   const isHeatmap = series.some((item) => item.type === 'heatmap');
@@ -132,9 +144,23 @@ function ensureDarkTheme(option: EChartsOption): void {
   });
 
   asArray(option.yAxis as Record<string, unknown> | Record<string, unknown>[] | undefined).forEach((axis) => {
-    axis.axisLabel = { color: AXIS_TEXT, ...(axis.axisLabel as object) };
+    if (axis.type === 'value' || !axis.type) {
+      if (axis.min === undefined) axis.min = 0;
+      if (axis.splitNumber === undefined) axis.splitNumber = 4;
+    }
+    axis.axisLabel = { color: AXIS_TEXT, margin: 8, ...(axis.axisLabel as object) };
     axis.axisLine = { lineStyle: { color: SPLIT_LINE }, ...(axis.axisLine as object) };
     axis.splitLine = { lineStyle: { color: SPLIT_LINE }, ...(axis.splitLine as object) };
+  });
+
+  // Limitar ancho máximo en series de barra para evitar que una barra solitaria aplastada ocupe todo el gráfico
+  seriesList(option).forEach((s) => {
+    if (s.type === 'bar') {
+      const data = s.data as unknown[] | undefined;
+      if (Array.isArray(data) && data.length <= 2 && s.barMaxWidth === undefined) {
+        s.barMaxWidth = 64;
+      }
+    }
   });
 }
 

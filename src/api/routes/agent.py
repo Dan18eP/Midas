@@ -429,12 +429,16 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 q_lower = q_sql.lower()
                 if "period" in q_lower:
                     report_slug = "fct_top_sales_periods"
+                elif any(k in q_lower for k in ("price", "precio", "caro", "cost")):
+                    report_slug = "gold_top_productos_precio"
+                elif any(k in q_lower for k in ("stock", "cantidad", "inventory")):
+                    report_slug = "gold_top_productos_stock"
                 elif any(k in q_lower for k in ("group", "subject", "industry")):
                     report_slug = "fct_industry_financial_summary"
                 elif any(k in q_lower for k in ("country", "city", "ciudad", "cliente")):
                     report_slug = "dim_clientes_distribucion"
                 else:
-                    report_slug = f"gold_marts_report_{idx+1}"
+                    report_slug = f"gold_mart_{thread_id[:6]}_{idx+1}"
 
                 # Limpiar LIMIT del query CTAS para capturar todos los datos analíticos
                 clean_ctas_query = re.sub(r"\s+LIMIT\s+\d+", "", q_sql, flags=re.IGNORECASE)
@@ -450,6 +454,26 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 else:
                     spec_uri = publish_pipeline_spec(spec, confirmed=True)
 
+                # Ejecutar consulta analítica para obtener y persistir registros reales de inmediato
+                query_result = tc.execute_query_sync(q_sql)
+                if not (query_result and query_result.data):
+                    query_result = tc.execute_query_sync(clean_ctas_query)
+
+                from src.lakehouse.storage.minio_client import MidasMinioClient
+                minio_cli = MidasMinioClient()
+                if minio_cli.check_health() and query_result and query_result.data:
+                    minio_cli.ensure_canonical_buckets()
+                    json_bytes = json.dumps(query_result.data, ensure_ascii=False, default=str).encode("utf-8")
+                    minio_cli.put_object("midas-gold", f"gold/{report_slug}.json", json_bytes, content_type="application/json")
+                    try:
+                        import pandas as pd, io
+                        df_gold = pd.DataFrame(query_result.data)
+                        buf = io.BytesIO()
+                        df_gold.to_parquet(buf, index=False)
+                        minio_cli.put_object("midas-gold", f"gold/{report_slug}.parquet", buf.getvalue(), content_type="application/octet-stream")
+                    except Exception:
+                        pass
+
                 # Ejecución CTAS real en Trino Iceberg
                 tbl_name = spec.output_table if spec.output_table.startswith("iceberg.") else f"iceberg.{spec.output_table}"
                 try:
@@ -457,14 +481,14 @@ async def chat_with_agent(payload: ChatRequest, request: Request) -> ChatRespons
                 except Exception as ctas_err:
                     logger.debug("Creacion inmediata en Trino %s diferida: %s", tbl_name, ctas_err)
 
-                # Inspeccionar filas generadas reales
-                rec_count = 0
-                try:
-                    count_res = tc.execute_query_sync(f"SELECT COUNT(*) FROM {spec.output_table}")
-                    if count_res and count_res.data:
-                        rec_count = list(count_res.data[0].values())[0] or 0
-                except Exception:
-                    rec_count = 0
+                rec_count = len(query_result.data) if (query_result and query_result.data) else 0
+                if rec_count == 0:
+                    try:
+                        count_res = tc.execute_query_sync(f"SELECT COUNT(*) FROM {spec.output_table}")
+                        if count_res and count_res.data:
+                            rec_count = list(count_res.data[0].values())[0] or 0
+                    except Exception:
+                        rec_count = 0
 
                 total_records_count += rec_count
                 latest_table_name = spec.output_table
